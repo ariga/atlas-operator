@@ -17,25 +17,37 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // AtlasSchemaSpec defines the desired state of AtlasSchema
 type AtlasSchemaSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// URL of the target database schema.
+	URL string `json:"url,omitempty"`
 
-	// Foo is an example field of AtlasSchema. Edit atlasschema_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// URLs may be defined as a secret key reference.
+	URLFrom URLFrom `json:"urlFrom,omitempty"`
+
+	// Desired Schema of the target.
+	Schema Schema `json:"schema,omitempty"`
+}
+
+// URLFrom defines a reference to a secret key that contains the Atlas URL of the
+// target database schema.
+type URLFrom struct {
+	// SecretKeyRef references to the key of a secret in the same namespace.
+	SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+}
+
+// Schema defines the desired state of the target database schema in plain SQL or HCL.
+type Schema struct {
+	SQL string `json:"sql,omitempty"`
+	HCL string `json:"hcl,omitempty"`
 }
 
 // AtlasSchemaStatus defines the observed state of AtlasSchema
 type AtlasSchemaStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true
