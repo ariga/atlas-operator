@@ -1,0 +1,13 @@
+apiVersion: skaffold/v3
+kind: Config
+metadata:
+  name: atlas-operator
+build:
+  artifacts:
+  - image: controller
+    docker:
+      dockerfile: Dockerfile
+manifests:
+  kustomize:
+    paths:
+    - config/default
