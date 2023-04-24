@@ -5,6 +5,7 @@ go 1.19
 require (
 	ariga.io/atlas v0.10.2-0.20230423084120-30a2c72536f8
 	github.com/stretchr/testify v1.8.2
+	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
 	k8s.io/client-go v0.26.0
@@ -55,7 +56,6 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.24.0 // indirect
-	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb // indirect
 	golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10 // indirect
 	golang.org/x/oauth2 v0.0.0-20220223155221-ee480838109b // indirect
 	golang.org/x/sys v0.5.0 // indirect
