@@ -31,7 +31,7 @@ func TestReconcile(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, mock.created.Name, "my-atlas-schema-dev-db")
+	require.EqualValues(t, mock.created.Name, "my-atlas-schema"+devDBSuffix)
 	require.EqualValues(t, mock.created.Spec.Template.Spec.Containers[0].Image, "mysql:8")
 }
 

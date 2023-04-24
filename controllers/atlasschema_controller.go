@@ -18,25 +18,28 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/internal/atlas"
+	"golang.org/x/exp/slices"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+)
 
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+const (
+	devDBSuffix = "-atlas-dev-db"
 )
 
 // AtlasSchemaReconciler reconciles a AtlasSchema object
@@ -59,7 +62,6 @@ type AtlasSchemaReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
 	sc := &dbv1alpha1.AtlasSchema{}
 	if err := r.Get(ctx, req.NamespacedName, sc); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -74,7 +76,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	// make sure we have a dev db running
 	devDB := &v1.Deployment{}
-	err = r.Get(ctx, types.NamespacedName{Name: req.Name + "-dev-db", Namespace: req.Namespace}, devDB)
+	err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
 	if apierrors.IsNotFound(err) {
 		devDB, err = r.devDBDeployment(ctx, sc, drv)
 		if err != nil {
@@ -87,11 +89,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	devURL, err := r.devURL(ctx, req.Name, drv, u.Path != "")
+	_, err = r.devURL(ctx, req.Name, drv, u.Path != "")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("dev db address", "url", devURL)
 	return ctrl.Result{}, nil
 }
 
@@ -123,7 +124,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	ls := labelsForDevDB(sc.Name, driver)
 	d := &v1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sc.Name + "-dev-db",
+			Name:      sc.Name + devDBSuffix,
 			Namespace: sc.Namespace,
 		},
 		Spec: v1.DeploymentSpec{
@@ -233,18 +234,14 @@ func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string,
 	if len(pods.Items) == 0 {
 		return "", errors.New("no pods found")
 	}
-	// iterate through the pods and find the one that is running
-	var pod *corev1.Pod
-	for _, p := range pods.Items {
-		if p.Status.Phase == corev1.PodRunning {
-			pod = &p
-			break
-		}
+
+	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
+		return p.Status.Phase == corev1.PodRunning
+	})
+	if idx != -1 {
+		return "", errors.New("no running pods found")
 	}
-	if pod == nil {
-		return "", fmt.Errorf("no running pods found")
-	}
-	log.FromContext(ctx).Info("found running pod", "pod", pod)
+	pod := pods.Items[idx]
 	addr := &url.URL{
 		Scheme: driver,
 		User:   url.UserPassword("root", "pass"),

@@ -79,7 +79,7 @@ func (c *Client) Apply(ctx context.Context, data *ApplyParams) (*ApplyReport, er
 		return nil, err
 	}
 	args := []string{
-		"migrate", "apply", 
+		"migrate", "apply",
 		"--log", "{{ json . }}",
 		"--url", data.URL,
 		"--dir", fmt.Sprintf("file://%s", dir),
@@ -103,6 +103,7 @@ func (c *Client) Apply(ctx context.Context, data *ApplyParams) (*ApplyReport, er
 	return &report, nil
 }
 
+// SchemaApply runs the 'schema apply' command.
 func (c *Client) SchemaApply(ctx context.Context, data *SchemaApplyParams) (*SchemaApply, error) {
 	args := []string{
 		"schema", "apply",
@@ -131,6 +132,7 @@ func (c *Client) SchemaApply(ctx context.Context, data *SchemaApplyParams) (*Sch
 	return &result, nil
 }
 
+// SchemaInspect runs the 'schema inspect' command.
 func (c *Client) SchemaInspect(ctx context.Context, data *SchemaInspectParams) (string, error) {
 	args := []string{
 		"schema", "inspect",
