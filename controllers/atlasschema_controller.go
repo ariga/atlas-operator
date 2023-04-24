@@ -70,13 +70,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	drv := driver(u.Scheme)
 	if drv == "" {
-		err := fmt.Errorf("driver not found for scheme %q", u.Scheme)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("driver not found for scheme %q", u.Scheme)
 	}
 	// make sure we have a dev db running
 	devDB := &v1.Deployment{}
 	err = r.Get(ctx, types.NamespacedName{Name: req.Name + "-dev-db", Namespace: req.Namespace}, devDB)
-	if err != nil && apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		devDB, err = r.devDBDeployment(ctx, sc, drv)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -90,7 +89,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	devURL, err := r.devURL(ctx, req.Name, drv, u.Path != "")
 	if err != nil {
-		log.Error(err, "failed to get dev db address")
 		return ctrl.Result{}, err
 	}
 	log.Info("dev db address", "url", devURL)
@@ -116,7 +114,7 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 		}
 		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
 	default:
-		return nil, fmt.Errorf("no url specified")
+		return nil, errors.New("no url specified")
 	}
 	return url.Parse(us)
 }
@@ -229,12 +227,11 @@ func labelsForDevDB(name, driver string) map[string]string {
 
 func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string, schemaScope bool) (string, error) {
 	pods := &corev1.PodList{}
-	if err := r.List(
-		ctx, pods, client.MatchingLabels(labelsForDevDB(name, driver))); err != nil {
+	if err := r.List(ctx, pods, client.MatchingLabels(labelsForDevDB(name, driver))); err != nil {
 		return "", err
 	}
 	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("no pods found")
+		return "", errors.New("no pods found")
 	}
 	// iterate through the pods and find the one that is running
 	var pod *corev1.Pod

@@ -72,14 +72,15 @@ func NewClientWithPath(path string) *Client {
 	return &Client{path: path}
 }
 
-// Apply runs the `migrate apply` command.
+// Apply runs the 'migrate apply' command.
 func (c *Client) Apply(ctx context.Context, data *ApplyParams) (*ApplyReport, error) {
 	dir, err := filepath.Abs(data.DirURL)
 	if err != nil {
 		return nil, err
 	}
 	args := []string{
-		"migrate", "apply", "--log", "{{ json . }}",
+		"migrate", "apply", 
+		"--log", "{{ json . }}",
 		"--url", data.URL,
 		"--dir", fmt.Sprintf("file://%s", dir),
 	}
@@ -150,7 +151,7 @@ func (c *Client) SchemaInspect(ctx context.Context, data *SchemaInspectParams) (
 	return c.runCommand(ctx, args, nil)
 }
 
-// Lint runs the `migrate lint` command.
+// Lint runs the 'migrate lint' command.
 func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, error) {
 	args := []string{
 		"migrate", "lint", "--log", "{{ json . }}",
@@ -167,7 +168,7 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 	return &report, nil
 }
 
-// Status runs the `migrate status` command.
+// Status runs the 'migrate status' command.
 func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport, error) {
 	dir, err := filepath.Abs(data.DirURL)
 	if err != nil {

@@ -14,7 +14,6 @@ type (
 		Version     string `json:"Version,omitempty"`
 		Description string `json:"Description,omitempty"`
 	}
-
 	// AppliedFile is part of an ApplyReport containing information about an applied file in a migration attempt.
 	AppliedFile struct {
 		File
@@ -27,7 +26,6 @@ type (
 			Error string // Error returned by the database.
 		}
 	}
-
 	// ApplyReport contains a summary of a migration applying attempt on a database.
 	ApplyReport struct {
 		Pending []File         `json:"Pending,omitempty"` // Pending migration files
@@ -40,7 +38,6 @@ type (
 		// but by Atlas, e.g. when committing or rolling back a transaction.
 		Error string `json:"Error,omitempty"`
 	}
-
 	// A Revision denotes an applied migration in a deployment. Used to track migration executions state of a database.
 	Revision struct {
 		Version         string        `json:"Version"`             // Version of the migration.
@@ -54,7 +51,6 @@ type (
 		ErrorStmt       string        `json:"ErrorStmt,omitempty"` // ErrorStmt is the statement that raised Error.
 		OperatorVersion string        `json:"OperatorVersion"`     // OperatorVersion that executed this migration.
 	}
-
 	// StatusReport contains a summary of the migration status of a database.
 	StatusReport struct {
 		Available []File      `json:"Available,omitempty"` // Available migration files
@@ -68,7 +64,6 @@ type (
 		Error     string      `json:"Error,omitempty"`     // Last Error that occurred
 		SQL       string      `json:"SQL,omitempty"`       // SQL that caused the last Error
 	}
-
 	// FileReport contains a summary of the analysis of a single file.
 	FileReport struct {
 		Name    string            `json:"Name,omitempty"`    // Name of the file.
@@ -76,7 +71,6 @@ type (
 		Reports []sqlcheck.Report `json:"Reports,omitempty"` // List of reports.
 		Error   string            `json:"Error,omitempty"`   // File specific error.
 	}
-
 	// A SummaryReport contains a summary of the analysis of all files.
 	// It is used as an input to templates to report the CI results.
 	SummaryReport struct {

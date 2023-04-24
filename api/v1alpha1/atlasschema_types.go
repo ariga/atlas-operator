@@ -25,10 +25,8 @@ import (
 type AtlasSchemaSpec struct {
 	// URL of the target database schema.
 	URL string `json:"url,omitempty"`
-
 	// URLs may be defined as a secret key reference.
 	URLFrom URLFrom `json:"urlFrom,omitempty"`
-
 	// Desired Schema of the target.
 	Schema Schema `json:"schema,omitempty"`
 }
