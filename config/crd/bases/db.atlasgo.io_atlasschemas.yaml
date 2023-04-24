@@ -35,10 +35,41 @@ spec:
           spec:
             description: AtlasSchemaSpec defines the desired state of AtlasSchema
             properties:
-              foo:
-                description: Foo is an example field of AtlasSchema. Edit atlasschema_types.go
-                  to remove/update
+              schema:
+                description: Desired Schema of the target.
+                properties:
+                  hcl:
+                    type: string
+                  sql:
+                    type: string
+                type: object
+              url:
+                description: URL of the target database schema.
                 type: string
+              urlFrom:
+                description: URLs may be defined as a secret key reference.
+                properties:
+                  secretKeyRef:
+                    description: SecretKeyRef references to the key of a secret in
+                      the same namespace.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?'
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
             type: object
           status:
             description: AtlasSchemaStatus defines the observed state of AtlasSchema

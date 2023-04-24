@@ -1,6 +1,8 @@
 name: Integration Tests
 on:
   push:
+    branches:
+      - master
   pull_request:
 jobs:
   test:
@@ -31,6 +33,9 @@ jobs:
             echo "$status"
             exit 1
           fi
+        shell: bash
+      - name: Run tests
+        run: go test ./... -race
         shell: bash
       - name: start minikube
         id: minikube
