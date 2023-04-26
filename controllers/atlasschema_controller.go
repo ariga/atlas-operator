@@ -110,7 +110,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	devURL, err := r.devURL(ctx, req.Name, drv, u.Path != "")
+	devURL, err := r.devURL(ctx, req.Name, drv)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -178,7 +178,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	return d, nil
 }
 
-func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string, schemaScope bool) (string, error) {
+func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string) (string, error) {
 	pods := &corev1.PodList{}
 	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
 		"app.kubernetes.io/instance": name + devDBSuffix,
@@ -235,7 +235,7 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, t
 		return err
 	}
 	defer clean()
-	app, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	_, err = r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		URL:    url,
 		To:     file,
 		DevURL: devURL,
