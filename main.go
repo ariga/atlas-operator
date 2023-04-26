@@ -20,6 +20,7 @@ import (
 	"flag"
 	"os"
 
+	"github.com/ariga/atlas-operator/internal/atlas"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -78,10 +79,20 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
+	cwd, err := os.Getwd()
+	if err != nil {
+		setupLog.Error(err, "unable to get current working directory")
+		os.Exit(1)
+	}
+	cli, err := atlas.NewClient(cwd, "atlas")
+	if err != nil {
+		setupLog.Error(err, "unable to create atlas client")
+		os.Exit(1)
+	}
 	if err = (&controllers.AtlasSchemaReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		CLI:    cli,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)

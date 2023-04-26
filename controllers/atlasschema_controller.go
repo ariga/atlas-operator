@@ -17,37 +17,59 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"text/template"
 	"time"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/controllers/internal/atlas"
+	"github.com/ariga/atlas-operator/internal/atlas"
 	"golang.org/x/exp/slices"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	devDBSuffix = "-atlas-dev-db"
+	hostReplace = "REPLACE_HOST"
 )
 
-// AtlasSchemaReconciler reconciles a AtlasSchema object
-type AtlasSchemaReconciler struct {
-	client.Client
-	CLI    *atlas.Client
-	Scheme *runtime.Scheme
-}
+var (
+	//go:embed devdb.tmpl
+	devDBTmpl string
+	tmpl      *template.Template
+)
+
+type (
+	// AtlasSchemaReconciler reconciles a AtlasSchema object
+	AtlasSchemaReconciler struct {
+		client.Client
+		CLI    *atlas.Client
+		Scheme *runtime.Scheme
+	}
+	// devDB contains values used to render a devDB pod template.
+	devDB struct {
+		Name        string
+		Namespace   string
+		SchemaBound bool
+		Driver      string
+		DB          string
+		Port        int
+		UID         int
+	}
+)
 
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas/status,verbs=get;update;patch
@@ -89,10 +111,16 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	_, err = r.devURL(ctx, req.Name, drv, u.Path != "")
+	devURL, err := r.devURL(ctx, req.Name, drv, u.Path != "")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	log := log.FromContext(ctx)
+	log.Info("dev db url", "url", devURL)
+	if err := r.apply(ctx, u.String(), devURL, sc); err != nil {
+		return ctrl.Result{RequeueAfter: time.Second * 5}, err
+	}
+	log.Info("applied schema")
 	return ctrl.Result{}, nil
 }
 
@@ -121,90 +149,30 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 }
 
 func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alpha1.AtlasSchema, driver string) (*v1.Deployment, error) {
-	ls := labelsForDevDB(sc.Name, driver)
-	d := &v1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sc.Name + devDBSuffix,
-			Namespace: sc.Namespace,
-		},
-		Spec: v1.DeploymentSpec{
-			Replicas: pointer.Int32(1),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls,
-				},
-				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: pointer.Bool(true),
-						RunAsUser:    pointer.Int64(1000),
-					},
-				},
-			},
-		},
+	d := &v1.Deployment{}
+	v := devDB{
+		Name:      sc.Name + devDBSuffix,
+		Namespace: sc.Namespace,
+		Driver:    driver,
+		UID:       1000,
 	}
-	container := corev1.Container{
-		ImagePullPolicy: corev1.PullIfNotPresent,
-		SecurityContext: &corev1.SecurityContext{
-			RunAsNonRoot:             pointer.Bool(true),
-			RunAsUser:                pointer.Int64(1000),
-			AllowPrivilegeEscalation: pointer.Bool(false),
-			Capabilities: &corev1.Capabilities{
-				Drop: []corev1.Capability{
-					"ALL",
-				},
-			},
-		},
+	switch driver {
+	case "postgres":
+		v.Port = 5432
+		v.UID = 999
+		v.DB = "postgres"
+	case "mysql":
+		v.Port = 3306
+		v.DB = "dev"
+		v.SchemaBound = true
 	}
-	switch {
-	case strings.HasPrefix(driver, "mysql"):
-		container.Name = "mysql"
-		container.Image = "mysql:8"
-		container.Env = []corev1.EnvVar{
-			{
-				Name:  "MYSQL_ROOT_PASSWORD",
-				Value: "pass",
-			},
-			{
-				Name:  "MYSQL_DATABASE",
-				Value: "dev",
-			},
-		}
-		container.Ports = []corev1.ContainerPort{
-			{
-				Name:          "mysql",
-				ContainerPort: 3306,
-			},
-		}
-	case strings.HasPrefix(driver, "postgres"):
-		container.Name = "postgres"
-		container.Image = "postgres:15"
-		container.Env = []corev1.EnvVar{
-			{
-				Name:  "POSTGRES_PASSWORD",
-				Value: "pass",
-			},
-			{
-				Name:  "POSTGRES_DB",
-				Value: "dev",
-			},
-			{
-				Name:  "POSTGRES_USER",
-				Value: "root",
-			},
-		}
-		container.Ports = []corev1.ContainerPort{
-			{
-				Name:          "postgres",
-				ContainerPort: 5432,
-			},
-		}
-	default:
-		return nil, fmt.Errorf("unsupported driver: %s", driver)
+	var b bytes.Buffer
+	if err := tmpl.Execute(&b, &v); err != nil {
+		return nil, err
 	}
-	d.Spec.Template.Spec.Containers = []corev1.Container{container}
+	if err := yaml.NewYAMLToJSONDecoder(&b).Decode(d); err != nil {
+		return nil, err
+	}
 	if err := ctrl.SetControllerReference(sc, d, r.Scheme); err != nil {
 		return nil, err
 	}
@@ -214,43 +182,33 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	return d, nil
 }
 
-// labelsForDevDB returns the labels for selecting the resources
-// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
-func labelsForDevDB(name, driver string) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       "atlas-dev-db",
-		"app.kubernetes.io/instance":   name,
-		"app.kubernetes.io/part-of":    "atlas-operator",
-		"app.kubernetes.io/created-by": "controller-manager",
-		"atlasgo.io/engine":            driver,
-	}
-}
-
 func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string, schemaScope bool) (string, error) {
 	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods, client.MatchingLabels(labelsForDevDB(name, driver))); err != nil {
+	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
+		"app.kubernetes.io/instance": name + devDBSuffix,
+		"atlasgo.io/engine":          driver,
+	})); err != nil {
 		return "", err
 	}
 	if len(pods.Items) == 0 {
 		return "", errors.New("no pods found")
 	}
-
 	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
 		return p.Status.Phase == corev1.PodRunning
 	})
-	if idx != -1 {
+	if idx == -1 {
 		return "", errors.New("no running pods found")
 	}
 	pod := pods.Items[idx]
-	addr := &url.URL{
-		Scheme: driver,
-		User:   url.UserPassword("root", "pass"),
-		Host:   fmt.Sprintf("%s:%d", pod.Status.PodIP, pod.Spec.Containers[0].Ports[0].ContainerPort),
+	ct, ok := pod.Annotations["atlasgo.io/conntmpl"]
+	if !ok {
+		return "", errors.New("no connection template label found")
 	}
-	if schemaScope {
-		addr.Path = "dev"
-	}
-	return addr.String(), nil
+	return strings.ReplaceAll(
+		ct,
+		hostReplace,
+		fmt.Sprintf("%s:%d", pod.Status.PodIP, pod.Spec.Containers[0].Ports[0].ContainerPort),
+	), nil
 }
 
 func driver(scheme string) string {
@@ -262,4 +220,55 @@ func driver(scheme string) string {
 	default:
 		return ""
 	}
+}
+
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, tgt *dbv1alpha1.AtlasSchema) error {
+	var desired, ext string
+	switch sch := tgt.Spec.Schema; {
+	case sch.HCL != "":
+		desired = sch.HCL
+		ext = "hcl"
+	case sch.SQL != "":
+		desired = sch.SQL
+		ext = "sql"
+	default:
+		return fmt.Errorf("no schema specified")
+	}
+	file, clean, err := atlas.TempFile(desired, ext)
+	if err != nil {
+		return err
+	}
+	defer clean()
+	app, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+		URL:    url,
+		To:     file,
+		DevURL: devURL,
+	})
+	if err != nil {
+		return err
+	}
+	log.FromContext(ctx).Info("applied schema", "result", app)
+	return nil
+}
+
+func init() {
+	var err error
+	tmpl, err = template.New("devdb").Parse(devDBTmpl)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (d *devDB) ConnTmpl() string {
+	u := url.URL{
+		Scheme: d.Driver,
+		User:   url.UserPassword("root", "pass"),
+		Host:   hostReplace,
+		Path:   d.DB,
+	}
+	if q := u.Query(); d.Driver == "postgres" {
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
 }

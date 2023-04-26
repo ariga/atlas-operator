@@ -73,6 +73,7 @@ spec:
         image: controller:latest
         name: manager
         securityContext:
+          runAsUser: 1000
           allowPrivilegeEscalation: false
           capabilities:
             drop:

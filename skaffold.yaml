@@ -11,3 +11,10 @@ manifests:
   kustomize:
     paths:
     - config/default
+profiles:
+- name: integration
+  manifests:
+    kustomize:
+      paths:
+        - config/default
+        - config/integration
