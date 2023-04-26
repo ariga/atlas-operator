@@ -38,7 +38,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -115,12 +114,9 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	log := log.FromContext(ctx)
-	log.Info("dev db url", "url", devURL)
 	if err := r.apply(ctx, u.String(), devURL, sc); err != nil {
 		return ctrl.Result{RequeueAfter: time.Second * 5}, err
 	}
-	log.Info("applied schema")
 	return ctrl.Result{}, nil
 }
 
@@ -247,7 +243,6 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, t
 	if err != nil {
 		return err
 	}
-	log.FromContext(ctx).Info("applied schema", "result", app)
 	return nil
 }
 
