@@ -48,7 +48,7 @@ const (
 var (
 	//go:embed devdb.tmpl
 	devDBTmpl string
-	tmpl      *template.Template
+	tmpl      = template.Must(template.New("devdb").Parse(devDBTmpl))
 )
 
 type (
@@ -244,14 +244,6 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, t
 		return err
 	}
 	return nil
-}
-
-func init() {
-	var err error
-	tmpl, err = template.New("devdb").Parse(devDBTmpl)
-	if err != nil {
-		panic(err)
-	}
 }
 
 func (d *devDB) ConnTmpl() string {
