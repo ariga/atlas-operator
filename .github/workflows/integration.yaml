@@ -48,5 +48,6 @@ jobs:
           sudo install skaffold /usr/local/bin/
       - name: Start environment
         run: |
+          make install # Install CRDs into the cluster
           skaffold run --wait-for-connection=true -p integration
 
