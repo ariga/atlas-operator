@@ -24,26 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-//
-//func TestReconcile(t *testing.T) {
-//	scheme := runtime.NewScheme()
-//	dbv1alpha1.AddToScheme(scheme)
-//	mock := newMockClient()
-//	r := AtlasSchemaReconciler{
-//		Client: mock,
-//		Scheme: scheme,
-//	}
-//	_, err := r.Reconcile(context.Background(), ctrl.Request{
-//		NamespacedName: client.ObjectKey{
-//			Name:      "my-atlas-schema",
-//			Namespace: "test",
-//		},
-//	})
-//	require.NoError(t, err)
-//	require.EqualValues(t, mock.created.Name, "my-atlas-schema"+devDBSuffix)
-//	require.EqualValues(t, mock.created.Spec.Template.Spec.Containers[0].Image, "mysql:8")
-//}
-
 func TestReconcile_NotFound(t *testing.T) {
 	tt := newTest(t)
 	resp, err := tt.r.Reconcile(context.Background(), req())
