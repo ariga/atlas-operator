@@ -345,7 +345,7 @@ func setReady(sc *dbv1alpha1.AtlasSchema, des *desired, apply *atlas.SchemaApply
 			Type:    schemaReadyCond,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Applied",
-			Message: "The schema has been applied successfully.",
+			Message: msg,
 		},
 	)
 	sc.Status.ObservedHash = des.hash()
