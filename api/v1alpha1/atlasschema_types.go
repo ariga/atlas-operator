@@ -46,6 +46,12 @@ type Schema struct {
 
 // AtlasSchemaStatus defines the observed state of AtlasSchema
 type AtlasSchemaStatus struct {
+	// Conditions represent the latest available observations of an object's state.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ObservedHash is the hash of the most recently applied schema.
+	ObservedHash string `json:"observed_hash"`
+	// LastApplied is the unix timestamp of the most recent successful schema apply operation.
+	LastApplied int64 `json:"last_applied"`
 }
 
 //+kubebuilder:object:root=true
