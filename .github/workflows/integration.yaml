@@ -48,5 +48,5 @@ jobs:
           sudo install skaffold /usr/local/bin/
       - name: Start environment
         run: |
-          skaffold run --wait-for-connection=true
+          skaffold run --wait-for-connection=true -p integration
 
