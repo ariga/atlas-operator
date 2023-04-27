@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -42,7 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	log2 "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -61,7 +62,7 @@ type (
 	// AtlasSchemaReconciler reconciles a AtlasSchema object
 	AtlasSchemaReconciler struct {
 		client.Client
-		CLI    *atlas.Client
+		CLI    Applier
 		Scheme *runtime.Scheme
 	}
 	// devDB contains values used to render a devDB pod template.
@@ -79,6 +80,9 @@ type (
 		ext    string
 		schema string
 	}
+	Applier interface {
+		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
+	}
 )
 
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas,verbs=get;list;watch;create;update;patch;delete
@@ -94,9 +98,9 @@ type (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log2.FromContext(ctx)
+	log := log.FromContext(ctx)
 	var (
-		sc  *dbv1alpha1.AtlasSchema
+		sc  = &dbv1alpha1.AtlasSchema{}
 		des *desired
 		err error
 	)
@@ -115,6 +119,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	des, err = extractDesired(sc)
 	if err != nil {
+		setNotReady(sc, "ReadSchema", err.Error())
 		return ctrl.Result{}, err
 	}
 	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
@@ -157,11 +162,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "GettingDevDBURL", err.Error())
 		return ctrl.Result{}, err
 	}
-	if err := r.apply(ctx, u.String(), devURL, des); err != nil {
+	app, err := r.apply(ctx, u.String(), devURL, des)
+	if err != nil {
 		setNotReady(sc, "ApplyingSchema", err.Error())
 		return ctrl.Result{RequeueAfter: time.Second * 5}, err
 	}
-	setReady(sc, des)
+	setReady(sc, des, app)
 	return ctrl.Result{}, nil
 }
 
@@ -263,21 +269,17 @@ func driver(scheme string) string {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, des *desired) error {
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, des *desired) (*atlas.SchemaApply, error) {
 	file, clean, err := atlas.TempFile(des.schema, des.ext)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer clean()
-	_, err = r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	return r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		URL:    url,
 		To:     file,
 		DevURL: devURL,
 	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (d *devDB) ConnTmpl() string {
@@ -329,12 +331,21 @@ func setNotReady(sc *dbv1alpha1.AtlasSchema, reason, msg string) {
 	)
 }
 
-func setReady(sc *dbv1alpha1.AtlasSchema, des *desired) {
+func setReady(sc *dbv1alpha1.AtlasSchema, des *desired, apply *atlas.SchemaApply) {
+	msg := "The schema has been applied successfully."
+	if j, err := json.Marshal(apply); err != nil {
+		msg = fmt.Sprintf("%s. Error marshalling apply response: %v", msg,
+			err)
+	} else {
+		msg = fmt.Sprintf("%s. The schema has been applied successfully. Apply response: %s", msg, j)
+	}
 	meta.SetStatusCondition(
 		&sc.Status.Conditions,
 		metav1.Condition{
-			Type:   schemaReadyCond,
-			Status: metav1.ConditionTrue,
+			Type:    schemaReadyCond,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Applied",
+			Message: "The schema has been applied successfully.",
 		},
 	)
 	sc.Status.ObservedHash = des.hash()
