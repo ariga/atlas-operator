@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -79,4 +81,23 @@ func (m *MockClient) Create(ctx context.Context, obj client.Object, opts ...clie
 		m.created = obj.(*appsv1.Deployment)
 	}
 	return nil
+}
+
+func TestTemplateSanity(t *testing.T) {
+	var b bytes.Buffer
+	v := &devDB{
+		Name:      "test",
+		Namespace: "default",
+	}
+	for _, tt := range []string{"mysql", "postgres"} {
+		t.Run(tt, func(t *testing.T) {
+			v.Driver = tt
+			err := tmpl.ExecuteTemplate(&b, "devdb", v)
+			require.NoError(t, err)
+			var d appsv1.Deployment
+			err = yaml.NewYAMLToJSONDecoder(&b).Decode(&d)
+			require.NoError(t, err)
+			b.Reset()
+		})
+	}
 }

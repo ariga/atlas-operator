@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+spec:
+  selector:
+    matchLabels:
+      "app.kubernetes.io/name": "atlas-dev-db"
+      "app.kubernetes.io/instance": "{{ .Name }}"
+      "app.kubernetes.io/part-of": "atlas-operator"
+      "app.kubernetes.io/created-by": "controller-manager"
+      "atlasgo.io/engine": "{{ .Driver }}"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        "app.kubernetes.io/name": "atlas-dev-db"
+        "app.kubernetes.io/instance": "{{ .Name }}"
+        "app.kubernetes.io/part-of": "atlas-operator"
+        "app.kubernetes.io/created-by": "controller-manager"
+        "atlasgo.io/engine": "{{ .Driver }}"
+      annotations:
+        "atlasgo.io/conntmpl": "{{ .ConnTmpl }}"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .UID }}
+      containers:
+        - name: {{ .Driver }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          {{- if eq .Driver "mysql" }}
+          image: mysql:8
+          env:
+          - name: MYSQL_ROOT_PASSWORD
+            value: pass
+          {{- if .SchemaBound }}
+          - name: MYSQL_DATABASE
+            value: {{ .DB }}
+          {{- end }}
+          {{- else if eq .Driver "postgres" }}
+          image: postgres:15
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          {{- end }}
+          ports:
+          - containerPort: {{ .Port }}
+            name: {{ .Driver }}
+
