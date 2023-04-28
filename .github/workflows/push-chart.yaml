@@ -1,0 +1,29 @@
+name: Push Helm
+on:
+  push:
+    branches:
+      - master
+      - helm
+  workflow_dispatch:
+jobs:
+  helm-push:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: charts/
+    steps:
+      - uses: actions/checkout@v3
+      - uses: azure/setup-helm@v1
+      - name: get version
+        id: version
+        run: |
+          CHART_VERSION=$(helm show chart nebula | grep '^version' | awk '{print $2}')
+          echo "::set-output name=CHART_VERSION::$CHART_VERSION"
+      - name: helm package
+        run: helm package atlas-operator
+      - name: login to gcr using helm
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io/ariga/atlas-operator --username ${{ github.repository_owner }} --password-stdin
+      - name: helm push
+        run: |
+          helm push atlas-operator-${{ steps.version.outputs.CHART_VERSION }}.tgz oci://ghcr.io/ariga/charts
