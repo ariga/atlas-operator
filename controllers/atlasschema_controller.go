@@ -336,7 +336,7 @@ func setReady(sc *dbv1alpha1.AtlasSchema, des *desired, apply *atlas.SchemaApply
 	if j, err := json.Marshal(apply); err != nil {
 		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
 	} else {
-		msg = fmt.Sprintf("%s. The d. Apply response: %s", msg, j)
+		msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
 	}
 	meta.SetStatusCondition(
 		&sc.Status.Conditions,
