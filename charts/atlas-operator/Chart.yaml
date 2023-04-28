@@ -1,0 +1,6 @@
+apiVersion: v2
+name: atlas-operator
+description: The Atlas Kubernetes Operator
+type: application
+version: 0.1.0
+appVersion: "latest"
