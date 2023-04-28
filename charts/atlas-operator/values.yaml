@@ -9,6 +9,9 @@ image:
   pullPolicy: IfNotPresent
   tag: ""
 
+rbac:
+  create: true
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
@@ -20,9 +23,15 @@ serviceAccount:
 
 podAnnotations: {}
 
-podSecurityContext: {}
+podSecurityContext:
+  runAsNonRoot: true
 
-securityContext: {}
+securityContext:
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
 
 service:
   type: ClusterIP

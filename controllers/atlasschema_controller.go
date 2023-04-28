@@ -49,7 +49,7 @@ import (
 const (
 	devDBSuffix     = "-atlas-dev-db"
 	hostReplace     = "REPLACE_HOST"
-	schemaReadyCond = "SchemaReady"
+	schemaReadyCond = "Ready"
 )
 
 var (
@@ -332,12 +332,11 @@ func setNotReady(sc *dbv1alpha1.AtlasSchema, reason, msg string) {
 }
 
 func setReady(sc *dbv1alpha1.AtlasSchema, des *desired, apply *atlas.SchemaApply) {
-	msg := "The schema has been applied successfully."
+	var msg string
 	if j, err := json.Marshal(apply); err != nil {
-		msg = fmt.Sprintf("%s. Error marshalling apply response: %v", msg,
-			err)
+		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
 	} else {
-		msg = fmt.Sprintf("%s. The schema has been applied successfully. Apply response: %s", msg, j)
+		msg = fmt.Sprintf("%s. The d. Apply response: %s", msg, j)
 	}
 	meta.SetStatusCondition(
 		&sc.Status.Conditions,

@@ -60,3 +60,11 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "atlas-operator.managerRoleName" -}}
+{{ include "atlas-operator.fullname" . }}-manager-role
+{{- end }}
+
+{{- define "atlas-operator.leaderElectionRole" -}}
+{{ include "atlas-operator.fullname" . }}-leader-election-role
+{{- end }}

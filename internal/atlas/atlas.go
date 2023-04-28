@@ -292,7 +292,7 @@ func (e cliError) Detail() string {
 }
 
 func TempFile(content, ext string) (string, func() error, error) {
-	f, err := os.CreateTemp("", "atlas-tf-*."+ext)
+	f, err := os.CreateTemp("", "atlas-k8s-*."+ext)
 	if err != nil {
 		return "", nil, err
 	}
