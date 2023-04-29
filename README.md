@@ -2,6 +2,9 @@
 
 Manage your database with Kubernetes using [Atlas](https://atlasgo.io).
 
+⚠️ _This project is still missing some key safety features that will be added in the near future, 
+until then please treat this project as a work in progress and not ready for use in production._
+
 ### What is Atlas? 
 
 [Atlas](https://atlasgo.io) is a popular open-source schema management tool ([GitHub](https://github.com/ariga/atlas).
