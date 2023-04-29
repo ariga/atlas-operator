@@ -36,7 +36,7 @@ jobs:
         working-directory: charts/
     steps:
       - uses: actions/checkout@v3
-      - uses: azure/setup-helm@v1
+      - uses: azure/setup-helm@v3
       - name: get version
         id: version
         run: |
