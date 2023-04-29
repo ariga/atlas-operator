@@ -7,7 +7,7 @@ until then please treat this project as a work in progress and not ready for use
 
 ### What is Atlas? 
 
-[Atlas](https://atlasgo.io) is a popular open-source schema management tool ([GitHub](https://github.com/ariga/atlas).
+[Atlas](https://atlasgo.io) is a popular open-source schema management tool.
 It is designed to help software engineers, DBAs and DevOps practitioners manage their database schemas. 
 Users can use the [Atlas DDL](https://atlasgo.io/atlas-schema/sql-resources) (data-definition language)
 or [plain SQL](https://atlasgo.io/declarative/apply#sql-schema) to describe the desired database 
