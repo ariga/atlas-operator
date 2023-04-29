@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - master
-      - integration-tests
   workflow_dispatch:
 jobs:
   helm-test:
@@ -41,7 +40,7 @@ jobs:
       - name: get version
         id: version
         run: |
-          CHART_VERSION=$(helm show chart nebula | grep '^version' | awk '{print $2}')
+          CHART_VERSION=$(helm show chart atlas-operator | grep '^version' | awk '{print $2}')
           echo "::set-output name=CHART_VERSION::$CHART_VERSION"
       - name: helm package
         run: helm package atlas-operator
