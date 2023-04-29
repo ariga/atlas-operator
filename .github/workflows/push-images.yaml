@@ -23,8 +23,8 @@ jobs:
       run: |
         if [ "${{ github.ref }}" = "refs/heads/master" ]; then
           echo "::set-output name=tag::latest"
-        elif [[ "${{ github.ref }}" =~ ^refs/tags/ ]]; then
-          echo "::set-output name=tag::${{ github.ref }}"
+        elif [[ "${{ github.ref }}" =~ ^refs/tags/v(.+)$ ]]; then
+          echo "::set-output name=tag::${BASH_REMATCH[1]}"
         fi
     - name: Build and push
       uses: docker/build-push-action@v2
