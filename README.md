@@ -12,8 +12,15 @@ schema and use the command-line tool to plan and apply the migrations to their s
 
 ### What is the Atlas Kubernetes Operator?
 
-Like many other stateful resources, databases are difficult to manage correctly in Kubernetes.
-The Atlas 
+Like many other stateful resources, reconciling the desired state of a database with its actual state
+can be a complex task that requires a lot of domain knowledge.  [Kubernetes Operators](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
+were introduced to the Kubernetes ecosystem to help users manage complex stateful resources by codifying 
+this domain knowledge into a Kubernetes controller.
+
+The Atlas Kubernetes Operator is a Kubernetes controller that uses [Atlas](https://atlasgo.io) to manage
+the schema of your database. The Atlas Kubernetes Operator allows you to define the desired schema of your
+database in plain SQL or in [Atlas HCL](https://atlasgo.io/atlas-schema/sql-resources) and apply it to your
+database using the Kubernetes API.
 
 ### Features
 
