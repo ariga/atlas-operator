@@ -41,7 +41,8 @@ helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator
 
 ### Getting started
 
-In this example, we will create a MySQL database and apply a schema to it.
+In this example, we will create a MySQL database and apply a schema to it. After installing the
+operator, follow these steps to get started:
 
 1. Create a MySQL database and a secret with an [Atlas URL](https://atlasgo.io/concepts/url)
   to the database:
