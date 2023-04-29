@@ -31,15 +31,12 @@ database using the Kubernetes API.
 - [ ] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations). (Coming Soon)
 - [X] Supported databases: MySQL, MariaDB, PostgresSQL, SQLite, TiDB, CockroachDB
 
-
-
 ### Installation
 
 The Atlas Kubernetes Operator is available as a Helm chart. To install the chart with the release name `atlas-operator`:
 
 ```bash
 helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator
-
 ```
 
 ### Getting started
