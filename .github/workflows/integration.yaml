@@ -40,8 +40,6 @@ jobs:
       - name: start minikube
         id: minikube
         uses: medyagh/setup-minikube@master
-        with:
-          extra-config: 'kubelet.max-pods=10'
       - name: "Install Skaffold"
         run: |
           curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
@@ -50,4 +48,6 @@ jobs:
         run: |
           make install # Install CRDs into the cluster
           skaffold run --wait-for-connection=true -p integration
-
+      - name: Wait for schemas to be ready
+        run: |
+          kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
