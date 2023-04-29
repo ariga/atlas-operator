@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - master
-      - helm
   workflow_dispatch:
 jobs:
   helm-push:
