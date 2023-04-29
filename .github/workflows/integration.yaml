@@ -21,7 +21,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
       - name: Generate
-        run: make generate manifests
+        run: make generate manifests chart-manifests
         shell: bash
       - name: Run Go mod tidy
         run: go mod tidy
