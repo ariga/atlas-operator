@@ -26,10 +26,13 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
 
+	"ariga.io/atlas/sql/sqlcheck"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/atlas"
 	"golang.org/x/exp/slices"
@@ -62,7 +65,7 @@ type (
 	// AtlasSchemaReconciler reconciles a AtlasSchema object
 	AtlasSchemaReconciler struct {
 		client.Client
-		CLI    Applier
+		CLI    CLI
 		Scheme *runtime.Scheme
 	}
 	// devDB contains values used to render a devDB pod template.
@@ -82,8 +85,13 @@ type (
 		driver string
 		url    *url.URL
 	}
-	Applier interface {
+	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
+		SchemaInspect(ctx context.Context, data *atlas.SchemaInspectParams) (string, error)
+		Lint(ctx context.Context, data *atlas.LintParams) (*atlas.SummaryReport, error)
+	}
+	destructiveErr struct {
+		diags []sqlcheck.Diagnostic
 	}
 )
 
@@ -152,6 +160,26 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		setNotReady(sc, "GettingDevDBURL", err.Error())
 		return ctrl.Result{}, err
+	}
+	// Verify the first run doesn't contain destructive changes.
+	if sc.Status.LastApplied == 0 {
+		if err := r.verifyFirstRun(ctx, managed, devURL); err != nil {
+			reason := "VerifyingFirstRun"
+			msg := err.Error()
+			if strings.Contains(msg, "connection refused") {
+				setNotReady(sc, "DevDBNotReady", msg)
+				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+			}
+			var d destructiveErr
+			if errors.As(err, &d) {
+				reason = "FirstRunDestructive"
+				msg = err.Error() + "\n" +
+					"To prevent accidental drop of resources, first run of a schema must not contain destructive changes.\n" +
+					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
+			}
+			setNotReady(sc, reason, msg)
+			return ctrl.Result{}, err
+		}
 	}
 	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
@@ -273,6 +301,68 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 	})
 }
 
+func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed, devURL string) error {
+	tmpdir, err := os.MkdirTemp("", "run-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpdir)
+	ins, err := r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+		DevURL: devURL,
+		URL:    des.url.String(),
+		Format: "sql",
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(tmpdir, "1.sql"), []byte(ins), 0644); err != nil {
+		return err
+	}
+	desired, clean, err := atlas.TempFile(des.schema, des.ext)
+	if err != nil {
+		return err
+	}
+	defer clean()
+	dry, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+		DryRun: true,
+		URL:    des.url.String(),
+		To:     desired,
+		DevURL: devURL,
+	})
+	if err != nil {
+		return err
+	}
+	plan := strings.Join(dry.Changes.Pending, ";\n")
+	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
+		return err
+	}
+	lint, err := r.CLI.Lint(ctx, &atlas.LintParams{
+		DevURL: devURL,
+		DirURL: "file://" + tmpdir,
+		Latest: 1,
+	})
+	if err != nil {
+		return err
+	}
+	if diags := destructive(lint.Files); len(diags) > 0 {
+		return destructiveErr{diags: diags}
+	}
+	return nil
+}
+
+func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {
+	for _, f := range files {
+		for _, r := range f.Reports {
+			for _, diag := range r.Diagnostics {
+				if strings.HasPrefix(diag.Code, "DS") {
+					checks = append(checks, diag)
+				}
+			}
+		}
+	}
+	return
+}
+
 func (d *devDB) ConnTmpl() string {
 	u := url.URL{
 		Scheme: d.Driver,
@@ -346,4 +436,13 @@ func setReady(sc *dbv1alpha1.AtlasSchema, des *managed, apply *atlas.SchemaApply
 	)
 	sc.Status.ObservedHash = des.hash()
 	sc.Status.LastApplied = time.Now().Unix()
+}
+
+func (d destructiveErr) Error() string {
+	var buf strings.Builder
+	buf.WriteString("destructive changes detected:\n")
+	for _, diag := range d.diags {
+		buf.WriteString("- " + diag.Text + "\n")
+	}
+	return buf.String()
 }

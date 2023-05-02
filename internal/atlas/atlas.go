@@ -158,7 +158,7 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 	args := []string{
 		"migrate", "lint", "--log", "{{ json . }}",
 		"--dev-url", data.DevURL,
-		"--dir", fmt.Sprintf("file://%s", data.DirURL),
+		"--dir", data.DirURL,
 	}
 	if data.Latest > 0 {
 		args = append(args, "--latest", strconv.FormatUint(data.Latest, 10))
