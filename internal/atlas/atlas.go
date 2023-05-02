@@ -195,7 +195,6 @@ func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport,
 // interface.
 func (c *Client) runCommand(ctx context.Context, args []string, report interface{}) (string, error) {
 	cmd := exec.CommandContext(ctx, c.path, args...)
-	fmt.Println("cmd", args)
 	cmd.Env = append(cmd.Env, "ATLAS_NO_UPDATE_NOTIFIER=1")
 	output, err := cmd.Output()
 	if err != nil {
