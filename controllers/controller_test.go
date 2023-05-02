@@ -130,13 +130,30 @@ func TestFirstRunDestructive(t *testing.T) {
 	}
 	tt.k8s.put(conditionReconciling())
 	tt.k8s.put(devDBReady())
-	request := req()
-	_, err := tt.r.Reconcile(context.Background(), request)
+	_, err := tt.r.Reconcile(context.Background(), req())
 	require.ErrorContains(t, err, "destructive changes detected")
+	// First apply is dry.
+	require.Len(t, tt.mockCLI().applyRuns, 1)
+	require.True(t, tt.mockCLI().applyRuns[0].DryRun)
+
+	// Condition is not ready and FirstRunDestructive.
 	cond := tt.cond()
 	require.EqualValues(t, schemaReadyCond, cond.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
 	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
+}
+
+func TestExcludes(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.Exclude = []string{"ignore_me"}
+	tt.k8s.put(sc)
+	tt.k8s.put(devDBReady())
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.NoError(t, err)
+	runs := tt.mockCLI().applyRuns
+	require.EqualValues(t, []string{"ignore_me"}, runs[0].Exclude)
+	require.EqualValues(t, []string{"ignore_me"}, runs[1].Exclude)
 }
 
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
@@ -219,9 +236,10 @@ type (
 	}
 	mockCLI struct {
 		CLI
-		inspect string
-		plan    string
-		report  sqlcheck.Report
+		inspect   string
+		plan      string
+		report    sqlcheck.Report
+		applyRuns []*atlas.SchemaApplyParams
 	}
 )
 
@@ -340,7 +358,8 @@ func TestTemplateSanity(t *testing.T) {
 	}
 }
 
-func (c *mockCLI) SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error) {
+func (c *mockCLI) SchemaApply(_ context.Context, params *atlas.SchemaApplyParams) (*atlas.SchemaApply, error) {
+	c.applyRuns = append(c.applyRuns, params)
 	return &atlas.SchemaApply{
 		Changes: atlas.Changes{
 			Pending: []string{c.plan},

@@ -80,10 +80,11 @@ type (
 	}
 	// managed contains information about the managed database and its desired state.
 	managed struct {
-		ext    string
-		schema string
-		driver string
-		url    *url.URL
+		ext     string
+		schema  string
+		driver  string
+		url     *url.URL
+		exclude []string
 	}
 	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -295,9 +296,10 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 	}
 	defer clean()
 	return r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		URL:    des.url.String(),
-		To:     file,
-		DevURL: devURL,
+		URL:     des.url.String(),
+		To:      file,
+		DevURL:  devURL,
+		Exclude: des.exclude,
 	})
 }
 
@@ -324,10 +326,11 @@ func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed
 	}
 	defer clean()
 	dry, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		DryRun: true,
-		URL:    des.url.String(),
-		To:     desired,
-		DevURL: devURL,
+		DryRun:  true,
+		URL:     des.url.String(),
+		To:      desired,
+		DevURL:  devURL,
+		Exclude: des.exclude,
 	})
 	if err != nil {
 		return err
@@ -396,6 +399,7 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	}
 	d.url = u
 	d.driver = driver(u.Scheme)
+	d.exclude = sc.Spec.Exclude
 	return &d, nil
 }
 

@@ -29,6 +29,8 @@ type AtlasSchemaSpec struct {
 	URLFrom URLFrom `json:"urlFrom,omitempty"`
 	// Desired Schema of the target.
 	Schema Schema `json:"schema,omitempty"`
+	// Exclude a list of glob patterns used to filter existing resources being taken into account.
+	Exclude []string `json:"exclude,omitempty"`
 }
 
 // URLFrom defines a reference to a secret key that contains the Atlas URL of the
