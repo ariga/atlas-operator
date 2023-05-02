@@ -158,7 +158,7 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 	args := []string{
 		"migrate", "lint", "--log", "{{ json . }}",
 		"--dev-url", data.DevURL,
-		"--dir", fmt.Sprintf("file://%s", data.DirURL),
+		"--dir", data.DirURL,
 	}
 	if data.Latest > 0 {
 		args = append(args, "--latest", strconv.FormatUint(data.Latest, 10))
@@ -195,6 +195,7 @@ func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport,
 // interface.
 func (c *Client) runCommand(ctx context.Context, args []string, report interface{}) (string, error) {
 	cmd := exec.CommandContext(ctx, c.path, args...)
+	fmt.Println("cmd", args)
 	cmd.Env = append(cmd.Env, "ATLAS_NO_UPDATE_NOTIFIER=1")
 	output, err := cmd.Output()
 	if err != nil {

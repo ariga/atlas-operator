@@ -34,7 +34,7 @@ func TestReconcile_NotFound(t *testing.T) {
 
 func TestReconcile_NoCond(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(&dbv1alpha1.AtlasSchema{
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 	})
 	request := req()
@@ -49,7 +49,7 @@ func TestReconcile_NoCond(t *testing.T) {
 
 func TestReconcile_ReadyButDiff(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(&dbv1alpha1.AtlasSchema{
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			Schema: dbv1alpha1.Schema{SQL: "create table foo (id int primary key);"},
@@ -76,7 +76,7 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 
 func TestReconcile_NoSchema(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(&dbv1alpha1.AtlasSchema{
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Status: dbv1alpha1.AtlasSchemaStatus{
 			Conditions: []metav1.Condition{
@@ -94,12 +94,12 @@ func TestReconcile_NoSchema(t *testing.T) {
 
 func TestReconcile_HasSchema(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(reconcilingSchema())
+	tt.k8s.put(conditionReconciling())
 	request := req()
 	resp, err := tt.r.Reconcile(context.Background(), request)
 	require.NoError(t, err)
 	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 15}, resp)
-	d := tt.m.state[types.NamespacedName{
+	d := tt.k8s.state[types.NamespacedName{
 		Namespace: request.Namespace,
 		Name:      request.Name + devDBSuffix,
 	}].(*appsv1.Deployment)
@@ -108,16 +108,8 @@ func TestReconcile_HasSchema(t *testing.T) {
 
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(reconcilingSchema())
-	tt.m.put(&appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-atlas-schema" + devDBSuffix,
-			Namespace: "test",
-		},
-		Status: appsv1.DeploymentStatus{
-			ReadyReplicas: 1,
-		},
-	})
+	tt.k8s.put(conditionReconciling())
+	tt.k8s.put(devDBReady())
 	request := req()
 	resp, err := tt.r.Reconcile(context.Background(), request)
 	require.NoError(t, err)
@@ -136,16 +128,8 @@ func TestFirstRunDestructive(t *testing.T) {
 			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
 		},
 	}
-	tt.m.put(reconcilingSchema())
-	tt.m.put(&appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-atlas-schema" + devDBSuffix,
-			Namespace: "test",
-		},
-		Status: appsv1.DeploymentStatus{
-			ReadyReplicas: 1,
-		},
-	})
+	tt.k8s.put(conditionReconciling())
+	tt.k8s.put(devDBReady())
 	request := req()
 	_, err := tt.r.Reconcile(context.Background(), request)
 	require.ErrorContains(t, err, "destructive changes detected")
@@ -155,7 +139,7 @@ func TestFirstRunDestructive(t *testing.T) {
 	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
 }
 
-func reconcilingSchema() *dbv1alpha1.AtlasSchema {
+func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
@@ -172,6 +156,19 @@ func reconcilingSchema() *dbv1alpha1.AtlasSchema {
 		},
 	}
 }
+
+func devDBReady() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-atlas-schema" + devDBSuffix,
+			Namespace: "test",
+		},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas: 1,
+		},
+	}
+}
+
 func objmeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:      "my-atlas-schema",
@@ -190,8 +187,8 @@ func req() ctrl.Request {
 
 type test struct {
 	*testing.T
-	m *mockClient
-	r *AtlasSchemaReconciler
+	k8s *mockClient
+	r   *AtlasSchemaReconciler
 }
 
 func newTest(t *testing.T) *test {
@@ -201,8 +198,8 @@ func newTest(t *testing.T) *test {
 		state: map[client.ObjectKey]client.Object{},
 	}
 	return &test{
-		T: t,
-		m: m,
+		T:   t,
+		k8s: m,
 		r: &AtlasSchemaReconciler{
 			Client: m,
 			Scheme: scheme,
@@ -295,7 +292,7 @@ func (s *mockSubResourceWriter) Update(ctx context.Context, obj client.Object, o
 
 func TestMock(t *testing.T) {
 	tt := newTest(t)
-	tt.m.put(&appsv1.Deployment{
+	tt.k8s.put(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test",
 			Namespace: "default",
@@ -306,12 +303,12 @@ func TestMock(t *testing.T) {
 	})
 	var d appsv1.Deployment
 	// Req a non existent object
-	err := tt.m.Get(context.Background(), client.ObjectKey{
+	err := tt.k8s.Get(context.Background(), client.ObjectKey{
 		Name: "non-existent",
 	}, &d)
 	require.True(t, errors.IsNotFound(err))
 	// Retrieve an existing object
-	err = tt.m.Get(context.Background(), client.ObjectKey{
+	err = tt.k8s.Get(context.Background(), client.ObjectKey{
 		Name:      "test",
 		Namespace: "default",
 	}, &d)
@@ -364,7 +361,7 @@ func (c *mockCLI) Lint(ctx context.Context, _ *atlas.LintParams) (*atlas.Summary
 }
 
 func (t *test) cond() metav1.Condition {
-	s := t.m.state[req().NamespacedName].(*dbv1alpha1.AtlasSchema)
+	s := t.k8s.state[req().NamespacedName].(*dbv1alpha1.AtlasSchema)
 	return s.Status.Conditions[0]
 }
 

@@ -165,11 +165,19 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if sc.Status.LastApplied == 0 {
 		if err := r.verifyFirstRun(ctx, managed, devURL); err != nil {
 			reason := "VerifyingFirstRun"
+			msg := err.Error()
+			if strings.Contains(msg, "connection refused") {
+				setNotReady(sc, "DevDBNotReady", msg)
+				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+			}
 			var d destructiveErr
 			if errors.As(err, &d) {
 				reason = "FirstRunDestructive"
+				msg = err.Error() + "\n" +
+					"To prevent accidental drop of resources, first run of a schema must not contain destructive changes.\n" +
+					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
 			}
-			setNotReady(sc, reason, err.Error())
+			setNotReady(sc, reason, msg)
 			return ctrl.Result{}, err
 		}
 	}
@@ -302,7 +310,7 @@ func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed
 	ins, err := r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
 		DevURL: devURL,
 		URL:    des.url.String(),
-		Format: "{{ sql . }}",
+		Format: "sql",
 	})
 	if err != nil {
 		return err
@@ -324,7 +332,7 @@ func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed
 	if err != nil {
 		return err
 	}
-	plan := strings.Join(dry.Changes.Pending, "\n")
+	plan := strings.Join(dry.Changes.Pending, ";\n")
 	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
 		return err
 	}
@@ -434,7 +442,7 @@ func (d destructiveErr) Error() string {
 	var buf strings.Builder
 	buf.WriteString("destructive changes detected:\n")
 	for _, diag := range d.diags {
-		buf.WriteString(diag.Text + "\n")
+		buf.WriteString("- " + diag.Text + "\n")
 	}
 	return buf.String()
 }

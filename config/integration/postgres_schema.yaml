@@ -15,8 +15,7 @@ spec:
       name: postgres-credentials
   schema:
     sql: |
-      -- demo
-      create table users (
+      create table users2 (
         id int not null,
         primary key (id)
       );
