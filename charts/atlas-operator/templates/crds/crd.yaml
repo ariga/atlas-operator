@@ -34,6 +34,12 @@ spec:
           spec:
             description: AtlasSchemaSpec defines the desired state of AtlasSchema
             properties:
+              exclude:
+                description: Exclude a list of glob patterns used to filter existing
+                  resources being taken into account.
+                items:
+                  type: string
+                type: array
               schema:
                 description: Desired Schema of the target.
                 properties:
