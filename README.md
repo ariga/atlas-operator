@@ -129,6 +129,12 @@ Start [MiniKube](https://minikube.sigs.k8s.io/docs/start/)
 minikube start
 ```
 
+Install CRDs
+
+```bash
+make install
+```
+
 Start [Skaffold](https://skaffold.dev/)
 ```
 skaffold dev

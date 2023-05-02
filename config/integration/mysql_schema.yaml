@@ -20,6 +20,7 @@ spec:
         name varchar(255) not null,
         email varchar(255) unique not null,
         short_bio varchar(255) not null,
+        short_bio2 varchar(255) not null,
         primary key (id)
       );
   exclude:

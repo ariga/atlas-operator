@@ -47,7 +47,15 @@ jobs:
       - name: Start environment
         run: |
           make install # Install CRDs into the cluster
-          skaffold run --wait-for-connection=true -p integration
-      - name: Wait for schemas to be ready
+          skaffold run --wait-for-connection=true
+      - name: Integration test
         run: |
+          # Create a table not described in the desired schema but excluded from it.
+          kubectl exec -it $(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysql -uroot -ppass -e "create myapp.ignore_me"
+          
+          # Apply the desired schema and wait for it to be ready.
+          kubectl -k apply -f config/integration
           kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
+          
+          # Expect the excluded table to be present.
+          kubectl exec -it $(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysql -uroot -ppass -e "describe myapp.ignore_me"
