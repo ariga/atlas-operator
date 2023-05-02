@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"ariga.io/atlas/sql/sqlcheck"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/atlas"
 	"github.com/stretchr/testify/require"
@@ -127,6 +128,33 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, "Applied", cond.Reason)
 }
 
+func TestFirstRunDestructive(t *testing.T) {
+	tt := newTest(t)
+	tt.mockCLI().report = sqlcheck.Report{
+		Text: "destructive changes detected",
+		Diagnostics: []sqlcheck.Diagnostic{
+			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
+		},
+	}
+	tt.m.put(reconcilingSchema())
+	tt.m.put(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-atlas-schema" + devDBSuffix,
+			Namespace: "test",
+		},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas: 1,
+		},
+	})
+	request := req()
+	_, err := tt.r.Reconcile(context.Background(), request)
+	require.ErrorContains(t, err, "destructive changes detected")
+	cond := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cond.Type)
+	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
+	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
+}
+
 func reconcilingSchema() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
@@ -178,7 +206,7 @@ func newTest(t *testing.T) *test {
 		r: &AtlasSchemaReconciler{
 			Client: m,
 			Scheme: scheme,
-			CLI:    &mockApplier{},
+			CLI:    &mockCLI{},
 		},
 	}
 }
@@ -192,8 +220,11 @@ type (
 		client.SubResourceWriter
 		ref *mockClient
 	}
-	mockApplier struct {
-		Applier
+	mockCLI struct {
+		CLI
+		inspect string
+		plan    string
+		report  sqlcheck.Report
 	}
 )
 
@@ -312,11 +343,31 @@ func TestTemplateSanity(t *testing.T) {
 	}
 }
 
-func (a *mockApplier) SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error) {
-	return &atlas.SchemaApply{}, nil
+func (c *mockCLI) SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error) {
+	return &atlas.SchemaApply{
+		Changes: atlas.Changes{
+			Pending: []string{c.plan},
+		},
+	}, nil
+}
+
+func (c *mockCLI) SchemaInspect(context.Context, *atlas.SchemaInspectParams) (string, error) {
+	return c.inspect, nil
+}
+
+func (c *mockCLI) Lint(ctx context.Context, _ *atlas.LintParams) (*atlas.SummaryReport, error) {
+	return &atlas.SummaryReport{
+		Files: []*atlas.FileReport{
+			{Reports: []sqlcheck.Report{c.report}},
+		},
+	}, nil
 }
 
 func (t *test) cond() metav1.Condition {
 	s := t.m.state[req().NamespacedName].(*dbv1alpha1.AtlasSchema)
 	return s.Status.Conditions[0]
+}
+
+func (t *test) mockCLI() *mockCLI {
+	return t.r.CLI.(*mockCLI)
 }
