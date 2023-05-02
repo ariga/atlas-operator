@@ -52,6 +52,7 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			Schema: dbv1alpha1.Schema{SQL: "create table foo (id int primary key);"},
+			URL:    "mysql://root:password@localhost:3306/test",
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{
 			ObservedHash: "old",
@@ -87,7 +88,7 @@ func TestReconcile_NoSchema(t *testing.T) {
 	})
 	request := req()
 	_, err := tt.r.Reconcile(context.Background(), request)
-	require.EqualError(t, err, "no schema specified")
+	require.EqualError(t, err, "no desired schema specified")
 }
 
 func TestReconcile_HasSchema(t *testing.T) {

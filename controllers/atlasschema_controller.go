@@ -75,10 +75,12 @@ type (
 		Port        int
 		UID         int
 	}
-	// desired contains information about the desired database schema.
-	desired struct {
+	// managed contains information about the managed database and its desired state.
+	managed struct {
 		ext    string
 		schema string
+		driver string
+		url    *url.URL
 	}
 	Applier interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -100,9 +102,9 @@ type (
 func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	var (
-		sc  = &dbv1alpha1.AtlasSchema{}
-		des *desired
-		err error
+		sc      = &dbv1alpha1.AtlasSchema{}
+		managed *managed
+		err     error
 	)
 	if err := r.Get(ctx, req.NamespacedName, sc); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -117,7 +119,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "Reconciling", "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	des, err = extractDesired(sc)
+	managed, err = r.extractManaged(ctx, sc)
 	if err != nil {
 		setNotReady(sc, "ReadSchema", err.Error())
 		return ctrl.Result{}, err
@@ -125,26 +127,15 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
 	// reconciled.
-	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && des.hash() != sc.Status.ObservedHash {
-		setNotReady(sc, "Reconciling", "current schema does not match last applied schema")
+	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && managed.hash() != sc.Status.ObservedHash {
+		setNotReady(sc, "Reconciling", "current schema does not match last applied managed")
 		return ctrl.Result{Requeue: true}, nil
-	}
-	u, err := r.url(ctx, sc)
-	if err != nil {
-		setNotReady(sc, "ReadingTargetURL", err.Error())
-		return ctrl.Result{}, err
-	}
-	drv := driver(u.Scheme)
-	if drv == "" {
-		err := fmt.Errorf("driver not found for scheme %q", u.Scheme)
-		setNotReady(sc, "ReadingDriver", err.Error())
-		return ctrl.Result{}, err
 	}
 	// make sure we have a dev db running
 	devDB := &v1.Deployment{}
 	err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
 	if apierrors.IsNotFound(err) {
-		devDB, err = r.devDBDeployment(ctx, sc, drv)
+		devDB, err = r.devDBDeployment(ctx, sc, managed.driver)
 		if err != nil {
 			setNotReady(sc, "CreatingDevDB", err.Error())
 			return ctrl.Result{}, err
@@ -157,17 +148,17 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "GettingDevDB", err.Error())
 		return ctrl.Result{}, err
 	}
-	devURL, err := r.devURL(ctx, req.Name, drv)
+	devURL, err := r.devURL(ctx, req.Name, managed.driver)
 	if err != nil {
 		setNotReady(sc, "GettingDevDBURL", err.Error())
 		return ctrl.Result{}, err
 	}
-	app, err := r.apply(ctx, u.String(), devURL, des)
+	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
 		setNotReady(sc, "ApplyingSchema", err.Error())
 		return ctrl.Result{RequeueAfter: time.Second * 5}, err
 	}
-	setReady(sc, des, app)
+	setReady(sc, managed, app)
 	return ctrl.Result{}, nil
 }
 
@@ -269,14 +260,14 @@ func driver(scheme string) string {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, url, devURL string, des *desired) (*atlas.SchemaApply, error) {
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL string) (*atlas.SchemaApply, error) {
 	file, clean, err := atlas.TempFile(des.schema, des.ext)
 	if err != nil {
 		return nil, err
 	}
 	defer clean()
 	return r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		URL:    url,
+		URL:    des.url.String(),
 		To:     file,
 		DevURL: devURL,
 	})
@@ -296,9 +287,9 @@ func (d *devDB) ConnTmpl() string {
 	return u.String()
 }
 
-// extractDesired extracts the desired schema from the AtlasSchema.
-func extractDesired(sc *dbv1alpha1.AtlasSchema) (*desired, error) {
-	var d desired
+// extractManaged extracts the info about the managed database and its desired state.
+func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alpha1.AtlasSchema) (*managed, error) {
+	var d managed
 	switch sch := sc.Spec.Schema; {
 	case sch.HCL != "":
 		d.schema = sch.HCL
@@ -307,13 +298,19 @@ func extractDesired(sc *dbv1alpha1.AtlasSchema) (*desired, error) {
 		d.schema = sch.SQL
 		d.ext = "sql"
 	default:
-		return nil, fmt.Errorf("no schema specified")
+		return nil, fmt.Errorf("no desired schema specified")
 	}
+	u, err := r.url(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	d.url = u
+	d.driver = driver(u.Scheme)
 	return &d, nil
 }
 
 // hash returns the sha256 hash of the schema.
-func (d *desired) hash() string {
+func (d *managed) hash() string {
 	h := sha256.New()
 	h.Write([]byte(d.schema))
 	return hex.EncodeToString(h.Sum(nil))
@@ -331,7 +328,7 @@ func setNotReady(sc *dbv1alpha1.AtlasSchema, reason, msg string) {
 	)
 }
 
-func setReady(sc *dbv1alpha1.AtlasSchema, des *desired, apply *atlas.SchemaApply) {
+func setReady(sc *dbv1alpha1.AtlasSchema, des *managed, apply *atlas.SchemaApply) {
 	var msg string
 	if j, err := json.Marshal(apply); err != nil {
 		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
