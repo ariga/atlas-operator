@@ -333,11 +333,11 @@ func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed
 		DirURL: "file://" + tmpdir,
 		Latest: 1,
 	})
-	if diags := destructive(lint.Files); len(diags) > 0 {
-		return destructiveErr{diags: diags}
-	}
 	if err != nil {
 		return err
+	}
+	if diags := destructive(lint.Files); len(diags) > 0 {
+		return destructiveErr{diags: diags}
 	}
 	return nil
 }
