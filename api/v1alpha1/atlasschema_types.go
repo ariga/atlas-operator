@@ -31,7 +31,6 @@ type AtlasSchemaSpec struct {
 	Schema Schema `json:"schema,omitempty"`
 	// Exclude a list of glob patterns used to filter existing resources being taken into account.
 	Exclude []string `json:"exclude,omitempty"`
-
 	// Policy defines the policies to apply when managing the schema change lifecycle.
 	Policy Policy `json:"policy,omitempty"`
 }
