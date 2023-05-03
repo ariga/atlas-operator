@@ -141,20 +141,22 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	// make sure we have a dev db running
 	devDB := &v1.Deployment{}
-	err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
-	if apierrors.IsNotFound(err) {
-		devDB, err = r.devDBDeployment(ctx, sc, managed.driver)
+	if managed.driver != "sqlite" {
+		err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
+		if apierrors.IsNotFound(err) {
+			devDB, err = r.devDBDeployment(ctx, sc, managed.driver)
+			if err != nil {
+				setNotReady(sc, "CreatingDevDB", err.Error())
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{
+				RequeueAfter: time.Second * 15,
+			}, nil
+		}
 		if err != nil {
-			setNotReady(sc, "CreatingDevDB", err.Error())
+			setNotReady(sc, "GettingDevDB", err.Error())
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{
-			RequeueAfter: time.Second * 15,
-		}, nil
-	}
-	if err != nil {
-		setNotReady(sc, "GettingDevDB", err.Error())
-		return ctrl.Result{}, err
 	}
 	devURL, err := r.devURL(ctx, req.Name, managed.driver)
 	if err != nil {
@@ -255,6 +257,9 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 }
 
 func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string) (string, error) {
+	if driver == "sqlite" {
+		return "sqlite://db?mode=memory", nil
+	}
 	pods := &corev1.PodList{}
 	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
 		"app.kubernetes.io/instance": name + devDBSuffix,
@@ -289,6 +294,8 @@ func driver(scheme string) string {
 		return "mysql"
 	case strings.HasPrefix(scheme, "postgres"):
 		return "postgres"
+	case scheme == "sqlite":
+		return "sqlite"
 	default:
 		return ""
 	}

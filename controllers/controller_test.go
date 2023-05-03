@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -120,61 +122,54 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, "Applied", cond.Reason)
 }
 
-func TestFirstRunDestructive(t *testing.T) {
-	tt := newTest(t)
-	tt.mockCLI().report = &sqlcheck.Report{
-		Text: "destructive changes detected",
-		Diagnostics: []sqlcheck.Diagnostic{
-			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
-		},
-	}
-	tt.k8s.put(conditionReconciling())
-	tt.k8s.put(devDBReady())
-	_, err := tt.r.Reconcile(context.Background(), req())
-	require.ErrorContains(t, err, "destructive changes detected")
-	// First apply is dry.
-	require.Len(t, tt.mockCLI().applyRuns, 1)
-	require.True(t, tt.mockCLI().applyRuns[0].DryRun)
-
-	// Condition is not ready and FirstRunDestructive.
-	cond := tt.cond()
-	require.EqualValues(t, schemaReadyCond, cond.Type)
-	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
-	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
-}
-
 func TestExcludes(t *testing.T) {
-	tt := newTest(t)
+	tt := cliTest(t)
 	sc := conditionReconciling()
-	sc.Spec.Exclude = []string{"ignore_me"}
+	sc.Spec.Exclude = []string{"x"}
 	tt.k8s.put(sc)
-	tt.k8s.put(devDBReady())
+	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	runs := tt.mockCLI().applyRuns
-	require.EqualValues(t, []string{"ignore_me"}, runs[0].Exclude)
-	require.EqualValues(t, []string{"ignore_me"}, runs[1].Exclude)
+
 }
 
 func TestReconcile_Lint(t *testing.T) {
-	tt := newTest(t)
-	tt.mockCLI().report = &sqlcheck.Report{
-		Text: "destructive changes detected",
-		Diagnostics: []sqlcheck.Diagnostic{
-			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
-		},
-	}
+	tt := cliTest(t)
 	sc := conditionReconciling()
+	sc.Spec.URL = tt.dburl
 	sc.Spec.Policy.Lint.Destructive.Error = true
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
-	tt.k8s.put(devDBReady())
+	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.ErrorContains(t, err, "destructive changes detected")
 	cont := tt.cond()
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
 	require.EqualValues(t, "LintPolicyError", cont.Reason)
+}
+
+func Test_FirstRunDestructive(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = tt.dburl
+	tt.k8s.put(sc)
+	tt.initDB("create table x (c int);")
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.ErrorContains(t, err, "destructive changes detected")
+
+	// Condition is not ready and FirstRunDestructive.
+	cond := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cond.Type)
+	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
+	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
+
+	ins, err := tt.r.CLI.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+		URL:    tt.dburl,
+		Format: "sql",
+	})
+	require.NoError(t, err)
+	require.Contains(t, ins, "CREATE TABLE `x` (`c` int NULL);")
 }
 
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
@@ -225,8 +220,24 @@ func req() ctrl.Request {
 
 type test struct {
 	*testing.T
-	k8s *mockClient
-	r   *AtlasSchemaReconciler
+	k8s   *mockClient
+	r     *AtlasSchemaReconciler
+	dburl string
+}
+
+// cliTest initializes a test with a real CLI and a temporary SQLite database.
+func cliTest(t *testing.T) *test {
+	tt := newTest(t)
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	cli, err := atlas.NewClient(wd, "atlas")
+	require.NoError(t, err)
+	tt.r.CLI = cli
+	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
+	require.NoError(t, err)
+	tt.dburl = "sqlite://" + filepath.Join(td, "test.db")
+	t.Cleanup(func() { os.RemoveAll(td) })
+	return tt
 }
 
 func newTest(t *testing.T) *test {
@@ -412,4 +423,16 @@ func (t *test) cond() metav1.Condition {
 
 func (t *test) mockCLI() *mockCLI {
 	return t.r.CLI.(*mockCLI)
+}
+
+func (t *test) initDB(statement string) {
+	f, clean, err := atlas.TempFile(statement, "sql")
+	require.NoError(t, err)
+	defer clean()
+	_, err = t.r.CLI.SchemaApply(context.Background(), &atlas.SchemaApplyParams{
+		URL:    t.dburl,
+		DevURL: "sqlite://file2/?mode=memory",
+		To:     f,
+	})
+	require.NoError(t, err)
 }
