@@ -37,24 +37,29 @@ type (
 		DevURL    string
 		DirURL    string
 		Latest    uint64
+		Vars      Vars
 	}
 	// SchemaApplyParams are the parameters for the `schema apply` command.
 	SchemaApplyParams struct {
-		DevURL  string
-		DryRun  bool
-		Exclude []string
-		Schema  []string
-		To      string
-		URL     string
+		ConfigURL string
+		DevURL    string
+		DryRun    bool
+		Exclude   []string
+		Schema    []string
+		To        string
+		URL       string
+		Vars      Vars
 	}
 	// SchemaInspectParams are the parameters for the `schema inspect` command.
 	SchemaInspectParams struct {
-		DevURL  string
-		Exclude []string
-		Format  string
-		Schema  []string
-		URL     string
+		ConfigURL string
+		DevURL    string
+		Exclude   []string
+		Format    string
+		Schema    []string
+		URL       string
 	}
+	Vars map[string]string
 )
 
 // NewClient returns a new Atlas client.
@@ -112,6 +117,9 @@ func (c *Client) SchemaApply(ctx context.Context, data *SchemaApplyParams) (*Sch
 		"--url", data.URL,
 		"--to", data.To,
 	}
+	if data.ConfigURL != "" {
+		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
+	}
 	if data.DryRun {
 		args = append(args, "--dry-run")
 	} else {
@@ -126,6 +134,7 @@ func (c *Client) SchemaApply(ctx context.Context, data *SchemaApplyParams) (*Sch
 	if len(data.Exclude) > 0 {
 		args = append(args, "--exclude", strings.Join(data.Exclude, ","))
 	}
+	args = append(args, data.Vars.AsArgs()...)
 	var result SchemaApply
 	if _, err := c.runCommand(ctx, args, &result); err != nil {
 		return nil, err
@@ -165,8 +174,9 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 		args = append(args, "--latest", strconv.FormatUint(data.Latest, 10))
 	}
 	if data.ConfigURL != "" {
-		args = append(args, "-c", data.ConfigURL)
+		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
 	}
+	args = append(args, data.Vars.AsArgs()...)
 	var report SummaryReport
 	if _, err := c.runCommand(ctx, args, &report); err != nil {
 		return nil, err
@@ -308,4 +318,12 @@ func TempFile(content, ext string) (string, func() error, error) {
 	return fmt.Sprintf("file://%s", f.Name()), func() error {
 		return os.Remove(f.Name())
 	}, nil
+}
+
+func (v Vars) AsArgs() []string {
+	var args []string
+	for k, v := range v {
+		args = append(args, "--var", fmt.Sprintf("%s=%s", k, v))
+	}
+	return args
 }

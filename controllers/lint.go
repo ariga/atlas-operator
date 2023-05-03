@@ -11,9 +11,9 @@ import (
 	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL string) error {
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL string, vars ...atlas.Vars) error {
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "lintconf.tmpl", des.lint); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", des.policy); err != nil {
 		return err
 	}
 	lintcfg, cleancfg, err := atlas.TempFile(buf.String(), "hcl")
@@ -42,6 +42,10 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		return err
 	}
 	defer clean()
+	var vv atlas.Vars
+	if len(vars) > 0 {
+		vv = vars[0]
+	}
 	dry, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		DryRun:  true,
 		URL:     des.url.String(),
@@ -61,6 +65,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		DirURL:    "file://" + tmpdir,
 		Latest:    1,
 		ConfigURL: lintcfg,
+		Vars:      vv,
 	})
 	if err != nil {
 		return err
@@ -72,12 +77,9 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 }
 
 func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed, devURL string) error {
-	before := des.lint.Destructive.Error
-	defer func() {
-		des.lint.Destructive.Error = before
-	}()
-	des.lint.Destructive.Error = true
-	return r.lint(ctx, des, devURL)
+	return r.lint(ctx, des, devURL, atlas.Vars{
+		"lint_destructive": "true",
+	})
 }
 
 func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {

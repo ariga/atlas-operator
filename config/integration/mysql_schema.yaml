@@ -17,6 +17,9 @@ spec:
     lint:
       destructive:
         error: true
+    diff:
+      skip:
+        drop_column: true
   schema:
     sql: |
       create table users (

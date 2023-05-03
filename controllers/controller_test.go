@@ -172,6 +172,63 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.Contains(t, ins, "CREATE TABLE `x` (`c` int NULL);")
 }
 
+func TestDiffPolicy(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = tt.dburl
+	sc.Spec.Schema.SQL = "create table y (c int);"
+	sc.Spec.Policy.Diff.Skip = dbv1alpha1.SkipChanges{
+		DropTable: true,
+	}
+	sc.Status.LastApplied = 1
+	tt.k8s.put(sc)
+	tt.initDB("create table x (c int);")
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.NoError(t, err)
+	ins, err := tt.r.CLI.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+		URL:    tt.dburl,
+		Format: "sql",
+	})
+	require.NoError(t, err)
+	require.Contains(t, ins, "CREATE TABLE `x`", "expecting original table to be present")
+}
+
+func TestConfigTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", dbv1alpha1.Policy{
+		Lint: dbv1alpha1.Lint{
+			Destructive: dbv1alpha1.CheckConfig{Error: true},
+		},
+		Diff: dbv1alpha1.Diff{
+			Skip: dbv1alpha1.SkipChanges{
+				DropSchema: true,
+				DropTable:  true,
+			},
+		},
+	})
+	require.NoError(t, err)
+	expected := `env {
+  name = atlas.env
+}
+
+variable "lint_destructive" {
+    type = bool
+    default = true
+}
+diff {
+  skip {
+      drop_schema = true
+      drop_table = true
+  }
+}
+lint {
+  destructive {
+    error = var.lint_destructive
+  }
+}`
+	require.EqualValues(t, expected, buf.String())
+}
+
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),

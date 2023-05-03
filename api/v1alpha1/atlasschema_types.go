@@ -38,11 +38,51 @@ type AtlasSchemaSpec struct {
 // Policy defines the policies to apply when managing the schema change lifecycle.
 type Policy struct {
 	Lint Lint `json:"lint,omitempty"`
+	Diff Diff `json:"diff,omitempty"`
 }
 
 // Lint defines the linting policies to apply before applying the schema.
 type Lint struct {
 	Destructive CheckConfig `json:"destructive,omitempty"`
+}
+
+// Diff defines the diff policies to apply when planning schema changes.
+type Diff struct {
+	Skip SkipChanges `json:"skip,omitempty"`
+}
+
+// SkipChanges represents the skip changes policy.
+type SkipChanges struct {
+	// +optional
+	AddSchema bool `json:"add_schema,omitempty"`
+	// +optional
+	DropSchema bool `json:"drop_schema,omitempty"`
+	// +optional
+	ModifySchema bool `json:"modify_schema,omitempty"`
+	// +optional
+	AddTable bool `json:"add_table,omitempty"`
+	// +optional
+	DropTable bool `json:"drop_table,omitempty"`
+	// +optional
+	ModifyTable bool `json:"modify_table,omitempty"`
+	// +optional
+	AddColumn bool `json:"add_column,omitempty"`
+	// +optional
+	DropColumn bool `json:"drop_column,omitempty"`
+	// +optional
+	ModifyColumn bool `json:"modify_column,omitempty"`
+	// +optional
+	AddIndex bool `json:"add_index,omitempty"`
+	// +optional
+	DropIndex bool `json:"drop_index,omitempty"`
+	// +optional
+	ModifyIndex bool `json:"modify_index,omitempty"`
+	// +optional
+	AddForeignKey bool `json:"add_foreign_key,omitempty"`
+	// +optional
+	DropForeignKey bool `json:"drop_foreign_key,omitempty"`
+	// +optional
+	ModifyForeignKey bool `json:"modify_foreign_key,omitempty"`
 }
 
 // CheckConfig defines the configuration of a linting check.
