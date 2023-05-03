@@ -31,6 +31,12 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready", "-U", "postgres" ]
 ---
 apiVersion: v1
 kind: Service

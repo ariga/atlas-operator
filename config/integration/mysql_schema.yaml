@@ -22,3 +22,6 @@ spec:
         short_bio varchar(255) not null,
         primary key (id)
       );
+  exclude:
+    - ignore_me
+
