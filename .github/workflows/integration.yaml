@@ -37,6 +37,7 @@ jobs:
       - name: Run tests
         run: go test ./... -race
         shell: bash
+      - uses: azure/setup-kubectl@v3
       - name: start minikube
         id: minikube
         uses: medyagh/setup-minikube@master
