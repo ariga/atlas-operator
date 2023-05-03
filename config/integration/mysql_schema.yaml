@@ -17,9 +17,12 @@ spec:
     lint:
       destructive:
         error: true
+    diff:
+      skip:
+        drop_column: true
   schema:
     sql: |
-      create table users (
+      create table users_2 (
         id int not null auto_increment,
         name varchar(255) not null,
         email varchar(255) unique not null,

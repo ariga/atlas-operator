@@ -78,12 +78,13 @@ type (
 	}
 	// managed contains information about the managed database and its desired state.
 	managed struct {
-		ext     string
-		schema  string
-		driver  string
-		url     *url.URL
-		exclude []string
-		lint    dbv1alpha1.Lint
+		ext        string
+		schema     string
+		driver     string
+		url        *url.URL
+		exclude    []string
+		configfile string
+		policy     dbv1alpha1.Policy
 	}
 	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -163,6 +164,13 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "GettingDevDBURL", err.Error())
 		return ctrl.Result{}, err
 	}
+	conf, cleanconf, err := configFile(sc.Spec.Policy)
+	if err != nil {
+		setNotReady(sc, "CreatingConfigFile", err.Error())
+		return ctrl.Result{}, err
+	}
+	defer cleanconf()
+	managed.configfile = conf
 	// Verify the first run doesn't contain destructive changes.
 	if sc.Status.LastApplied == 0 {
 		if err := r.verifyFirstRun(ctx, managed, devURL); err != nil {
@@ -308,10 +316,11 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 	}
 	defer clean()
 	return r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		URL:     des.url.String(),
-		To:      file,
-		DevURL:  devURL,
-		Exclude: des.exclude,
+		URL:       des.url.String(),
+		To:        file,
+		DevURL:    devURL,
+		Exclude:   des.exclude,
+		ConfigURL: des.configfile,
 	})
 }
 
@@ -349,7 +358,7 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	d.url = u
 	d.driver = driver(u.Scheme)
 	d.exclude = sc.Spec.Exclude
-	d.lint = sc.Spec.Policy.Lint
+	d.policy = sc.Spec.Policy
 	return &d, nil
 }
 
@@ -401,7 +410,15 @@ func (d destructiveErr) Error() string {
 	return buf.String()
 }
 
-// shouldLint reports if the schema has a lint policy that requires linting.
+// shouldLint reports if the schema has a policy that requires linting.
 func shouldLint(des *managed) bool {
-	return des.lint.Destructive.Error
+	return des.policy.Lint.Destructive.Error
+}
+
+func configFile(policy dbv1alpha1.Policy) (string, func() error, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", policy); err != nil {
+		return "", nil, err
+	}
+	return atlas.TempFile(buf.String(), "hcl")
 }

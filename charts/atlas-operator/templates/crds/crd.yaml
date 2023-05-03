@@ -44,6 +44,45 @@ spec:
                 description: Policy defines the policies to apply when managing the
                   schema change lifecycle.
                 properties:
+                  diff:
+                    description: Diff defines the diff policies to apply when planning
+                      schema changes.
+                    properties:
+                      skip:
+                        description: SkipChanges represents the skip changes policy.
+                        properties:
+                          add_column:
+                            type: boolean
+                          add_foreign_key:
+                            type: boolean
+                          add_index:
+                            type: boolean
+                          add_schema:
+                            type: boolean
+                          add_table:
+                            type: boolean
+                          drop_column:
+                            type: boolean
+                          drop_foreign_key:
+                            type: boolean
+                          drop_index:
+                            type: boolean
+                          drop_schema:
+                            type: boolean
+                          drop_table:
+                            type: boolean
+                          modify_column:
+                            type: boolean
+                          modify_foreign_key:
+                            type: boolean
+                          modify_index:
+                            type: boolean
+                          modify_schema:
+                            type: boolean
+                          modify_table:
+                            type: boolean
+                        type: object
+                    type: object
                   lint:
                     description: Lint defines the linting policies to apply before
                       applying the schema.

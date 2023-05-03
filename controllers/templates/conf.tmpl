@@ -1,0 +1,68 @@
+env {
+  name = atlas.env
+}
+
+variable "lint_destructive" {
+    type = bool
+    default = {{ if  .Lint.Destructive }}true{{ else }}false{{ end }}
+}
+
+{{- with .Diff.Skip }}
+diff {
+  skip {
+    {{- if .AddSchema }}
+      add_schema = true
+    {{- end }}
+    {{- if .DropSchema }}
+      drop_schema = true
+    {{- end }}
+    {{- if .ModifySchema }}
+      modify_schema = true
+    {{- end }}
+    {{- if .AddTable }}
+      add_table = true
+    {{- end }}
+    {{- if .DropTable }}
+      drop_table = true
+    {{- end }}
+    {{- if .ModifyTable }}
+      modify_table = true
+    {{- end }}
+    {{- if .AddColumn }}
+      add_column = true
+    {{- end }}
+    {{- if .DropColumn }}
+      drop_column = true
+    {{- end }}
+    {{- if .ModifyColumn }}
+      modify_column = true
+    {{- end }}
+    {{- if .AddIndex }}
+      add_index = true
+    {{- end }}
+    {{- if .DropIndex }}
+      drop_index = true
+    {{- end }}
+    {{- if .ModifyIndex }}
+      modify_index = true
+    {{- end }}
+    {{- if .AddForeignKey }}
+      add_foreign_key = true
+    {{- end }}
+    {{- if .DropForeignKey }}
+      drop_foreign_key = true
+    {{- end }}
+    {{- if .ModifyForeignKey }}
+      modify_foreign_key = true
+    {{- end }}
+  }
+}
+{{- end }}
+
+{{- with .Lint }}
+lint {
+  destructive {
+    error = var.lint_destructive
+  }
+}
+{{- end }}
