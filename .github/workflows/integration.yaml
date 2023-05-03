@@ -48,11 +48,11 @@ jobs:
       - name: Start environment
         run: |
           make install # Install CRDs into the cluster
+          kubectl apply -f config/integration/mysql.yaml
           skaffold run --wait-for-connection=true
       - name: Integration test
         run: |
           # Create a table not described in the desired schema but excluded from it.
-          kubectl apply -f config/integration/mysql.yaml
           kubectl wait --for condition=ready pods -l app=mysql --timeout=60s
           kubectl exec $(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysql -uroot -h 127.0.0.1 -ppass -e "create table myapp.ignore_me (c int);"
           
