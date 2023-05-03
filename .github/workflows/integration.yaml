@@ -20,6 +20,9 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      - name: Install Atlas CLI
+        run: |
+          curl -sSf https://atlasgo.sh | sh
       - name: Generate
         run: make generate manifests chart-manifests
         shell: bash
