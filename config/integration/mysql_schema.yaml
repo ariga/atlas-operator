@@ -13,6 +13,10 @@ spec:
     secretKeyRef:
       key: url
       name: mysql-credentials
+  policy:
+    lint:
+      destructive:
+        error: true
   schema:
     sql: |
       create table users (

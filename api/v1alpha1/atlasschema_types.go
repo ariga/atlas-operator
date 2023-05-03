@@ -31,6 +31,23 @@ type AtlasSchemaSpec struct {
 	Schema Schema `json:"schema,omitempty"`
 	// Exclude a list of glob patterns used to filter existing resources being taken into account.
 	Exclude []string `json:"exclude,omitempty"`
+	// Policy defines the policies to apply when managing the schema change lifecycle.
+	Policy Policy `json:"policy,omitempty"`
+}
+
+// Policy defines the policies to apply when managing the schema change lifecycle.
+type Policy struct {
+	Lint Lint `json:"lint,omitempty"`
+}
+
+// Lint defines the linting policies to apply before applying the schema.
+type Lint struct {
+	Destructive CheckConfig `json:"destructive,omitempty"`
+}
+
+// CheckConfig defines the configuration of a linting check.
+type CheckConfig struct {
+	Error bool `json:"error,omitempty"`
 }
 
 // URLFrom defines a reference to a secret key that contains the Atlas URL of the

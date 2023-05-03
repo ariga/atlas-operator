@@ -20,14 +20,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -56,9 +54,9 @@ const (
 )
 
 var (
-	//go:embed devdb.tmpl
-	devDBTmpl string
-	tmpl      = template.Must(template.New("devdb").Parse(devDBTmpl))
+	//go:embed templates
+	tmpls embed.FS
+	tmpl  = template.Must(template.New("operator").ParseFS(tmpls, "templates/*.tmpl"))
 )
 
 type (
@@ -85,6 +83,7 @@ type (
 		driver  string
 		url     *url.URL
 		exclude []string
+		lint    dbv1alpha1.Lint
 	}
 	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -182,6 +181,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	}
+	if shouldLint(managed) {
+		if err := r.lint(ctx, managed, devURL); err != nil {
+			setNotReady(sc, "LintPolicyError", err.Error())
+			return ctrl.Result{}, err
+		}
+	}
 	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
 		setNotReady(sc, "ApplyingSchema", err.Error())
@@ -234,7 +239,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 		v.SchemaBound = true
 	}
 	var b bytes.Buffer
-	if err := tmpl.Execute(&b, &v); err != nil {
+	if err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", &v); err != nil {
 		return nil, err
 	}
 	if err := yaml.NewYAMLToJSONDecoder(&b).Decode(d); err != nil {
@@ -303,69 +308,6 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 	})
 }
 
-func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed, devURL string) error {
-	tmpdir, err := os.MkdirTemp("", "run-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpdir)
-	ins, err := r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
-		DevURL: devURL,
-		URL:    des.url.String(),
-		Format: "sql",
-	})
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(tmpdir, "1.sql"), []byte(ins), 0644); err != nil {
-		return err
-	}
-	desired, clean, err := atlas.TempFile(des.schema, des.ext)
-	if err != nil {
-		return err
-	}
-	defer clean()
-	dry, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		DryRun:  true,
-		URL:     des.url.String(),
-		To:      desired,
-		DevURL:  devURL,
-		Exclude: des.exclude,
-	})
-	if err != nil {
-		return err
-	}
-	plan := strings.Join(dry.Changes.Pending, ";\n")
-	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
-		return err
-	}
-	lint, err := r.CLI.Lint(ctx, &atlas.LintParams{
-		DevURL: devURL,
-		DirURL: "file://" + tmpdir,
-		Latest: 1,
-	})
-	if err != nil {
-		return err
-	}
-	if diags := destructive(lint.Files); len(diags) > 0 {
-		return destructiveErr{diags: diags}
-	}
-	return nil
-}
-
-func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {
-	for _, f := range files {
-		for _, r := range f.Reports {
-			for _, diag := range r.Diagnostics {
-				if strings.HasPrefix(diag.Code, "DS") {
-					checks = append(checks, diag)
-				}
-			}
-		}
-	}
-	return
-}
-
 func (d *devDB) ConnTmpl() string {
 	u := url.URL{
 		Scheme: d.Driver,
@@ -400,6 +342,7 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	d.url = u
 	d.driver = driver(u.Scheme)
 	d.exclude = sc.Spec.Exclude
+	d.lint = sc.Spec.Policy.Lint
 	return &d, nil
 }
 
@@ -449,4 +392,9 @@ func (d destructiveErr) Error() string {
 		buf.WriteString("- " + diag.Text + "\n")
 	}
 	return buf.String()
+}
+
+// shouldLint reports if the schema has a lint policy that requires linting.
+func shouldLint(des *managed) bool {
+	return des.lint.Destructive.Error
 }
