@@ -122,7 +122,7 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 
 func TestFirstRunDestructive(t *testing.T) {
 	tt := newTest(t)
-	tt.mockCLI().report = sqlcheck.Report{
+	tt.mockCLI().report = &sqlcheck.Report{
 		Text: "destructive changes detected",
 		Diagnostics: []sqlcheck.Diagnostic{
 			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
@@ -154,6 +154,27 @@ func TestExcludes(t *testing.T) {
 	runs := tt.mockCLI().applyRuns
 	require.EqualValues(t, []string{"ignore_me"}, runs[0].Exclude)
 	require.EqualValues(t, []string{"ignore_me"}, runs[1].Exclude)
+}
+
+func TestReconcile_Lint(t *testing.T) {
+	tt := newTest(t)
+	tt.mockCLI().report = &sqlcheck.Report{
+		Text: "destructive changes detected",
+		Diagnostics: []sqlcheck.Diagnostic{
+			{Code: "DS001", Text: "Dropping non-virtual column \"c2\""},
+		},
+	}
+	sc := conditionReconciling()
+	sc.Spec.Policy.Lint.Destructive.Error = true
+	sc.Status.LastApplied = 1
+	tt.k8s.put(sc)
+	tt.k8s.put(devDBReady())
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.ErrorContains(t, err, "destructive changes detected")
+	cont := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cont.Type)
+	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
+	require.EqualValues(t, "LintPolicyError", cont.Reason)
 }
 
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
@@ -238,7 +259,7 @@ type (
 		CLI
 		inspect   string
 		plan      string
-		report    sqlcheck.Report
+		report    *sqlcheck.Report
 		applyRuns []*atlas.SchemaApplyParams
 	}
 )
@@ -348,7 +369,7 @@ func TestTemplateSanity(t *testing.T) {
 	for _, tt := range []string{"mysql", "postgres"} {
 		t.Run(tt, func(t *testing.T) {
 			v.Driver = tt
-			err := tmpl.ExecuteTemplate(&b, "devdb", v)
+			err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", v)
 			require.NoError(t, err)
 			var d appsv1.Deployment
 			err = yaml.NewYAMLToJSONDecoder(&b).Decode(&d)
@@ -372,11 +393,16 @@ func (c *mockCLI) SchemaInspect(context.Context, *atlas.SchemaInspectParams) (st
 }
 
 func (c *mockCLI) Lint(ctx context.Context, _ *atlas.LintParams) (*atlas.SummaryReport, error) {
-	return &atlas.SummaryReport{
+	rep := &atlas.SummaryReport{
 		Files: []*atlas.FileReport{
-			{Reports: []sqlcheck.Report{c.report}},
+			{Name: "1.sql"},
 		},
-	}, nil
+	}
+	if c.report != nil {
+		rep.Files[0].Error = "err"
+		rep.Files[0].Reports = append(rep.Files[0].Reports, *c.report)
+	}
+	return rep, nil
 }
 
 func (t *test) cond() metav1.Condition {

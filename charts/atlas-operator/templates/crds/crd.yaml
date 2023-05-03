@@ -40,6 +40,23 @@ spec:
                 items:
                   type: string
                 type: array
+              policy:
+                description: Policy defines the policies to apply when managing the
+                  schema change lifecycle.
+                properties:
+                  lint:
+                    description: Lint defines the linting policies to apply before
+                      applying the schema.
+                    properties:
+                      destructive:
+                        description: CheckConfig defines the configuration of a linting
+                          check.
+                        properties:
+                          error:
+                            type: boolean
+                        type: object
+                    type: object
+                type: object
               schema:
                 description: Desired Schema of the target.
                 properties:

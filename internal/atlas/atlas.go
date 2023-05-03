@@ -33,9 +33,10 @@ type (
 	}
 	// LintParams are the parameters for the `migrate lint` command.
 	LintParams struct {
-		DevURL string
-		DirURL string
-		Latest uint64
+		ConfigURL string
+		DevURL    string
+		DirURL    string
+		Latest    uint64
 	}
 	// SchemaApplyParams are the parameters for the `schema apply` command.
 	SchemaApplyParams struct {
@@ -162,6 +163,9 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 	}
 	if data.Latest > 0 {
 		args = append(args, "--latest", strconv.FormatUint(data.Latest, 10))
+	}
+	if data.ConfigURL != "" {
+		args = append(args, "-c", data.ConfigURL)
 	}
 	var report SummaryReport
 	if _, err := c.runCommand(ctx, args, &report); err != nil {
