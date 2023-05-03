@@ -12,6 +12,7 @@ spec:
       labels:
         app: mysql
     spec:
+
       containers:
         - name: mysql
           image: mysql:latest
@@ -23,6 +24,12 @@ spec:
           ports:
             - containerPort: 3306
               name: mysql
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
 ---
 apiVersion: v1
 kind: Service
