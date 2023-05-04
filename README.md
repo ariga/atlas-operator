@@ -35,12 +35,12 @@ and apply it to your database using the Kubernetes API.
 
 ### Declarative schema migrations
 
+![](https://user-images.githubusercontent.com/1522681/236139615-1d10feea-8b19-46a2-905b-b614883c48c8.png)
+
 The Atlas Kubernetes Operator supports [declarative migrations](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 In declarative migrations, the desired state of the database is defined by the user and the operator is responsible
 for reconciling the desired state with the actual state of the database (planning and executing `CREATE`, `ALTER`
 and `DROP` statements).
-
-![](https://user-images.githubusercontent.com/1522681/236139615-1d10feea-8b19-46a2-905b-b614883c48c8.png)
 
 ### Installation
 
@@ -124,6 +124,59 @@ operator, follow these steps to get started:
   ```
   
   Hooray! We applied our desired schema to our target database.
+
+### API Reference
+
+Example resource: 
+
+```yaml
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-mysql
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: mysql-credentials
+  policy:
+    # Fail if the diff planned by Atlas contains destructive changes.
+    lint:
+      destructive:
+        error: true
+    diff:
+      # Omit any DROP INDEX statements from the diff planned by Atlas.
+      skip:
+        drop_index: true
+  schema:
+    sql: |
+      create table users (
+        id int not null auto_increment,
+        name varchar(255) not null,
+        primary key (id)
+      );
+  exclude:
+    - ignore_me
+```
+
+This resource describes the desired schema of a MySQL database. 
+* The `urlFrom` field is a reference to a secret containing an [Atlas URL](https://atlasgo.io/concepts/url) 
+ to the target database. 
+* The `schema` field contains the desired schema in SQL. To define the schema in HCL instead of SQL, use the `hcl` field:
+  ```yaml
+  spec:
+    schema:
+      hcl: |
+        table "users" {
+          // ...
+        }
+  ```
+  To learn more about defining SQL resources in HCL see [this guide](https://atlasgo.io/atlas-schema/sql-resources).
+* The `policy` field defines different policies that direct the way Atlas will plan and execute schema changes.
+  * The `lint` policy defines a policy for linting the schema. In this example, we define a policy that will fail
+    if the diff planned by Atlas contains destructive changes.
+  * The `diff` policy defines a policy for planning the schema diff. In this example, we define a policy that will
+    omit any `DROP INDEX` statements from the diff planned by Atlas.
 
 ### Support
 
