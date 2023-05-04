@@ -29,9 +29,18 @@ and apply it to your database using the Kubernetes API.
 - [x] Support for [declarative migrations](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations)
   for schemas defined in [Plain SQL](https://atlasgo.io/declarative/apply#sql-schema) or 
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
-- [ ] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them. (Coming Soon)   
+- [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them. (Coming Soon)   
 - [ ] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations). (Coming Soon)
 - [X] Supported databases: MySQL, MariaDB, PostgresSQL, SQLite, TiDB, CockroachDB
+
+### Declarative schema migrations
+
+The Atlas Kubernetes Operator supports [declarative migrations](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
+In declarative migrations, the desired state of the database is defined by the user and the operator is responsible
+for reconciling the desired state with the actual state of the database (planning and executing `CREATE`, `ALTER`
+and `DROP` statements).
+
+![](https://user-images.githubusercontent.com/1522681/236139615-1d10feea-8b19-46a2-905b-b614883c48c8.png)
 
 ### Installation
 
