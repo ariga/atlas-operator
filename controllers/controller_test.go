@@ -272,7 +272,7 @@ func objmeta() metav1.ObjectMeta {
 func req() ctrl.Request {
 	return ctrl.Request{
 		NamespacedName: client.ObjectKey{
-			Name:      "my-atlas-desired",
+			Name:      "my-atlas-schema",
 			Namespace: "test",
 		},
 	}
