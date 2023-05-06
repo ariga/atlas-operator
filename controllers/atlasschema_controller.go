@@ -134,8 +134,8 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "ReadSchema", err.Error())
 		return ctrl.Result{}, err
 	}
-	// If the desired has changed and the desired's ready condition is not false, immediately set it to false.
-	// This is done so that the observed status of the desired reflects its "in-progress" state while it is being
+	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
+	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
 	// reconciled.
 	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && managed.hash() != sc.Status.ObservedHash {
 		setNotReady(sc, "Reconciling", "current desired does not match last applied managed")
@@ -407,7 +407,7 @@ func setReady(sc *dbv1alpha1.AtlasSchema, des *managed, apply *atlas.SchemaApply
 	if j, err := json.Marshal(apply); err != nil {
 		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
 	} else {
-		msg = fmt.Sprintf("The desired has been applied successfully. Apply response: %s", j)
+		msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
 	}
 	meta.SetStatusCondition(
 		&sc.Status.Conditions,
@@ -431,7 +431,7 @@ func (d destructiveErr) Error() string {
 	return buf.String()
 }
 
-// shouldLint reports if the desired has a policy that requires linting.
+// shouldLint reports if the schema has a policy that requires linting.
 func shouldLint(des *managed) bool {
 	return des.policy.Lint.Destructive.Error
 }

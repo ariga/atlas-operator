@@ -106,7 +106,8 @@ spec:
                     type: string
                 type: object
               schemas:
-                description: The names of the schemas to be managed.
+                description: The names of the schemas (named databases) on the target
+                  database to be managed.
                 items:
                   type: string
                 type: array

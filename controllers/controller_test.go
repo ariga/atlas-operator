@@ -91,7 +91,7 @@ func TestReconcile_NoSchema(t *testing.T) {
 	})
 	request := req()
 	_, err := tt.r.Reconcile(context.Background(), request)
-	require.EqualError(t, err, "no desired desired specified")
+	require.EqualError(t, err, "no desired schema specified")
 }
 
 func TestReconcile_HasSchema(t *testing.T) {
@@ -253,7 +253,7 @@ func conditionReconciling() *dbv1alpha1.AtlasSchema {
 func devDBReady() *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-atlas-desired" + devDBSuffix,
+			Name:      "my-atlas-schema" + devDBSuffix,
 			Namespace: "test",
 		},
 		Status: appsv1.DeploymentStatus{
@@ -264,7 +264,7 @@ func devDBReady() *appsv1.Deployment {
 
 func objmeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:      "my-atlas-desired",
+		Name:      "my-atlas-schema",
 		Namespace: "test",
 	}
 }
@@ -364,7 +364,7 @@ func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...c
 	podList.Items = []corev1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-atlas-desired" + devDBSuffix,
+				Name:      "my-atlas-schema" + devDBSuffix,
 				Namespace: "test",
 				Annotations: map[string]string{
 					"atlasgo.io/conntmpl": "mysql://root:password@" + hostReplace + ":3306/test",
