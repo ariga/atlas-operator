@@ -91,7 +91,7 @@ func TestReconcile_NoSchema(t *testing.T) {
 	})
 	request := req()
 	_, err := tt.r.Reconcile(context.Background(), request)
-	require.EqualError(t, err, "no desired schema specified")
+	require.EqualError(t, err, "no desired desired specified")
 }
 
 func TestReconcile_HasSchema(t *testing.T) {
@@ -110,7 +110,9 @@ func TestReconcile_HasSchema(t *testing.T) {
 
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	tt := newTest(t)
-	tt.k8s.put(conditionReconciling())
+	sc := conditionReconciling()
+	sc.Spec.Schemas = []string{"a", "b"}
+	tt.k8s.put(sc)
 	tt.k8s.put(devDBReady())
 	request := req()
 	resp, err := tt.r.Reconcile(context.Background(), request)
@@ -120,6 +122,7 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cond.Type)
 	require.EqualValues(t, metav1.ConditionTrue, cond.Status)
 	require.EqualValues(t, "Applied", cond.Reason)
+	require.EqualValues(t, []string{"a", "b"}, tt.mockCLI().applyRuns[0].Schema)
 }
 
 func TestExcludes(t *testing.T) {
@@ -250,7 +253,7 @@ func conditionReconciling() *dbv1alpha1.AtlasSchema {
 func devDBReady() *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-atlas-schema" + devDBSuffix,
+			Name:      "my-atlas-desired" + devDBSuffix,
 			Namespace: "test",
 		},
 		Status: appsv1.DeploymentStatus{
@@ -261,7 +264,7 @@ func devDBReady() *appsv1.Deployment {
 
 func objmeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:      "my-atlas-schema",
+		Name:      "my-atlas-desired",
 		Namespace: "test",
 	}
 }
@@ -269,7 +272,7 @@ func objmeta() metav1.ObjectMeta {
 func req() ctrl.Request {
 	return ctrl.Request{
 		NamespacedName: client.ObjectKey{
-			Name:      "my-atlas-schema",
+			Name:      "my-atlas-desired",
 			Namespace: "test",
 		},
 	}
@@ -361,7 +364,7 @@ func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...c
 	podList.Items = []corev1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-atlas-schema" + devDBSuffix,
+				Name:      "my-atlas-desired" + devDBSuffix,
 				Namespace: "test",
 				Annotations: map[string]string{
 					"atlasgo.io/conntmpl": "mysql://root:password@" + hostReplace + ":3306/test",

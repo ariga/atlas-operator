@@ -104,6 +104,11 @@ spec:
                   sql:
                     type: string
                 type: object
+              schemas:
+                description: The names of the schemas to be managed.
+                items:
+                  type: string
+                type: array
               url:
                 description: URL of the target database schema.
                 type: string

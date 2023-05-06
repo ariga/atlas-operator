@@ -30,6 +30,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		DevURL: devURL,
 		URL:    des.url.String(),
 		Format: "sql",
+		Schema: des.schemas,
 	})
 	if err != nil {
 		return err
@@ -37,7 +38,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 	if err := os.WriteFile(filepath.Join(tmpdir, "1.sql"), []byte(ins), 0644); err != nil {
 		return err
 	}
-	desired, clean, err := atlas.TempFile(des.schema, des.ext)
+	desired, clean, err := atlas.TempFile(des.desired, des.ext)
 	if err != nil {
 		return err
 	}
@@ -52,6 +53,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		To:      desired,
 		DevURL:  devURL,
 		Exclude: des.exclude,
+		Schema:  des.schemas,
 	})
 	if err != nil {
 		return err
