@@ -138,7 +138,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
 	// reconciled.
 	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && managed.hash() != sc.Status.ObservedHash {
-		setNotReady(sc, "Reconciling", "current desired does not match last applied managed")
+		setNotReady(sc, "Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// make sure we have a dev db running
