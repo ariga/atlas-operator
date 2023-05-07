@@ -353,7 +353,7 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 		d.desired = sch.SQL
 		d.ext = "sql"
 	default:
-		return nil, fmt.Errorf("no desired desired specified")
+		return nil, fmt.Errorf("no desired schema specified")
 	}
 	u, err := r.url(ctx, sc)
 	if err != nil {
