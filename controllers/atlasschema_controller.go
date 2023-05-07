@@ -79,12 +79,13 @@ type (
 	// managed contains information about the managed database and its desired state.
 	managed struct {
 		ext        string
-		schema     string
+		desired    string
 		driver     string
 		url        *url.URL
 		exclude    []string
 		configfile string
 		policy     dbv1alpha1.Policy
+		schemas    []string
 	}
 	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -137,7 +138,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
 	// reconciled.
 	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && managed.hash() != sc.Status.ObservedHash {
-		setNotReady(sc, "Reconciling", "current schema does not match last applied managed")
+		setNotReady(sc, "Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// make sure we have a dev db running
@@ -145,7 +146,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if managed.driver != "sqlite" {
 		err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
 		if apierrors.IsNotFound(err) {
-			devDB, err = r.devDBDeployment(ctx, sc, managed.driver)
+			devDB, err = r.devDBDeployment(ctx, sc, managed)
 			if err != nil {
 				setNotReady(sc, "CreatingDevDB", err.Error())
 				return ctrl.Result{}, err
@@ -230,23 +231,25 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 	return url.Parse(us)
 }
 
-func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alpha1.AtlasSchema, driver string) (*v1.Deployment, error) {
+func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alpha1.AtlasSchema, m *managed) (*v1.Deployment, error) {
 	d := &v1.Deployment{}
 	v := devDB{
-		Name:      sc.Name + devDBSuffix,
-		Namespace: sc.Namespace,
-		Driver:    driver,
-		UID:       1000,
+		Name:        sc.Name + devDBSuffix,
+		Namespace:   sc.Namespace,
+		Driver:      m.driver,
+		UID:         1000,
+		SchemaBound: m.schemaBound(),
 	}
-	switch driver {
+	switch m.driver {
 	case "postgres":
 		v.Port = 5432
 		v.UID = 999
 		v.DB = "postgres"
 	case "mysql":
 		v.Port = 3306
-		v.DB = "dev"
-		v.SchemaBound = true
+		if v.SchemaBound {
+			v.DB = "dev"
+		}
 	}
 	var b bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", &v); err != nil {
@@ -310,7 +313,7 @@ func driver(scheme string) string {
 }
 
 func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL string) (*atlas.SchemaApply, error) {
-	file, clean, err := atlas.TempFile(des.schema, des.ext)
+	file, clean, err := atlas.TempFile(des.desired, des.ext)
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +324,7 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		DevURL:    devURL,
 		Exclude:   des.exclude,
 		ConfigURL: des.configfile,
+		Schema:    des.schemas,
 	})
 }
 
@@ -343,10 +347,10 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	var d managed
 	switch sch := sc.Spec.Schema; {
 	case sch.HCL != "":
-		d.schema = sch.HCL
+		d.desired = sch.HCL
 		d.ext = "hcl"
 	case sch.SQL != "":
-		d.schema = sch.SQL
+		d.desired = sch.SQL
 		d.ext = "sql"
 	default:
 		return nil, fmt.Errorf("no desired schema specified")
@@ -359,14 +363,31 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	d.driver = driver(u.Scheme)
 	d.exclude = sc.Spec.Exclude
 	d.policy = sc.Spec.Policy
+	d.schemas = sc.Spec.Schemas
 	return &d, nil
 }
 
-// hash returns the sha256 hash of the schema.
+// hash returns the sha256 hash of the desired.
 func (d *managed) hash() string {
 	h := sha256.New()
-	h.Write([]byte(d.schema))
+	h.Write([]byte(d.desired))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (d *managed) schemaBound() bool {
+	switch {
+	case d.driver == "sqlite":
+		return true
+	case d.driver == "postgres":
+		if d.url.Query().Get("search_path") != "" {
+			return true
+		}
+	case d.driver == "mysql":
+		if d.url.Path != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func setNotReady(sc *dbv1alpha1.AtlasSchema, reason, msg string) {

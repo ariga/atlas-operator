@@ -33,6 +33,8 @@ type AtlasSchemaSpec struct {
 	Exclude []string `json:"exclude,omitempty"`
 	// Policy defines the policies to apply when managing the schema change lifecycle.
 	Policy Policy `json:"policy,omitempty"`
+	// The names of the schemas (named databases) on the target database to be managed.
+	Schemas []string `json:"schemas,omitempty"`
 }
 
 // Policy defines the policies to apply when managing the schema change lifecycle.

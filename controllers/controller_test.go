@@ -110,7 +110,9 @@ func TestReconcile_HasSchema(t *testing.T) {
 
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	tt := newTest(t)
-	tt.k8s.put(conditionReconciling())
+	sc := conditionReconciling()
+	sc.Spec.Schemas = []string{"a", "b"}
+	tt.k8s.put(sc)
 	tt.k8s.put(devDBReady())
 	request := req()
 	resp, err := tt.r.Reconcile(context.Background(), request)
@@ -120,6 +122,7 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cond.Type)
 	require.EqualValues(t, metav1.ConditionTrue, cond.Status)
 	require.EqualValues(t, "Applied", cond.Reason)
+	require.EqualValues(t, []string{"a", "b"}, tt.mockCLI().applyRuns[0].Schema)
 }
 
 func TestExcludes(t *testing.T) {
