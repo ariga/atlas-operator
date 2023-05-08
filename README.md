@@ -2,9 +2,6 @@
 
 Manage your database with Kubernetes using [Atlas](https://atlasgo.io).
 
-⚠️ _This project is still missing some key safety features that will be added in the near future, 
-until then please treat this project as a work in progress and not ready for use in production._
-
 ### What is Atlas? 
 
 [Atlas](https://atlasgo.io) is a popular open-source schema management tool.
@@ -177,6 +174,12 @@ This resource describes the desired schema of a MySQL database.
     if the diff planned by Atlas contains destructive changes.
   * The `diff` policy defines a policy for planning the schema diff. In this example, we define a policy that will
     omit any `DROP INDEX` statements from the diff planned by Atlas.
+
+### Version checks
+
+The operator will periodically check for new versions and security advisories related to the operator.
+To disable version checks, set the `SKIP_VERCHECK` environment variable to `true` in the operator's
+deployment manifest.
 
 ### Support
 

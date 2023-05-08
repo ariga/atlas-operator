@@ -40,6 +40,8 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator:${{ needs.calculate_tag.outputs.tag }}
           context: .
+          build-args: |
+            OPERATOR_VERSION=v${{ needs.calculate_tag.outputs.tag }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           labels: |

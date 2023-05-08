@@ -3,6 +3,7 @@
 FROM golang:1.20-alpine as builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG OPERATOR_VERSION
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -22,7 +23,9 @@ COPY internal/ internal/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager main.go
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+    -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
+     -a -o manager main.go
 
 FROM arigaio/atlas:latest-alpine as atlas
 
