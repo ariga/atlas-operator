@@ -53,7 +53,7 @@ var (
 
 const (
 	// envNoUpdate when enabled it cancels checking for update
-	envNoUpdate = "ATLAS_NO_UPDATE_NOTIFIER"
+	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
 )
 
@@ -135,7 +135,7 @@ func checkForUpdate() {
 	log := ctrl.Log.WithName("vercheck")
 	// Users may skip update checking behavior.
 	if v := os.Getenv(envNoUpdate); v != "" {
-		log.Info("skipping version checking because ATLAS_NO_UPDATE_NOTIFIER is set")
+		log.Info("skipping version checking because SKIP_VERCHECK is set")
 		return
 	}
 	// Skip if the current binary version isn't set (dev mode).
