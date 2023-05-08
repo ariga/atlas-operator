@@ -17,10 +17,16 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"flag"
 	"os"
+	"time"
+
+	"golang.org/x/mod/semver"
 
 	"github.com/ariga/atlas-operator/internal/atlas"
+	"github.com/ariga/atlas-operator/internal/vercheck"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -40,6 +46,15 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+	// version holds the operator version. It should be set by build flag
+	// "-X 'main.version=${version}'"
+	version string
+)
+
+const (
+	// envNoUpdate when enabled it cancels checking for update
+	envNoUpdate = "ATLAS_NO_UPDATE_NOTIFIER"
+	vercheckURL = "https://vercheck.ariga.io"
 )
 
 func init() {
@@ -107,10 +122,46 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
-
+	go checkForUpdate()
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+// checkForUpdate checks for version updates and security advisories for the Atlas Operator.
+func checkForUpdate() {
+	log := ctrl.Log.WithName("vercheck")
+	// Users may skip update checking behavior.
+	if v := os.Getenv(envNoUpdate); v != "" {
+		log.Info("skipping version checking because ATLAS_NO_UPDATE_NOTIFIER is set")
+		return
+	}
+	// Skip if the current binary version isn't set (dev mode).
+	if !semver.IsValid(version) {
+		log.Info("skipping version checking because version is not valid")
+		return
+	}
+	log.Info("setting up version checking", "version", version)
+	vc := vercheck.New(vercheckURL, "")
+	for {
+		if err := func() error {
+			payload, err := vc.Check(version)
+			if err != nil {
+				return err
+			}
+			var b bytes.Buffer
+			if err := vercheck.Notify.Execute(&b, payload); err != nil {
+				return err
+			}
+			if msg := b.String(); msg != "" {
+				log.Info(msg)
+			}
+			return nil
+		}(); err != nil {
+			log.Error(err, "unable to check for update")
+		}
+		<-time.After(24 * time.Hour)
 	}
 }
