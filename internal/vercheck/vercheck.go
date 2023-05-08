@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"text/template"
 	"time"
 )
@@ -77,7 +78,7 @@ func (v *VerChecker) Check(ver string) (*Payload, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Ariga-Atlas-Operator")
+	req.Header.Set("User-Agent", fmt.Sprintf("Ariga-Atlas-Operator/%s (%s, %s)", ver, runtime.GOOS, runtime.GOARCH))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

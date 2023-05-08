@@ -30,8 +30,8 @@ func TestVerCheck(t *testing.T) {
 	vc := New(srv.URL, "")
 	check, err := vc.Check("v0.1.2")
 
-	require.EqualValues(t, "/atlas/v0.1.2", path)
-	require.EqualValues(t, "Ariga-Atlas-CLI", ua)
+	require.EqualValues(t, "/atlas-operator/v0.1.2", path)
+	require.Contains(t, ua, "Ariga-Atlas-Operator")
 	require.NoError(t, err)
 	require.EqualValues(t, &Payload{
 		Latest: &Latest{
@@ -121,7 +121,7 @@ func TestTemplate(t *testing.T) {
 					Link:    "https://atlasgo.io/v0.7.2",
 				},
 			},
-			exp: `A new version of Atlas is available (v0.7.2): https://atlasgo.io/v0.7.2
+			exp: `A new version of the Atlas Operator is available (v0.7.2): https://atlasgo.io/v0.7.2
 A great version including amazing features.`,
 		},
 		{
@@ -132,7 +132,7 @@ A great version including amazing features.`,
 					Link:    "https://atlasgo.io/v0.7.2",
 				},
 			},
-			exp: `A new version of Atlas is available (v0.7.2): https://atlasgo.io/v0.7.2`,
+			exp: `A new version of the Atlas Operator is available (v0.7.2): https://atlasgo.io/v0.7.2`,
 		},
 		{
 			name: "with advisory",
