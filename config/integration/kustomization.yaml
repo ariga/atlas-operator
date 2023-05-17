@@ -4,4 +4,5 @@ resources:
   - mysql.yaml
   - postgres.yaml
   - postgres_schema.yaml
+  - configmap.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
