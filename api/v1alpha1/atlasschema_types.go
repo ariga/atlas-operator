@@ -101,8 +101,9 @@ type URLFrom struct {
 
 // Schema defines the desired state of the target database schema in plain SQL or HCL.
 type Schema struct {
-	SQL string `json:"sql,omitempty"`
-	HCL string `json:"hcl,omitempty"`
+	SQL             string                       `json:"sql,omitempty"`
+	HCL             string                       `json:"hcl,omitempty"`
+	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 }
 
 // AtlasSchemaStatus defines the observed state of AtlasSchema

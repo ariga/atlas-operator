@@ -103,6 +103,7 @@ type (
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -132,7 +133,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	managed, err = r.extractManaged(ctx, sc)
 	if err != nil {
 		setNotReady(sc, "ReadSchema", err.Error())
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: time.Second * 5}, err
 	}
 	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
@@ -352,6 +353,28 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 	case sch.SQL != "":
 		d.desired = sch.SQL
 		d.ext = "sql"
+	case sch.ConfigMapKeyRef != nil:
+		cm := &corev1.ConfigMap{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Namespace: sc.Namespace,
+			Name:      sch.ConfigMapKeyRef.Name,
+		}, cm); err != nil {
+			return nil, err
+		}
+		var ok bool
+		k := sch.ConfigMapKeyRef.Key
+		d.desired, ok = cm.Data[k]
+		if !ok {
+			return nil, fmt.Errorf("configmap %s/%s does not contain key %s", sc.Namespace, sch.ConfigMapKeyRef.Name, k)
+		}
+		switch {
+		case strings.HasSuffix(k, ".hcl"):
+			d.ext = "hcl"
+		case strings.HasSuffix(k, ".sql"):
+			d.ext = "sql"
+		default:
+			return nil, fmt.Errorf("unsupported configmap key %s", k)
+		}
 	default:
 		return nil, fmt.Errorf("no desired schema specified")
 	}

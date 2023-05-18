@@ -125,6 +125,42 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, []string{"a", "b"}, tt.mockCLI().applyRuns[0].Schema)
 }
 
+func TestSchemaConfigMap(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	// Schema defined in configmap.
+	tt.k8s.put(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-atlas-schema",
+			Namespace: "test",
+		},
+		Data: map[string]string{
+			"schema.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
+		},
+	})
+	sc.Spec.Schema.ConfigMapKeyRef = &corev1.ConfigMapKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{
+			Name: "schema-configmap",
+		},
+		Key: "schema.sql",
+	}
+	sc.Spec.URL = tt.dburl
+	tt.k8s.put(sc)
+	ctx := context.Background()
+
+	_, err := tt.r.Reconcile(ctx, req())
+	require.NoError(t, err)
+
+	// Assert that the schema was applied.
+	inspect, err := tt.r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+		URL:    tt.dburl,
+		DevURL: "sqlite://mem?mode=memory",
+		Format: "sql",
+	})
+	require.NoError(t, err)
+	require.Contains(t, inspect, "CREATE TABLE `foo` (`id` int NULL, PRIMARY KEY (`id`));")
+}
+
 func TestExcludes(t *testing.T) {
 	tt := cliTest(t)
 	sc := conditionReconciling()
@@ -133,7 +169,6 @@ func TestExcludes(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-
 }
 
 func TestReconcile_Lint(t *testing.T) {
