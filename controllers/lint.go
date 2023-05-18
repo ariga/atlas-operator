@@ -33,7 +33,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		Schema: des.schemas,
 	})
 	if err != nil {
-		return err
+		return transient(err)
 	}
 	if err := os.WriteFile(filepath.Join(tmpdir, "1.sql"), []byte(ins), 0644); err != nil {
 		return err
@@ -56,7 +56,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		Schema:  des.schemas,
 	})
 	if err != nil {
-		return err
+		return transient(err)
 	}
 	plan := strings.Join(dry.Changes.Pending, ";\n")
 	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
@@ -70,7 +70,8 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		Vars:      vv,
 	})
 	if err != nil {
-		return err
+		// TODO: handle sql syntax errors specifically, they are not transient.
+		return transient(err)
 	}
 	if diags := destructive(lint.Files); len(diags) > 0 {
 		return destructiveErr{diags: diags}

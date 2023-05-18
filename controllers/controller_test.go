@@ -91,7 +91,12 @@ func TestReconcile_NoSchema(t *testing.T) {
 	})
 	request := req()
 	_, err := tt.r.Reconcile(context.Background(), request)
-	require.EqualError(t, err, "no desired schema specified")
+	require.NoError(t, err)
+	cond := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cond.Type)
+	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
+	require.EqualValues(t, "ReadSchema", cond.Reason)
+	require.EqualValues(t, "no desired schema specified", cond.Message)
 }
 
 func TestReconcile_HasSchema(t *testing.T) {
@@ -131,18 +136,20 @@ func TestSchemaConfigMap(t *testing.T) {
 	// Schema defined in configmap.
 	tt.k8s.put(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-atlas-schema",
+			Name:      "schema-configmap",
 			Namespace: "test",
 		},
 		Data: map[string]string{
 			"schema.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
 		},
 	})
-	sc.Spec.Schema.ConfigMapKeyRef = &corev1.ConfigMapKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{
-			Name: "schema-configmap",
+	sc.Spec.Schema = dbv1alpha1.Schema{
+		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: "schema-configmap",
+			},
+			Key: "schema.sql",
 		},
-		Key: "schema.sql",
 	}
 	sc.Spec.URL = tt.dburl
 	tt.k8s.put(sc)
@@ -159,6 +166,26 @@ func TestSchemaConfigMap(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, inspect, "CREATE TABLE `foo` (`id` int NULL, PRIMARY KEY (`id`));")
+}
+
+func TestConfigMapNotFound(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	sc.Spec.Schema = dbv1alpha1.Schema{
+		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: "schema-configmap",
+			},
+			Key: "schema.sql",
+		},
+	}
+	sc.Spec.URL = tt.dburl
+	tt.k8s.put(sc)
+	ctx := context.Background()
+
+	res, err := tt.r.Reconcile(ctx, req())
+	require.ErrorContains(t, err, `"schema-configmap" not found`)
+	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, res)
 }
 
 func TestExcludes(t *testing.T) {
@@ -180,7 +207,7 @@ func TestReconcile_Lint(t *testing.T) {
 	tt.k8s.put(sc)
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
-	require.ErrorContains(t, err, "destructive changes detected")
+	require.NoError(t, err) // this is a non transient error, therefore we don't requeue.
 	cont := tt.cond()
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
@@ -194,7 +221,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	tt.k8s.put(sc)
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
-	require.ErrorContains(t, err, "destructive changes detected")
+	require.NoError(t, err) // this is a non transient error, therefore we don't requeue.
 
 	// Condition is not ready and FirstRunDestructive.
 	cond := tt.cond()
