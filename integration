@@ -1,7 +1,0 @@
-global:
-  survey:
-    last-prompted: "2023-05-19T11:39:49+03:00"
-  collect-metrics: true
-  update:
-    last-prompted: "2023-05-19T11:39:49+03:00"
-kubeContexts: []
