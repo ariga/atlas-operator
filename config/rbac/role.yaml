@@ -44,6 +44,32 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasmigrations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
   - atlasschemas
   verbs:
   - create

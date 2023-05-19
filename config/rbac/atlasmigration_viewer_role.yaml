@@ -1,0 +1,27 @@
+# permissions for end users to view atlasmigrations.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: atlasmigration-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: atlasmigration-viewer-role
+rules:
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations/status
+  verbs:
+  - get

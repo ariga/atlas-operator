@@ -1,4 +1,5 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
 - db_v1alpha1_atlasschema.yaml
+- db_v1alpha1_atlasmigration.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

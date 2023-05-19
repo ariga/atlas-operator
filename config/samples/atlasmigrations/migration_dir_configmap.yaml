@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: migration-dir
+data:
+  20221109072034_init.sql: |
+    create table users
+    (
+        id    int,
+        email varchar(100),
+        name  varchar(100),
+        primary key (id),
+        unique (email)
+    );
+  20221109085340_add_blogposts.sql: |
+    create table blog_posts
+    (
+        id int,
+        title varchar(100),
+        body text,
+        author_id int,
+        foreign key (author_id) references users(id),
+        primary key (id)
+    );
+  
