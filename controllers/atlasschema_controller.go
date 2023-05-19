@@ -133,7 +133,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	managed, err = r.extractManaged(ctx, sc)
 	if err != nil {
 		setNotReady(sc, "ReadSchema", err.Error())
-		return ctrl.Result{RequeueAfter: time.Second * 5}, err
+		return result(err)
 	}
 	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
@@ -145,12 +145,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// make sure we have a dev db running
 	devDB := &v1.Deployment{}
 	if managed.driver != "sqlite" {
-		err = r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB)
+		err = transient(
+			r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB),
+		)
 		if apierrors.IsNotFound(err) {
 			devDB, err = r.devDBDeployment(ctx, sc, managed)
 			if err != nil {
 				setNotReady(sc, "CreatingDevDB", err.Error())
-				return ctrl.Result{}, err
+				return result(err)
 			}
 			return ctrl.Result{
 				RequeueAfter: time.Second * 15,
@@ -158,18 +160,18 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		if err != nil {
 			setNotReady(sc, "GettingDevDB", err.Error())
-			return ctrl.Result{}, err
+			return result(err)
 		}
 	}
 	devURL, err := r.devURL(ctx, req.Name, managed.driver)
 	if err != nil {
 		setNotReady(sc, "GettingDevDBURL", err.Error())
-		return ctrl.Result{}, err
+		return result(err)
 	}
 	conf, cleanconf, err := configFile(sc.Spec.Policy)
 	if err != nil {
 		setNotReady(sc, "CreatingConfigFile", err.Error())
-		return ctrl.Result{}, err
+		return result(err)
 	}
 	defer cleanconf()
 	managed.configfile = conf
@@ -178,10 +180,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.verifyFirstRun(ctx, managed, devURL); err != nil {
 			reason := "VerifyingFirstRun"
 			msg := err.Error()
-			if strings.Contains(msg, "connection refused") {
-				setNotReady(sc, "DevDBNotReady", msg)
-				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
-			}
 			var d destructiveErr
 			if errors.As(err, &d) {
 				reason = "FirstRunDestructive"
@@ -190,19 +188,19 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
 			}
 			setNotReady(sc, reason, msg)
-			return ctrl.Result{}, err
+			return result(err)
 		}
 	}
 	if shouldLint(managed) {
 		if err := r.lint(ctx, managed, devURL); err != nil {
 			setNotReady(sc, "LintPolicyError", err.Error())
-			return ctrl.Result{}, err
+			return result(err)
 		}
 	}
 	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
 		setNotReady(sc, "ApplyingSchema", err.Error())
-		return ctrl.Result{RequeueAfter: time.Second * 5}, err
+		return result(err)
 	}
 	setReady(sc, managed, app)
 	return ctrl.Result{}, nil
@@ -223,7 +221,7 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 	case s.URLFrom.SecretKeyRef != nil:
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, client.ObjectKey{Namespace: sch.Namespace, Name: s.URLFrom.SecretKeyRef.Name}, secret); err != nil {
-			return nil, err
+			return nil, transient(err)
 		}
 		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
 	default:
@@ -263,7 +261,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 		return nil, err
 	}
 	if err := r.Create(ctx, d); err != nil {
-		return nil, err
+		return nil, transient(err)
 	}
 	return d, nil
 }
@@ -277,20 +275,26 @@ func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string)
 		"app.kubernetes.io/instance": name + devDBSuffix,
 		"atlasgo.io/engine":          driver,
 	})); err != nil {
-		return "", err
+		return "", transient(err)
 	}
 	if len(pods.Items) == 0 {
-		return "", errors.New("no pods found")
+		return "", transient(
+			errors.New("no pods found"),
+		)
 	}
 	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
 		return p.Status.Phase == corev1.PodRunning
 	})
 	if idx == -1 {
-		return "", errors.New("no running pods found")
+		return "", transient(
+			errors.New("no running pods found"),
+		)
 	}
 	pod := pods.Items[idx]
 	ct, ok := pod.Annotations["atlasgo.io/conntmpl"]
 	if !ok {
+		// If the connection template is not found, there is an issue with the pod spec and the error
+		// is not transient.
 		return "", errors.New("no connection template label found")
 	}
 	return strings.ReplaceAll(
@@ -319,7 +323,7 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		return nil, err
 	}
 	defer clean()
-	return r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	apply, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		URL:       des.url.String(),
 		To:        file,
 		DevURL:    devURL,
@@ -327,6 +331,13 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		ConfigURL: des.configfile,
 		Schema:    des.schemas,
 	})
+	if isSQLErr(err) {
+		return nil, err
+	}
+	if err != nil {
+		return nil, transient(err)
+	}
+	return apply, nil
 }
 
 func (d *devDB) ConnTmpl() string {
@@ -359,7 +370,7 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 			Namespace: sc.Namespace,
 			Name:      sch.ConfigMapKeyRef.Name,
 		}, cm); err != nil {
-			return nil, err
+			return nil, transient(err)
 		}
 		var ok bool
 		k := sch.ConfigMapKeyRef.Key
@@ -465,4 +476,44 @@ func configFile(policy dbv1alpha1.Policy) (string, func() error, error) {
 		return "", nil, err
 	}
 	return atlas.TempFile(buf.String(), "hcl")
+}
+
+// transientErr is an error that should be retried.
+type transientErr struct {
+	err error
+}
+
+func (t *transientErr) Error() string {
+	return t.err.Error()
+}
+
+func (t *transientErr) Unwrap() error {
+	return t.err
+}
+
+// transient wraps an error to indicate that it should be retried.
+func transient(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &transientErr{err: err}
+}
+
+func isSQLErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "sql/migrate: execute: executing statement")
+}
+
+// result returns a ctrl.Result and an error. If the error is transient, the
+// task will be requeued after 5 seconds. Permanent errors are not returned
+// as errors because they cause the controller to requeue indefinitely. Instead,
+// they should be reported as a status condition.
+func result(err error) (ctrl.Result, error) {
+	var t *transientErr
+	if errors.As(err, &t) {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	return ctrl.Result{}, nil
 }
