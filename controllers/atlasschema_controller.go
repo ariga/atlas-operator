@@ -501,9 +501,6 @@ func transient(err error) error {
 // as errors because they cause the controller to requeue indefinitely. Instead,
 // should be reported as a status condition.
 func result(err error) (ctrl.Result, error) {
-	if err == nil {
-		return ctrl.Result{}, nil
-	}
 	var t *transientErr
 	if errors.As(err, &t) {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
