@@ -331,6 +331,9 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		ConfigURL: des.configfile,
 		Schema:    des.schemas,
 	})
+	if isSQLErr(err) {
+		return nil, err
+	}
 	if err != nil {
 		return nil, transient(err)
 	}
@@ -496,14 +499,21 @@ func transient(err error) error {
 	return &transientErr{err: err}
 }
 
+func isSQLErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "sql/migrate: execute: executing statement")
+}
+
 // result returns a ctrl.Result and an error. If the error is transient, the
 // task will be requeued after 5 seconds. Permanent errors are not returned
 // as errors because they cause the controller to requeue indefinitely. Instead,
-// should be reported as a status condition.
+// they should be reported as a status condition.
 func result(err error) (ctrl.Result, error) {
 	var t *transientErr
 	if errors.As(err, &t) {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
 }

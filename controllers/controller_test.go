@@ -184,8 +184,10 @@ func TestConfigMapNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := tt.r.Reconcile(ctx, req())
-	require.ErrorContains(t, err, `"schema-configmap" not found`)
+	require.NoError(t, err)
 	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, res)
+	cond := tt.cond()
+	require.Contains(t, cond.Message, `"schema-configmap" not found`)
 }
 
 func TestExcludes(t *testing.T) {
@@ -235,6 +237,24 @@ func Test_FirstRunDestructive(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, ins, "CREATE TABLE `x` (`c` int NULL);")
+}
+
+func TestBadSQL(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	sc.Spec.Schema.SQL = "bad sql;"
+	sc.Spec.URL = tt.dburl
+	sc.Spec.Policy.Lint.Destructive.Error = true
+	sc.Status.LastApplied = 1
+	tt.k8s.put(sc)
+	resp, err := tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, ctrl.Result{}, resp)
+	require.NoError(t, err) // this is a non transient error, therefore we don't requeue.
+	cont := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cont.Type)
+	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
+	require.EqualValues(t, "LintPolicyError", cont.Reason)
+	require.Contains(t, cont.Message, "sql/migrate: execute: executing statement")
 }
 
 func TestDiffPolicy(t *testing.T) {

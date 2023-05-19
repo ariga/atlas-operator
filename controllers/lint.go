@@ -55,6 +55,9 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		Exclude: des.exclude,
 		Schema:  des.schemas,
 	})
+	if isSQLErr(err) {
+		return err
+	}
 	if err != nil {
 		return transient(err)
 	}
@@ -69,8 +72,10 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		ConfigURL: lintcfg,
 		Vars:      vv,
 	})
+	if isSQLErr(err) {
+		return err
+	}
 	if err != nil {
-		// TODO: handle sql syntax errors specifically, they are not transient.
 		return transient(err)
 	}
 	if diags := destructive(lint.Files); len(diags) > 0 {
