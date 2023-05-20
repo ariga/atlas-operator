@@ -116,6 +116,9 @@ spec:
               version:
                 description: Desired Version of the target database schema.
                 type: string
+            required:
+            - dir
+            - version
             type: object
           status:
             description: AtlasMigrationStatus defines the observed state of AtlasMigration

@@ -33,9 +33,9 @@ type AtlasMigrationSpec struct {
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud Cloud `json:"cloud,omitempty"`
 	// Desired Version of the target database schema.
-	Version string `json:"version,omitempty"`
+	Version string `json:"version"`
 	// DirFrom defines the directory to use for migrations as a configmap key reference.
-	Dir Dir `json:"dir,omitempty"`
+	Dir Dir `json:"dir"`
 }
 
 // Cloud defines the Atlas Cloud configuration.
