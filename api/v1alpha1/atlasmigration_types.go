@@ -34,10 +34,6 @@ type AtlasMigrationSpec struct {
 	Cloud Cloud `json:"cloud,omitempty"`
 	// Desired Version of the target database schema.
 	Version string `json:"version,omitempty"`
-	// Exclude a list of glob patterns used to filter existing resources being taken into account.
-	Exclude []string `json:"exclude,omitempty"`
-	// Policy defines the policies to apply when managing the schema change lifecycle.
-	Policy Policy `json:"policy,omitempty"`
 	// DirFrom defines the directory to use for migrations as a configmap key reference.
 	Dir Dir `json:"dir,omitempty"`
 }
