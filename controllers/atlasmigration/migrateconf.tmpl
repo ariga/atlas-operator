@@ -1,0 +1,36 @@
+env {
+  name = atlas.env
+  {{- if .URL }}
+  url = "{{ .URL }}"
+  {{- end }}
+  {{- if .Migration.Dir }}
+  migration {
+    dir = "{{ .Migration.Dir }}"
+  }
+  {{- end }}
+}
+
+{{- if .Cloud.Token }}
+atlas {
+  cloud {
+    {{- if .Cloud.URL }}
+      url = "{{ .Cloud.URL }}"
+    {{- end }}
+    {{- if .Cloud.Token }}
+      token = "{{ .Cloud.Token }}"
+    {{- end }}
+    {{- if .Cloud.Project }}
+      project = "{{ .Cloud.Project }}"
+    {{- end }}
+  }
+}
+{{- end }}
+
+{{- if .Data.RemoteDir.Name }}
+data "remote_dir" {
+  name = "{{ .Data.RemoteDir.Name }}"
+  {{- if .Data.RemoteDir.Name }}
+  tag = "{{ .Data.RemoteDir.Tag }}"
+  {{- end }}
+}
+{{- end }}
