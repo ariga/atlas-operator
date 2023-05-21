@@ -40,8 +40,6 @@ spec:
                 properties:
                   project:
                     type: string
-                  token:
-                    type: string
                   tokenFrom:
                     description: TokenFrom defines a reference to a secret key that
                       contains the Atlas Cloud Token

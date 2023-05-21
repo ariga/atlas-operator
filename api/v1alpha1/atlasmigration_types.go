@@ -41,7 +41,6 @@ type AtlasMigrationSpec struct {
 // Cloud defines the Atlas Cloud configuration.
 type Cloud struct {
 	URL       string    `json:"url,omitempty"`
-	Token     string    `json:"token,omitempty"`
 	TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
 	Project   string    `json:"project,omitempty"`
 }
