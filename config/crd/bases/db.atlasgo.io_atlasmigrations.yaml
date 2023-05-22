@@ -69,8 +69,8 @@ spec:
                     type: string
                 type: object
               dir:
-                description: DirFrom defines the directory to use for migrations as
-                  a configmap key reference.
+                description: Dir defines the directory to use for migrations as a
+                  configmap key reference.
                 properties:
                   configMapRef:
                     description: ConfigMapRef defines the configmap to use for migrations
@@ -200,9 +200,9 @@ spec:
                 description: LastAppliedVersion is the version of the most recent
                   successful versioned migration.
                 type: string
-              lastRunUrl:
-                description: LastRunURL is the Deployment URL of the most recent successful
-                  versioned migration.
+              lastDeploymentUrl:
+                description: LastDeploymentURL is the Deployment URL of the most recent
+                  successful versioned migration.
                 type: string
             required:
             - last_applied

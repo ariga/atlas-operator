@@ -21,9 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // AtlasMigrationSpec defines the desired state of AtlasMigration
 type AtlasMigrationSpec struct {
 	// URL of the target database schema.
@@ -34,7 +31,7 @@ type AtlasMigrationSpec struct {
 	Cloud Cloud `json:"cloud,omitempty"`
 	// Desired Version of the target database schema.
 	Version string `json:"version"`
-	// DirFrom defines the directory to use for migrations as a configmap key reference.
+	// Dir defines the directory to use for migrations as a configmap key reference.
 	Dir Dir `json:"dir"`
 }
 
@@ -53,15 +50,10 @@ type Dir struct {
 	Remote Remote `json:"remote,omitempty"`
 }
 
-// RemoteDir defines the Atlas Cloud directory migration.
+// Remote defines the Atlas Cloud directory migration.
 type Remote struct {
 	Name string `json:"name,omitempty"`
 	Tag  string `json:"tag,omitempty"`
-}
-
-// DirFrom defines the directory to use for migrations as a configmap key reference.
-type DirFrom struct {
-	ConfigMapRef string `json:"configMapRef,omitempty"`
 }
 
 // TokenFrom defines a reference to a secret key that contains the Atlas Cloud Token
@@ -76,8 +68,8 @@ type AtlasMigrationStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// LastAppliedVersion is the version of the most recent successful versioned migration.
 	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
-	//LastRunURL is the Deployment URL of the most recent successful versioned migration.
-	LastRunURL string `json:"lastRunUrl,omitempty"`
+	//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
+	LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
 	// LastApplied is the unix timestamp of the most recent successful versioned migration.
 	LastApplied int64 `json:"last_applied"`
 }
