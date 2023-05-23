@@ -1,0 +1,28 @@
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  labels:
+    app.kubernetes.io/name: atlasmigration
+    app.kubernetes.io/instance: atlasmigration-sample
+    app.kubernetes.io/part-of: atlas-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: atlas-operator
+  name: atlasmigration-sample
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: db-credentials
+  cloud:
+    url: https://example.atlasgo.link/
+    tokenFrom:
+      secretKeyRef:
+        key: token
+        name: atlas-credentials
+    project: example
+  version: "latest"
+  dir:
+    remote: 
+      name: "atlas"
+      tag: ""
+  

@@ -20,4 +20,13 @@ resources:
   kind: AtlasSchema
   path: github.com/ariga/atlas-operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: atlasgo.io
+  group: db
+  kind: AtlasMigration
+  path: github.com/ariga/atlas-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

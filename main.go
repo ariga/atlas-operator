@@ -112,6 +112,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
+	experimental := os.Getenv("EXPERIMENTAL") != ""
+	if experimental {
+		setupLog.Info("Experiment mode is enabled")
+		if err = (&controllers.AtlasMigrationReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
+			os.Exit(1)
+		}
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
