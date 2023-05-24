@@ -13,18 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package atlasmigration
+package controllers
 
 import (
 	"bytes"
 	"context"
-	"embed"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -39,21 +37,15 @@ import (
 	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
-var (
-	//go:embed *.tmpl
-	tmpls embed.FS
-	tmpl  = template.Must(template.New("atlasmigration").ParseFS(tmpls, "*.tmpl"))
-)
-
 // CLI is the interface used to interact with Atlas CLI
-type CLI interface {
+type MigrateCLI interface {
 	Apply(ctx context.Context, data *atlas.ApplyParams) (*atlas.ApplyReport, error)
 }
 
-// Reconciler reconciles a AtlasMigration object
-type Reconciler struct {
+// AtlasMigrationReconciler reconciles a AtlasMigration object
+type AtlasMigrationReconciler struct {
 	client.Client
-	CLI    CLI
+	CLI    MigrateCLI
 	Scheme *runtime.Scheme
 }
 
@@ -83,7 +75,7 @@ type HCLTmplData struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	var (
@@ -124,7 +116,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 // Reconcile the given AtlasMigration resource.
-func (r *Reconciler) reconcile(
+func (r *AtlasMigrationReconciler) reconcile(
 	ctx context.Context,
 	am dbv1alpha1.AtlasMigration) (dbv1alpha1.AtlasMigrationStatus, error) {
 
@@ -154,7 +146,7 @@ func (r *Reconciler) reconcile(
 	}, nil
 }
 
-func (r *Reconciler) buildHCLTmplData(
+func (r *AtlasMigrationReconciler) buildHCLTmplData(
 	ctx context.Context,
 	am dbv1alpha1.AtlasMigration) (HCLTmplData, func() error, error) {
 	tmplData := HCLTmplData{}
@@ -196,7 +188,7 @@ func (r *Reconciler) buildHCLTmplData(
 }
 
 // Get the value of the given secret key selector.
-func (r *Reconciler) getSecretValue(
+func (r *AtlasMigrationReconciler) getSecretValue(
 	ctx context.Context,
 	ns string,
 	selector corev1.SecretKeySelector) (string, error) {
@@ -211,7 +203,7 @@ func (r *Reconciler) getSecretValue(
 }
 
 // createTmpDir creates a temporary directory and returns its url.
-func (r *Reconciler) createTmpDir(
+func (r *AtlasMigrationReconciler) createTmpDir(
 	ctx context.Context,
 	ns string,
 	dir dbv1alpha1.Dir) (string, func() error, error) {
@@ -249,7 +241,7 @@ func (r *Reconciler) createTmpDir(
 
 // Update the status of the given AtlasMigration resource.
 // If err is not nil, the status will be set to false and the reason will be set to the error message.
-func (r *Reconciler) updateResourceStatus(
+func (r *AtlasMigrationReconciler) updateResourceStatus(
 	ctx context.Context,
 	am dbv1alpha1.AtlasMigration, err error) error {
 	conditionStatus := metav1.ConditionTrue
@@ -281,7 +273,7 @@ func (r *Reconciler) updateResourceStatus(
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasMigration{}).
 		Complete(r)
