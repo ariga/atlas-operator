@@ -18,6 +18,7 @@ type (
 	}
 	// ApplyParams are the parameters for the `migrate apply` command.
 	ApplyParams struct {
+		ConfigURL       string
 		DirURL          string
 		URL             string
 		RevisionsSchema string
@@ -80,15 +81,18 @@ func NewClientWithPath(path string) *Client {
 
 // Apply runs the 'migrate apply' command.
 func (c *Client) Apply(ctx context.Context, data *ApplyParams) (*ApplyReport, error) {
-	dir, err := filepath.Abs(data.DirURL)
-	if err != nil {
-		return nil, err
-	}
 	args := []string{
 		"migrate", "apply",
 		"--log", "{{ json . }}",
-		"--url", data.URL,
-		"--dir", fmt.Sprintf("file://%s", dir),
+	}
+	if data.ConfigURL != "" {
+		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
+	}
+	if data.URL != "" {
+		args = append(args, "--url", data.URL)
+	}
+	if data.DirURL != "" {
+		args = append(args, "--dir", data.DirURL)
 	}
 	if data.RevisionsSchema != "" {
 		args = append(args, "--revisions-schema", data.RevisionsSchema)
