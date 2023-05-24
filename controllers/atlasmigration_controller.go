@@ -23,8 +23,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -95,7 +97,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		clientErr := r.updateResourceStatus(ctx, am, err)
-		if err != nil {
+		if clientErr != nil {
 			log.Error(clientErr, "failed to update resource status")
 		}
 	}()
@@ -109,9 +111,20 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Reconcile given resource
 	am.Status, err = r.reconcile(ctx, am)
 	if err != nil {
-		return ctrl.Result{}, nil
+		// Verify permanent errors to avoid infinite reconciliation loop
+		if isPernamentError(err) {
+			return result(err)
+		}
+
+		return result(transient(err))
 	}
 
+	log.Info(
+		"reconciled successfully",
+		"lastAppliedVersion", am.Status.LastAppliedVersion,
+		"lastApplied", time.Unix(am.Status.LastApplied, 0).String(),
+		"lastDeploymentUrl", am.Status.LastDeploymentURL,
+	)
 	return ctrl.Result{}, nil
 }
 
@@ -289,4 +302,24 @@ func executeHCLTemplate(tmplName string, data interface{}) (string, func() error
 	}
 
 	return atlas.TempFile(buf.String(), "hcl")
+}
+
+// Pernament errors are defined as:
+// - K8s Client NotFound error
+// - SQL error
+// - Invalid Yaml error
+func isPernamentError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+
+	if isSQLErr(err) {
+		return true
+	}
+
+	return false
 }
