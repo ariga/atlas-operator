@@ -19,7 +19,7 @@ spec:
       secretKeyRef:
         key: token
         name: atlas-credentials
-    project: example
+    project: "atlas"
   version: "latest"
   dir:
     remote: 
