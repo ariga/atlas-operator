@@ -71,7 +71,7 @@ type AtlasMigrationStatus struct {
 	//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
 	LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
 	// LastApplied is the unix timestamp of the most recent successful versioned migration.
-	LastApplied int64 `json:"last_applied"`
+	LastApplied int64 `json:"lastApplied"`
 }
 
 //+kubebuilder:object:root=true

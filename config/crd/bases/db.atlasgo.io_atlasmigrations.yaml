@@ -191,7 +191,7 @@ spec:
                   - type
                   type: object
                 type: array
-              last_applied:
+              lastApplied:
                 description: LastApplied is the unix timestamp of the most recent
                   successful versioned migration.
                 format: int64
@@ -205,7 +205,7 @@ spec:
                   successful versioned migration.
                 type: string
             required:
-            - last_applied
+            - lastApplied
             type: object
         type: object
     served: true
