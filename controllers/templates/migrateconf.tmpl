@@ -3,33 +3,34 @@ env {
   {{- if .URL }}
   url = "{{ .URL }}"
   {{- end }}
-  {{- if .Migration.Dir }}
   migration {
+    {{- if .Migration.Dir }}
     dir = "{{ .Migration.Dir }}"
+    {{- end }}
+    {{- if .Cloud.Token }}
+    dir = data.remote_dir.this.url
+    {{- end }}
   }
-  {{- end }}
 }
 
 {{- if .Cloud.Token }}
 atlas {
   cloud {
     {{- if .Cloud.URL }}
-      url = "{{ .Cloud.URL }}"
+    url = "{{ .Cloud.URL }}"
     {{- end }}
-    {{- if .Cloud.Token }}
-      token = "{{ .Cloud.Token }}"
-    {{- end }}
+    token = "{{ .Cloud.Token }}"
     {{- if .Cloud.Project }}
-      project = "{{ .Cloud.Project }}"
+    project = "{{ .Cloud.Project }}"
     {{- end }}
   }
 }
 {{- end }}
 
 {{- if .Data.RemoteDir.Name }}
-data "remote_dir" {
+data "remote_dir" "this" {
   name = "{{ .Data.RemoteDir.Name }}"
-  {{- if .Data.RemoteDir.Name }}
+  {{- if .Data.RemoteDir.Tag }}
   tag = "{{ .Data.RemoteDir.Tag }}"
   {{- end }}
 }

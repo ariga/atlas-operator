@@ -178,11 +178,13 @@ func (r *AtlasMigrationReconciler) buildHCLTmplData(
 		}
 	}
 
-	// Mapping common fields
-	tmplData.Cloud.URL = am.Spec.Cloud.URL
-	tmplData.Cloud.Project = am.Spec.Cloud.Project
-	tmplData.Data.RemoteDir.Name = am.Spec.Dir.Remote.Name
-	tmplData.Data.RemoteDir.Tag = am.Spec.Dir.Remote.Tag
+	// Mapping cloud fields if token is present
+	if tmplData.Cloud.Token != "" {
+		tmplData.Cloud.URL = am.Spec.Cloud.URL
+		tmplData.Cloud.Project = am.Spec.Cloud.Project
+		tmplData.Data.RemoteDir.Name = am.Spec.Dir.Remote.Name
+		tmplData.Data.RemoteDir.Tag = am.Spec.Dir.Remote.Tag
+	}
 
 	return tmplData, cleanUpDir, nil
 }
