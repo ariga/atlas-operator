@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,6 +41,7 @@ import (
 // CLI is the interface used to interact with Atlas CLI
 type MigrateCLI interface {
 	Apply(ctx context.Context, data *atlas.ApplyParams) (*atlas.ApplyReport, error)
+	Status(ctx context.Context, data *atlas.StatusParams) (*atlas.StatusReport, error)
 }
 
 // AtlasMigrationReconciler reconciles a AtlasMigration object
@@ -51,9 +51,9 @@ type AtlasMigrationReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// HCLTmplData is the data used to render the HCL template
+// atlasMigrationData is the data used to render the HCL template
 // that will be used for Atlas CLI
-type HCLTmplData struct {
+type atlasMigrationData struct {
 	URL       string
 	Migration struct {
 		Dir string
@@ -92,10 +92,6 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// At the end of reconcile, update the status of the resource base on the error
 	defer func() {
-		if err != nil {
-			log.Error(err, "failed to reconcile")
-		}
-
 		clientErr := r.updateResourceStatus(ctx, am, err)
 		if clientErr != nil {
 			log.Error(clientErr, "failed to update resource status")
@@ -112,19 +108,13 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	am.Status, err = r.reconcile(ctx, am)
 	if err != nil {
 		// Verify permanent errors to avoid infinite reconciliation loop
-		if isPernamentError(err) {
+		if apierrors.IsNotFound(err) || isSQLErr(err) {
 			return result(err)
 		}
 
 		return result(transient(err))
 	}
 
-	log.Info(
-		"reconciled successfully",
-		"lastAppliedVersion", am.Status.LastAppliedVersion,
-		"lastApplied", time.Unix(am.Status.LastApplied, 0).String(),
-		"lastDeploymentUrl", am.Status.LastDeploymentURL,
-	)
 	return ctrl.Result{}, nil
 }
 
@@ -133,37 +123,49 @@ func (r *AtlasMigrationReconciler) reconcile(
 	ctx context.Context,
 	am dbv1alpha1.AtlasMigration) (dbv1alpha1.AtlasMigrationStatus, error) {
 
-	// Build HCL template data
-	hclTmplData, cleanUpDir, err := r.buildHCLTmplData(ctx, am)
+	// Extract migration data from the given resource
+	migrationData, cleanUp, err := r.extractMigrationData(ctx, am)
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-	defer cleanUpDir()
+	defer cleanUp()
+
+	// Check if there are any pending migration files
+	status, err := r.CLI.Status(ctx, &atlas.StatusParams{URL: migrationData.URL, DirURL: migrationData.Migration.Dir})
+	if err != nil {
+		return dbv1alpha1.AtlasMigrationStatus{}, err
+	}
+	if len(status.Pending) == 0 {
+		return am.Status, nil
+	}
 
 	// Create atlas.hcl from template data
-	file, cleanUpFile, err := executeHCLTemplate("migrateconf.tmpl", hclTmplData)
+	atlasHCL, cleanUp, err := migrationData.render()
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-	defer cleanUpFile()
+	defer cleanUp()
 
 	// Execute Atlas CLI migrate command
-	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: file})
+	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
 
 	return dbv1alpha1.AtlasMigrationStatus{
 		LastApplied:        report.End.Unix(),
-		LastAppliedVersion: report.Current,
+		LastAppliedVersion: report.Target,
 	}, nil
 }
 
-func (r *AtlasMigrationReconciler) buildHCLTmplData(
+// Extract migration data from the given resource
+func (r *AtlasMigrationReconciler) extractMigrationData(
 	ctx context.Context,
-	am dbv1alpha1.AtlasMigration) (HCLTmplData, func() error, error) {
-	tmplData := HCLTmplData{}
-	err := error(nil)
+	am dbv1alpha1.AtlasMigration) (atlasMigrationData, func() error, error) {
+	var (
+		tmplData atlasMigrationData
+		err      error
+	)
 
 	// Get database connection string
 	tmplData.URL = am.Spec.URL
@@ -222,6 +224,7 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 	ctx context.Context,
 	ns string,
 	dir dbv1alpha1.Dir) (string, func() error, error) {
+
 	// Get configmap
 	configMap := corev1.ConfigMap{}
 	if err := r.Get(ctx, types.NamespacedName{
@@ -294,32 +297,12 @@ func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// executeHCLTemplate executes the given HCL template and returns the path of the temporary file.
-func executeHCLTemplate(tmplName string, data interface{}) (string, func() error, error) {
+// Render atlas.hcl file from the given data
+func (amd atlasMigrationData) render() (string, func() error, error) {
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, tmplName, data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "atlas_migration.tmpl", amd); err != nil {
 		return "", nil, err
 	}
 
 	return atlas.TempFile(buf.String(), "hcl")
-}
-
-// Pernament errors are defined as:
-// - K8s Client NotFound error
-// - SQL error
-// - Invalid Yaml error
-func isPernamentError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if apierrors.IsNotFound(err) {
-		return true
-	}
-
-	if isSQLErr(err) {
-		return true
-	}
-
-	return false
 }

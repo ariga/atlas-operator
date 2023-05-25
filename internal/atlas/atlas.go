@@ -190,14 +190,10 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 
 // Status runs the 'migrate status' command.
 func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport, error) {
-	dir, err := filepath.Abs(data.DirURL)
-	if err != nil {
-		return nil, err
-	}
 	args := []string{
 		"migrate", "status", "--log", "{{ json . }}",
 		"--url", data.URL,
-		"--dir", fmt.Sprintf("file://%s", dir),
+		"--dir", data.DirURL,
 	}
 	if data.RevisionsSchema != "" {
 		args = append(args, "--revisions-schema", data.RevisionsSchema)
