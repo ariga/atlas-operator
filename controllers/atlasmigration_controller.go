@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -107,12 +106,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Reconcile given resource
 	am.Status, err = r.reconcile(ctx, am)
 	if err != nil {
-		// Verify permanent errors to avoid infinite reconciliation loop
-		if apierrors.IsNotFound(err) || isSQLErr(err) {
-			return result(err)
-		}
-
-		return result(transient(err))
+		return result(err)
 	}
 
 	return ctrl.Result{}, nil
@@ -149,6 +143,9 @@ func (r *AtlasMigrationReconciler) reconcile(
 	// Execute Atlas CLI migrate command
 	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: atlasHCL})
 	if err != nil {
+		if !isSQLErr(err) {
+			err = transient(err)
+		}
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
 
@@ -212,7 +209,7 @@ func (r *AtlasMigrationReconciler) getSecretValue(
 
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: selector.Name}, secret); err != nil {
-		return "", err
+		return "", transient(err)
 	}
 
 	us := string(secret.Data[selector.Key])
@@ -231,7 +228,7 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 		Namespace: ns,
 		Name:      dir.ConfigMapRef,
 	}, &configMap); err != nil {
-		return "", nil, err
+		return "", nil, transient(err)
 	}
 
 	// Create temporary directory and remove it at the end of the function
