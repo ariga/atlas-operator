@@ -1,8 +1,8 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
-  - mysql_schema.yaml
-  - mysql.yaml
-  - postgres.yaml
-  - postgres_schema.yaml
-  - configmap.yaml
+  - databases/mysql.yaml
+  - databases/postgres.yaml
+  - schema/mysql_schema.yaml
+  - schema/postgres_schema.yaml
+  - schema/configmap.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
