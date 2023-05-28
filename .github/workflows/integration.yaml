@@ -65,3 +65,20 @@ jobs:
           
           # Expect the excluded table to be present.
           kubectl exec $(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysql -uroot -h 127.0.0.1  -ppass -e "describe myapp.ignore_me"
+      - name: Integration test (versioned migration)
+        run: |
+          # Reset database resources
+          kubectl delete pods -l app=mysql
+
+          # Enable experiment flag
+          kubectl patch deployment atlas-operator-controller-manager -n atlas-operator-system --patch '{"spec":{"template":{"spec":{"containers":[{"name":"manager","env":[{"name":"EXPERIMENTAL","value":"true"}]}]}}}}'
+
+          # Wait for mysql ready
+          kubectl wait --for condition=ready pods -l app=mysql --timeout=60s
+
+          # Apply migration directory and wait for it to be ready.
+          kubectl apply -f config/integration/migration
+          kubectl wait --for=condition=ready --timeout=120s atlasmigrations --all
+          
+          # Expect existed atlas_schema_revisions table
+          kubectl exec $(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysql -uroot -h 127.0.0.1  -ppass -e "describe myapp.atlas_schema_revisions"
