@@ -52,23 +52,29 @@ type AtlasMigrationReconciler struct {
 
 // atlasMigrationData is the data used to render the HCL template
 // that will be used for Atlas CLI
-type atlasMigrationData struct {
-	URL       string
-	Migration struct {
+type (
+	atlasMigrationData struct {
+		URL       string
+		Migration *migration
+		Cloud     *cloud
+	}
+
+	migration struct {
 		Dir string
 	}
-	Cloud struct {
-		URL     string
-		Token   string
-		Project string
+
+	cloud struct {
+		URL       string
+		Token     string
+		Project   string
+		RemoteDir *remoteDir
 	}
-	Data struct {
-		RemoteDir struct {
-			Name string
-			Tag  string
-		}
+
+	remoteDir struct {
+		Name string
+		Tag  string
 	}
-}
+)
 
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/status,verbs=get;update;patch
@@ -176,6 +182,7 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 	// Get temporary directory
 	cleanUpDir := func() error { return nil }
 	if am.Spec.Dir.ConfigMapRef != "" {
+		tmplData.Migration = &migration{}
 		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDir(ctx, am.Namespace, am.Spec.Dir)
 		if err != nil {
 			return tmplData, nil, err
@@ -184,18 +191,22 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 
 	// Get Atlas Cloud Token from secret
 	if am.Spec.Cloud.TokenFrom.SecretKeyRef != nil {
+		tmplData.Cloud = &cloud{
+			URL:     am.Spec.Cloud.URL,
+			Project: am.Spec.Cloud.Project,
+		}
+
+		if am.Spec.Dir.Remote.Name != "" {
+			tmplData.Cloud.RemoteDir = &remoteDir{
+				Name: am.Spec.Dir.Remote.Name,
+				Tag:  am.Spec.Dir.Remote.Tag,
+			}
+		}
+
 		tmplData.Cloud.Token, err = r.getSecretValue(ctx, am.Namespace, *am.Spec.Cloud.TokenFrom.SecretKeyRef)
 		if err != nil {
 			return tmplData, nil, err
 		}
-	}
-
-	// Mapping cloud fields if token is present
-	if tmplData.Cloud.Token != "" {
-		tmplData.Cloud.URL = am.Spec.Cloud.URL
-		tmplData.Cloud.Project = am.Spec.Cloud.Project
-		tmplData.Data.RemoteDir.Name = am.Spec.Dir.Remote.Name
-		tmplData.Data.RemoteDir.Tag = am.Spec.Dir.Remote.Tag
 	}
 
 	return tmplData, cleanUpDir, nil
