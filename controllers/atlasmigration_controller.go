@@ -194,10 +194,6 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		tmplData.Cloud = &cloud{
 			URL:     am.Spec.Cloud.URL,
 			Project: am.Spec.Cloud.Project,
-			RemoteDir: &remoteDir{
-				Name: am.Spec.Dir.Remote.Name,
-				Tag:  am.Spec.Dir.Remote.Tag,
-			},
 		}
 
 		if am.Spec.Dir.Remote.Name != "" {
