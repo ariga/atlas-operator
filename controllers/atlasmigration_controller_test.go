@@ -237,21 +237,9 @@ func TestReconcile_updateResourceStatus(t *testing.T) {
 	require.Equal(t, am.Status.Conditions[0].Status, metav1.ConditionTrue)
 	require.Equal(t, am.Status.Conditions[0].Type, "Ready")
 	require.Equal(t, am.Status.Conditions[0].Reason, "Applied")
-
-	// Update status with error
-	err = tt.r.updateResourceStatus(context.Background(), am, errors.New("my-error"))
-	require.NoError(t, err)
-	tt.k8s.Get(context.Background(), types.NamespacedName{
-		Name:      am.Name,
-		Namespace: am.Namespace,
-	}, &am)
-	require.Equal(t, am.Status.Conditions[0].Status, metav1.ConditionFalse)
-	require.Equal(t, am.Status.Conditions[0].Type, "Ready")
-	require.Equal(t, am.Status.Conditions[0].Reason, "Reconciling")
-	require.Equal(t, am.Status.Conditions[0].Message, "my-error")
 }
 
-func TestReconcile_updateResourceStatus_false(t *testing.T) {
+func TestReconcile_updateResourceStatus_witherr(t *testing.T) {
 	tt := newMigrationTest(t)
 	am := v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
