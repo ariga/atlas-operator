@@ -121,8 +121,8 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // Reconcile the given AtlasMigration resource.
 func (r *AtlasMigrationReconciler) reconcile(
 	ctx context.Context,
-	am dbv1alpha1.AtlasMigration) (dbv1alpha1.AtlasMigrationStatus, error) {
-
+	am dbv1alpha1.AtlasMigration,
+) (dbv1alpha1.AtlasMigrationStatus, error) {
 	// Extract migration data from the given resource
 	migrationData, cleanUp, err := r.extractMigrationData(ctx, am)
 	if err != nil {
@@ -130,21 +130,21 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 	defer cleanUp()
 
-	// Check if there are any pending migration files
-	status, err := r.CLI.Status(ctx, &atlas.StatusParams{URL: migrationData.URL, DirURL: migrationData.Migration.Dir})
-	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, err
-	}
-	if len(status.Pending) == 0 {
-		return am.Status, nil
-	}
-
 	// Create atlas.hcl from template data
 	atlasHCL, cleanUp, err := migrationData.render()
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
 	defer cleanUp()
+
+	// Check if there are any pending migration files
+	status, err := r.CLI.Status(ctx, &atlas.StatusParams{ConfigURL: atlasHCL})
+	if err != nil {
+		return dbv1alpha1.AtlasMigrationStatus{}, err
+	}
+	if len(status.Pending) == 0 {
+		return am.Status, nil
+	}
 
 	// Execute Atlas CLI migrate command
 	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: atlasHCL})

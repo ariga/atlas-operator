@@ -28,6 +28,7 @@ type (
 	}
 	// StatusParams are the parameters for the `migrate status` command.
 	StatusParams struct {
+		ConfigURL       string
 		DirURL          string
 		URL             string
 		RevisionsSchema string
@@ -192,8 +193,15 @@ func (c *Client) Lint(ctx context.Context, data *LintParams) (*SummaryReport, er
 func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport, error) {
 	args := []string{
 		"migrate", "status", "--log", "{{ json . }}",
-		"--url", data.URL,
-		"--dir", data.DirURL,
+	}
+	if data.ConfigURL != "" {
+		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
+	}
+	if data.URL != "" {
+		args = append(args, "--url", data.URL)
+	}
+	if data.DirURL != "" {
+		args = append(args, "--dir", data.DirURL)
 	}
 	if data.RevisionsSchema != "" {
 		args = append(args, "--revisions-schema", data.RevisionsSchema)
