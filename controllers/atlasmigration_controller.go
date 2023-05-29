@@ -124,18 +124,18 @@ func (r *AtlasMigrationReconciler) reconcile(
 	am dbv1alpha1.AtlasMigration,
 ) (dbv1alpha1.AtlasMigrationStatus, error) {
 	// Extract migration data from the given resource
-	migrationData, cleanUp, err := r.extractMigrationData(ctx, am)
+	migrationData, cleanUp1, err := r.extractMigrationData(ctx, am)
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-	defer cleanUp()
+	defer cleanUp1()
 
 	// Create atlas.hcl from template data
-	atlasHCL, cleanUp, err := migrationData.render()
+	atlasHCL, cleanUp2, err := migrationData.render()
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-	defer cleanUp()
+	defer cleanUp2()
 
 	// Check if there are any pending migration files
 	status, err := r.CLI.Status(ctx, &atlas.StatusParams{ConfigURL: atlasHCL})
