@@ -52,27 +52,29 @@ type AtlasMigrationReconciler struct {
 
 // atlasMigrationData is the data used to render the HCL template
 // that will be used for Atlas CLI
-type atlasMigrationData struct {
-	URL       string
-	Migration *migration
-	Cloud     *cloud
-	RemoteDir *remoteDir
-}
+type (
+	atlasMigrationData struct {
+		URL       string
+		Migration *migration
+		Cloud     *cloud
+	}
 
-type migration struct {
-	Dir string
-}
+	migration struct {
+		Dir string
+	}
 
-type cloud struct {
-	URL     string
-	Token   string
-	Project string
-}
+	cloud struct {
+		URL       string
+		Token     string
+		Project   string
+		RemoteDir *remoteDir
+	}
 
-type remoteDir struct {
-	Name string
-	Tag  string
-}
+	remoteDir struct {
+		Name string
+		Tag  string
+	}
+)
 
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/status,verbs=get;update;patch
@@ -192,11 +194,10 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		tmplData.Cloud = &cloud{
 			URL:     am.Spec.Cloud.URL,
 			Project: am.Spec.Cloud.Project,
-		}
-
-		tmplData.RemoteDir = &remoteDir{
-			Name: am.Spec.Dir.Remote.Name,
-			Tag:  am.Spec.Dir.Remote.Tag,
+			RemoteDir: &remoteDir{
+				Name: am.Spec.Dir.Remote.Name,
+				Tag:  am.Spec.Dir.Remote.Tag,
+			},
 		}
 
 		tmplData.Cloud.Token, err = r.getSecretValue(ctx, am.Namespace, *am.Spec.Cloud.TokenFrom.SecretKeyRef)

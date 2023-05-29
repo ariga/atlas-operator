@@ -1,37 +1,33 @@
-env {
-  name = atlas.env
-  url = "{{ .URL }}"
-  migration {
-    {{- if .Cloud }}
-      dir = data.remote_dir.this.url
-    {{- end }}
-    {{- with .Migration }}
-      dir = "{{ .Dir }}"
-    {{- end }}
-  }
-}
-
 {{- with .Cloud }}
 atlas {
   cloud {
+    token = "{{ .Token }}"
   {{- if .URL }}
     url = "{{ .URL }}"
   {{- end }}
-    token = "{{ .Token }}"
   {{- if .Project }}
     project = "{{ .Project }}"
   {{- end }}
   }
 }
-{{- end }}
-
 {{- with .RemoteDir }}
 data "remote_dir" "this" {
-  {{- if .Name }}
-    name = "{{ .Name }}"
-  {{- end }}
+  name = "{{ .Name }}"
   {{- if .Tag }}
-    tag = "{{ .Tag }}"
+  tag = "{{ .Tag }}"
   {{- end }}
 }
 {{- end }}
+{{- end }}
+env {
+  name = atlas.env
+  url = "{{ .URL }}"
+  migration {
+{{- with .Cloud }}
+    dir = data.remote_dir.this.url
+{{- end }}
+{{- with .Migration }}
+    dir = "{{ .Dir }}"
+{{- end }}
+  }
+}
