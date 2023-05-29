@@ -200,6 +200,13 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 			},
 		}
 
+		if am.Spec.Dir.Remote.Name != "" {
+			tmplData.Cloud.RemoteDir = &remoteDir{
+				Name: am.Spec.Dir.Remote.Name,
+				Tag:  am.Spec.Dir.Remote.Tag,
+			}
+		}
+
 		tmplData.Cloud.Token, err = r.getSecretValue(ctx, am.Namespace, *am.Spec.Cloud.TokenFrom.SecretKeyRef)
 		if err != nil {
 			return tmplData, nil, err
