@@ -284,11 +284,12 @@ func TestDefaultTemplate(t *testing.T) {
 	fileContent, err := os.ReadFile(parse.Path)
 	require.NoError(t, err)
 	require.FileExists(t, parse.Path)
-	require.EqualValues(t, `env {
+	require.EqualValues(t, `
+env {
   name = atlas.env
   url = ""
   migration {
-      dir = "my-dir"
+    dir = "my-dir"
   }
 }`, string(fileContent))
 	cleanup()
@@ -314,23 +315,24 @@ func TestCloudTemplate(t *testing.T) {
 	fileContent, err := os.ReadFile(parse.Path)
 	require.NoError(t, err)
 	require.FileExists(t, parse.Path)
-	require.EqualValues(t, `env {
-  name = atlas.env
-  url = ""
-  migration {
-      dir = data.remote_dir.this.url
-  }
-}
+	require.EqualValues(t, `
 atlas {
   cloud {
-    url = "https://atlasgo.io/"
     token = "my-token"
+    url = "https://atlasgo.io/"
     project = "my-project"
   }
 }
 data "remote_dir" "this" {
-    name = "my-remote-dir"
-    tag = "my-remote-tag"
+  name = "my-remote-dir"
+  tag = "my-remote-tag"
+}
+env {
+  name = atlas.env
+  url = ""
+  migration {
+    dir = data.remote_dir.this.url
+  }
 }`, string(fileContent))
 	cleanup()
 	require.NoFileExists(t, file)
