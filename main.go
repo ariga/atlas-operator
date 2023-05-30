@@ -115,11 +115,8 @@ func main() {
 	experimental := os.Getenv("EXPERIMENTAL") != ""
 	if experimental {
 		setupLog.Info("Experiment mode is enabled")
-		if err = (&controllers.AtlasMigrationReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			CLI:    cli,
-		}).SetupWithManager(mgr); err != nil {
+		if err = controllers.NewAtlasMigrationReconciler(mgr, cli).
+			SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 			os.Exit(1)
 		}
