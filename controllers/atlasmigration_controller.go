@@ -149,15 +149,15 @@ func (r *AtlasMigrationReconciler) reconcile(
 
 	// Execute Atlas CLI migrate command
 	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: atlasHCL})
-	if report.Error != "" {
+	if err != nil {
+		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
+	}
+	if report != nil && report.Error != "" {
 		err = errors.New(report.Error)
 		if !isSQLErr(err) {
 			err = transient(err)
 		}
 		return dbv1alpha1.AtlasMigrationStatus{}, err
-	}
-	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
 
 	return dbv1alpha1.AtlasMigrationStatus{

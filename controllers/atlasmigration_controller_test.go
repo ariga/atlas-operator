@@ -34,7 +34,7 @@ func TestReconcile_Notfound(t *testing.T) {
 
 func TestReconcile_Diff(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultAtlasMigration(tt)
+	tt.initDefaultAtlasMigration()
 
 	// First reconcile
 	result, err := tt.r.Reconcile(context.Background(), migrationReq())
@@ -45,7 +45,7 @@ func TestReconcile_Diff(t *testing.T) {
 	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
 
 	// Second reconcile
-	addMigrationScript(tt, "20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
+	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, result)
@@ -57,7 +57,7 @@ func TestReconcile_Diff(t *testing.T) {
 
 func TestReconcile_BadSQL(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultAtlasMigration(tt)
+	tt.initDefaultAtlasMigration()
 
 	// First reconcile
 	result, err := tt.r.Reconcile(context.Background(), migrationReq())
@@ -68,7 +68,7 @@ func TestReconcile_BadSQL(t *testing.T) {
 	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
 
 	// Second reconcile
-	addMigrationScript(tt, "20230412003627_bad_sql.sql", "BAD SQL")
+	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, result)
@@ -101,7 +101,7 @@ func TestReconcile_Transient(t *testing.T) {
 
 func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	status, err := tt.r.reconcile(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -119,7 +119,7 @@ func TestReconcile_reconcile(t *testing.T) {
 
 func TestReconcile_reconcile_uptodate(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Status: dbv1alpha1.AtlasMigrationStatus{
@@ -182,7 +182,7 @@ func TestReconcile_getSecretValue_notfound(t *testing.T) {
 
 func TestReconcile_extractMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -204,7 +204,7 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 
 func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultTokenSecrect(tt)
+	tt.initDefaultTokenSecrect()
 
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -242,7 +242,7 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 
 func TestReconcile_createTmpDir(t *testing.T) {
 	tt := newMigrationTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	// When the configmap exists
 	dir, cleanUp, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
@@ -261,7 +261,7 @@ func TestReconcile_createTmpDir(t *testing.T) {
 
 func TestReconcile_createTmpDir_notfound(t *testing.T) {
 	tt := newMigrationTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	// When the configmap does not exist
 	_, _, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
@@ -433,52 +433,7 @@ func (t *migrationTest) status() dbv1alpha1.AtlasMigrationStatus {
 	return s.Status
 }
 
-func setDefaultAtlasMigration(t *migrationTest) {
-	setDefaultMigrationDir(t)
-	setDefaultTokenSecrect(t)
-	t.k8s.put(
-		&v1alpha1.AtlasMigration{
-			ObjectMeta: migrationObjmeta(),
-			Spec: v1alpha1.AtlasMigrationSpec{
-				URL:     t.dburl,
-				Version: "latest",
-				Dir: v1alpha1.Dir{
-					ConfigMapRef: "my-configmap",
-				},
-			},
-		},
-	)
-}
-
-func setDefaultMigrationDir(t *migrationTest) {
-	t.k8s.put(
-		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-configmap",
-				Namespace: "default",
-			},
-			Data: map[string]string{
-				"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
-				"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
-				20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
-			},
-		},
-	)
-}
-
-func setDefaultTokenSecrect(t *migrationTest) {
-	t.k8s.put(&corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-secret",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			`token`: []byte(`my-token`),
-		},
-	})
-}
-
-func addMigrationScript(t *migrationTest, name, content string) {
+func (t *migrationTest) addMigrationScript(name, content string) {
 	// Get the current configmap
 	cm := corev1.ConfigMap{}
 	err := t.k8s.Get(context.Background(), types.NamespacedName{
@@ -510,4 +465,49 @@ func addMigrationScript(t *migrationTest, name, content string) {
 	require.NoError(t, err)
 	cm.Data[migrate.HashFileName] = string(atlasSum)
 	t.k8s.put(&cm)
+}
+
+func (t *migrationTest) initDefaultAtlasMigration() {
+	t.initDefaultMigrationDir()
+	t.initDefaultTokenSecrect()
+	t.k8s.put(
+		&v1alpha1.AtlasMigration{
+			ObjectMeta: migrationObjmeta(),
+			Spec: v1alpha1.AtlasMigrationSpec{
+				URL:     t.dburl,
+				Version: "latest",
+				Dir: v1alpha1.Dir{
+					ConfigMapRef: "my-configmap",
+				},
+			},
+		},
+	)
+}
+
+func (t *migrationTest) initDefaultMigrationDir() {
+	t.k8s.put(
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-configmap",
+				Namespace: "default",
+			},
+			Data: map[string]string{
+				"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
+				"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
+				20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
+			},
+		},
+	)
+}
+
+func (t *migrationTest) initDefaultTokenSecrect() {
+	t.k8s.put(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			`token`: []byte(`my-token`),
+		},
+	})
 }
