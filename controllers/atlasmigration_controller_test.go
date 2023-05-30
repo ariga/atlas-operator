@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ariga.io/atlas/sql/migrate"
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/atlas"
@@ -28,6 +30,52 @@ func TestReconcile_Notfound(t *testing.T) {
 	result, err := tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, result)
+}
+
+func TestReconcile_Diff(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultAtlasMigration()
+
+	// First reconcile
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status := tt.status()
+	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
+
+	// Second reconcile
+	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status = tt.status()
+	fmt.Println(status.Conditions[0].Message)
+	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
+}
+
+func TestReconcile_BadSQL(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultAtlasMigration()
+
+	// First reconcile
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status := tt.status()
+	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
+
+	// Second reconcile
+	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status = tt.status()
+	require.EqualValues(tt, metav1.ConditionFalse, status.Conditions[0].Status)
+	require.Contains(tt, status.Conditions[0].Message, "sql/migrate: execute: executing statement")
 }
 
 func TestReconcile_Transient(t *testing.T) {
@@ -53,7 +101,7 @@ func TestReconcile_Transient(t *testing.T) {
 
 func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	status, err := tt.r.reconcile(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -71,7 +119,7 @@ func TestReconcile_reconcile(t *testing.T) {
 
 func TestReconcile_reconcile_uptodate(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Status: dbv1alpha1.AtlasMigrationStatus{
@@ -134,7 +182,7 @@ func TestReconcile_getSecretValue_notfound(t *testing.T) {
 
 func TestReconcile_extractMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -156,7 +204,7 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 
 func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
-	setDefaultTokenSecrect(tt)
+	tt.initDefaultTokenSecrect()
 
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -194,7 +242,7 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 
 func TestReconcile_createTmpDir(t *testing.T) {
 	tt := newMigrationTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	// When the configmap exists
 	dir, cleanUp, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
@@ -213,7 +261,7 @@ func TestReconcile_createTmpDir(t *testing.T) {
 
 func TestReconcile_createTmpDir_notfound(t *testing.T) {
 	tt := newMigrationTest(t)
-	setDefaultMigrationDir(tt)
+	tt.initDefaultMigrationDir()
 
 	// When the configmap does not exist
 	_, _, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
@@ -357,6 +405,13 @@ func migrationCliTest(t *testing.T) *migrationTest {
 	return tt
 }
 
+type migrationTest struct {
+	*testing.T
+	k8s   *mockClient
+	r     *AtlasMigrationReconciler
+	dburl string
+}
+
 func newMigrationTest(t *testing.T) *migrationTest {
 	scheme := runtime.NewScheme()
 	dbv1alpha1.AddToScheme(scheme)
@@ -369,12 +424,67 @@ func newMigrationTest(t *testing.T) *migrationTest {
 		r: &AtlasMigrationReconciler{
 			Client: m,
 			Scheme: scheme,
-			CLI:    nil,
 		},
 	}
 }
 
-func setDefaultMigrationDir(t *migrationTest) {
+func (t *migrationTest) status() dbv1alpha1.AtlasMigrationStatus {
+	s := t.k8s.state[migrationReq().NamespacedName].(*dbv1alpha1.AtlasMigration)
+	return s.Status
+}
+
+func (t *migrationTest) addMigrationScript(name, content string) {
+	// Get the current configmap
+	cm := corev1.ConfigMap{}
+	err := t.k8s.Get(context.Background(), types.NamespacedName{
+		Name:      "my-configmap",
+		Namespace: "default",
+	}, &cm)
+	require.NoError(t, err)
+
+	// Update the configmap
+	cm.Data[name] = content
+	t.k8s.put(&cm)
+
+	// Create a temporary directory dir with a new configmap
+	dirUrl, cleanUp, err := t.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
+		ConfigMapRef: "my-configmap",
+	})
+	require.NoError(t, err)
+	defer cleanUp()
+	u, err := url.Parse(dirUrl)
+	require.NoError(t, err)
+	require.DirExists(t, u.Path)
+
+	// Recalculate atlas.sum
+	ld, err := migrate.NewLocalDir(u.Path)
+	require.NoError(t, err)
+	checkSum, err := ld.Checksum()
+	require.NoError(t, err)
+	atlasSum, err := checkSum.MarshalText()
+	require.NoError(t, err)
+	cm.Data[migrate.HashFileName] = string(atlasSum)
+	t.k8s.put(&cm)
+}
+
+func (t *migrationTest) initDefaultAtlasMigration() {
+	t.initDefaultMigrationDir()
+	t.initDefaultTokenSecrect()
+	t.k8s.put(
+		&v1alpha1.AtlasMigration{
+			ObjectMeta: migrationObjmeta(),
+			Spec: v1alpha1.AtlasMigrationSpec{
+				URL:     t.dburl,
+				Version: "latest",
+				Dir: v1alpha1.Dir{
+					ConfigMapRef: "my-configmap",
+				},
+			},
+		},
+	)
+}
+
+func (t *migrationTest) initDefaultMigrationDir() {
 	t.k8s.put(
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -390,7 +500,7 @@ func setDefaultMigrationDir(t *migrationTest) {
 	)
 }
 
-func setDefaultTokenSecrect(t *migrationTest) {
+func (t *migrationTest) initDefaultTokenSecrect() {
 	t.k8s.put(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-secret",
@@ -400,11 +510,4 @@ func setDefaultTokenSecrect(t *migrationTest) {
 			`token`: []byte(`my-token`),
 		},
 	})
-}
-
-type migrationTest struct {
-	*testing.T
-	k8s   *mockClient
-	r     *AtlasMigrationReconciler
-	dburl string
 }
