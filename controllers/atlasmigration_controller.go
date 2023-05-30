@@ -28,11 +28,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/atlas"
@@ -43,6 +49,11 @@ type MigrateCLI interface {
 	Apply(ctx context.Context, data *atlas.ApplyParams) (*atlas.ApplyReport, error)
 	Status(ctx context.Context, data *atlas.StatusParams) (*atlas.StatusReport, error)
 }
+
+const (
+	configMapDirField = ".spec.dir.configMapRef"
+	secretTokenField  = ".spec.cloud.tokenFrom.secretKeyRef"
+)
 
 // AtlasMigrationReconciler reconciles a AtlasMigration object
 type AtlasMigrationReconciler struct {
@@ -80,23 +91,19 @@ type (
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
-	var (
-		am  dbv1alpha1.AtlasMigration
-		err error
-	)
-
-	// Get AtlasMigration resource
-	if err = r.Get(ctx, req.NamespacedName, &am); err != nil {
+	var am dbv1alpha1.AtlasMigration
+	if err := r.Get(ctx, req.NamespacedName, &am); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	// At the end of reconcile, update the status of the resource base on the error
+	var err error
 	defer func() {
 		clientErr := r.updateResourceStatus(ctx, am, err)
 		if clientErr != nil {
@@ -115,7 +122,6 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		return result(err)
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -307,7 +313,43 @@ func (r *AtlasMigrationReconciler) updateResourceStatus(
 func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasMigration{}).
+		Owns(&dbv1alpha1.AtlasMigration{}).
+		Watches(
+			&source.Kind{Type: &corev1.ConfigMap{}},
+			handler.EnqueueRequestsFromMapFunc(r.createFindObjectsForMigration(configMapDirField)),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&source.Kind{Type: &corev1.Secret{}},
+			handler.EnqueueRequestsFromMapFunc(r.createFindObjectsForMigration(secretTokenField)),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Complete(r)
+}
+
+func (r *AtlasMigrationReconciler) createFindObjectsForMigration(field string) handler.MapFunc {
+	return func(obj client.Object) []reconcile.Request {
+		var (
+			migrationList = &dbv1alpha1.AtlasMigrationList{}
+			listOps       = &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(field, obj.GetName()),
+				Namespace:     obj.GetNamespace(),
+			}
+		)
+		if err := r.List(context.TODO(), migrationList, listOps); err != nil {
+			return []reconcile.Request{}
+		}
+		requests := make([]reconcile.Request, len(migrationList.Items))
+		for i, item := range migrationList.Items {
+			requests[i] = reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      item.GetName(),
+					Namespace: item.GetNamespace(),
+				},
+			}
+		}
+		return requests
+	}
 }
 
 // Render atlas.hcl file from the given data
