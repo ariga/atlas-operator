@@ -33,8 +33,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
@@ -47,8 +50,22 @@ type MigrateCLI interface {
 // AtlasMigrationReconciler reconciles a AtlasMigration object
 type AtlasMigrationReconciler struct {
 	client.Client
-	CLI    MigrateCLI
-	Scheme *runtime.Scheme
+	CLI              MigrateCLI
+	Scheme           *runtime.Scheme
+	secretWatcher    *watch.ResourceWatcher
+	configMapWatcher *watch.ResourceWatcher
+}
+
+func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigrationReconciler {
+	secretWatcher := watch.New()
+	configMapWatcher := watch.New()
+	return &AtlasMigrationReconciler{
+		CLI:              cli,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		configMapWatcher: &configMapWatcher,
+		secretWatcher:    &secretWatcher,
+	}
 }
 
 // atlasMigrationData is the data used to render the HCL template
@@ -80,23 +97,19 @@ type (
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
-	var (
-		am  dbv1alpha1.AtlasMigration
-		err error
-	)
-
-	// Get AtlasMigration resource
-	if err = r.Get(ctx, req.NamespacedName, &am); err != nil {
+	var am dbv1alpha1.AtlasMigration
+	if err := r.Get(ctx, req.NamespacedName, &am); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	// At the end of reconcile, update the status of the resource base on the error
+	var err error
 	defer func() {
 		clientErr := r.updateResourceStatus(ctx, am, err)
 		if clientErr != nil {
@@ -110,12 +123,23 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
+	if c := am.Spec.Dir.ConfigMapRef; c != "" {
+		r.configMapWatcher.Watch(
+			types.NamespacedName{Name: c, Namespace: am.Namespace},
+			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
+		)
+	}
+	if s := am.Spec.URLFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: am.Namespace},
+			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
+		)
+	}
 	// Reconcile given resource
 	am.Status, err = r.reconcile(ctx, am)
 	if err != nil {
 		return result(err)
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -314,6 +338,9 @@ func (r *AtlasMigrationReconciler) updateResourceStatus(
 func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasMigration{}).
+		Owns(&dbv1alpha1.AtlasMigration{}).
+		Watches(&source.Kind{Type: &corev1.Secret{}}, r.secretWatcher).
+		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, r.configMapWatcher).
 		Complete(r)
 }
 
