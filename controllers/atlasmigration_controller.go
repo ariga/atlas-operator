@@ -311,6 +311,28 @@ func (r *AtlasMigrationReconciler) updateResourceStatus(
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Index dir.configMapRef field
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &dbv1alpha1.AtlasMigration{}, configMapDirField, func(rawObj client.Object) []string {
+			am := rawObj.(*dbv1alpha1.AtlasMigration)
+			if am.Spec.Dir.ConfigMapRef == "" {
+				return nil
+			}
+			return []string{am.Spec.Dir.ConfigMapRef}
+		}); err != nil {
+		return err
+	}
+	// Index cloud.TokenFrom spec
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &dbv1alpha1.AtlasMigration{}, secretTokenField, func(rawObj client.Object) []string {
+			am := rawObj.(*dbv1alpha1.AtlasMigration)
+			if am.Spec.Cloud.TokenFrom.SecretKeyRef == nil {
+				return nil
+			}
+			return []string{am.Spec.Cloud.TokenFrom.SecretKeyRef.Name}
+		}); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasMigration{}).
 		Owns(&dbv1alpha1.AtlasMigration{}).
