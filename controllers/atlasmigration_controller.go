@@ -115,6 +115,9 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if clientErr != nil {
 			log.Error(clientErr, "failed to update resource status")
 		}
+
+		// After updating the status, watch the dependent resources
+		r.watch(am)
 	}()
 
 	// Only the 'latest' version is supported
@@ -123,18 +126,6 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	if c := am.Spec.Dir.ConfigMapRef; c != "" {
-		r.configMapWatcher.Watch(
-			types.NamespacedName{Name: c, Namespace: am.Namespace},
-			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
-		)
-	}
-	if s := am.Spec.URLFrom.SecretKeyRef; s != nil {
-		r.secretWatcher.Watch(
-			types.NamespacedName{Name: s.Name, Namespace: am.Namespace},
-			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
-		)
-	}
 	// Reconcile given resource
 	am.Status, err = r.reconcile(ctx, am)
 	if err != nil {
@@ -332,6 +323,32 @@ func (r *AtlasMigrationReconciler) updateResourceStatus(
 	}
 
 	return nil
+}
+
+func (r *AtlasMigrationReconciler) watch(am dbv1alpha1.AtlasMigration) {
+	// Watch migration directory configmap
+	if c := am.Spec.Dir.ConfigMapRef; c != "" {
+		r.configMapWatcher.Watch(
+			types.NamespacedName{Name: c, Namespace: am.Namespace},
+			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
+		)
+	}
+
+	// Watch Atlas Cloud token secret
+	if s := am.Spec.Cloud.TokenFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: am.Namespace},
+			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
+		)
+	}
+
+	// Watch database connection string secret
+	if s := am.Spec.URLFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: am.Namespace},
+			types.NamespacedName{Name: am.Name, Namespace: am.Namespace},
+		)
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
