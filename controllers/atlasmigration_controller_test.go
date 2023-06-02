@@ -14,6 +14,7 @@ import (
 	"ariga.io/atlas/sql/migrate"
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/ariga/atlas-operator/internal/atlas"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -307,6 +308,65 @@ func TestReconcile_updateResourceStatus_witherr(t *testing.T) {
 	require.Equal(t, am.Status.Conditions[0].Message, "my-error")
 }
 
+func TestReconciler_watch(t *testing.T) {
+	tt := newMigrationTest(t)
+
+	tt.r.watch(dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			URLFrom: v1alpha1.URLFrom{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: "database-connection",
+					},
+				},
+			},
+			Cloud: v1alpha1.Cloud{
+				TokenFrom: v1alpha1.TokenFrom{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "atlas-token",
+						},
+					},
+				},
+			},
+			Dir: v1alpha1.Dir{
+				ConfigMapRef: "migration-directory",
+			},
+		},
+	})
+
+	// Watched database-connection, atlas-token and migration-directory
+	dbWatched := tt.r.secretWatcher.Read(types.NamespacedName{Name: "database-connection", Namespace: "default"})
+	require.EqualValues(t, []types.NamespacedName{
+		{Name: "atlas-migration", Namespace: "default"},
+	}, dbWatched)
+	atWatched := tt.r.secretWatcher.Read(types.NamespacedName{Name: "atlas-token", Namespace: "default"})
+	require.EqualValues(t, []types.NamespacedName{
+		{Name: "atlas-migration", Namespace: "default"},
+	}, atWatched)
+	mdWatched := tt.r.configMapWatcher.Read(types.NamespacedName{Name: "migration-directory", Namespace: "default"})
+	require.EqualValues(t, []types.NamespacedName{
+		{Name: "atlas-migration", Namespace: "default"},
+	}, mdWatched)
+}
+
+func TestWatcher_enabled(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultAtlasMigration()
+
+	// First Reconcile
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	// Watched configmap
+	watched := tt.r.configMapWatcher.Read(types.NamespacedName{Name: "my-configmap", Namespace: "default"})
+	require.EqualValues(t, []types.NamespacedName{
+		{Name: "atlas-migration", Namespace: "default"},
+	}, watched)
+}
+
 func TestDefaultTemplate(t *testing.T) {
 	migrate := atlasMigrationData{}
 	migrate.Migration = &migration{
@@ -415,6 +475,8 @@ type migrationTest struct {
 func newMigrationTest(t *testing.T) *migrationTest {
 	scheme := runtime.NewScheme()
 	dbv1alpha1.AddToScheme(scheme)
+	secretWatcher := watch.New()
+	configMapWatcher := watch.New()
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
@@ -422,8 +484,10 @@ func newMigrationTest(t *testing.T) *migrationTest {
 		T:   t,
 		k8s: m,
 		r: &AtlasMigrationReconciler{
-			Client: m,
-			Scheme: scheme,
+			Client:           m,
+			Scheme:           scheme,
+			secretWatcher:    &secretWatcher,
+			configMapWatcher: &configMapWatcher,
 		},
 	}
 }

@@ -38,6 +38,10 @@ func (w ResourceWatcher) Watch(watchedName, dependentName types.NamespacedName) 
 	w.watched[watchedName] = append(existing, dependentName)
 }
 
+func (w ResourceWatcher) Read(watchedName types.NamespacedName) []types.NamespacedName {
+	return w.watched[watchedName]
+}
+
 func (w ResourceWatcher) Create(event event.CreateEvent, queue workqueue.RateLimitingInterface) {
 	w.handleEvent(event.Object, queue)
 }
