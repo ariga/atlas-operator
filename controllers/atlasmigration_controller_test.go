@@ -53,6 +53,15 @@ func TestReconcile_Diff(t *testing.T) {
 	status = tt.status()
 	fmt.Println(status.Conditions[0].Message)
 	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
+
+	// Third reconcile without any modification
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status = tt.status()
+	fmt.Println(status.Conditions[0].Message)
+	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
 }
 
 func TestReconcile_BadSQL(t *testing.T) {

@@ -141,10 +141,17 @@ func (r *AtlasMigrationReconciler) reconcile(
 	// Check if there are any pending migration files
 	status, err := r.CLI.Status(ctx, &atlas.StatusParams{ConfigURL: atlasHCL})
 	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, err
+		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
 	if len(status.Pending) == 0 {
-		return am.Status, nil
+		var lastApplied int64
+		if len(status.Applied) > 0 {
+			lastApplied = status.Applied[len(status.Applied)-1].ExecutedAt.Unix()
+		}
+		return dbv1alpha1.AtlasMigrationStatus{
+			LastApplied:        lastApplied,
+			LastAppliedVersion: status.Current,
+		}, nil
 	}
 
 	// Execute Atlas CLI migrate command
