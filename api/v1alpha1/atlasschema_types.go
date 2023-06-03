@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // AtlasSchemaSpec defines the desired state of AtlasSchema
@@ -126,6 +127,14 @@ type AtlasSchema struct {
 
 	Spec   AtlasSchemaSpec   `json:"spec,omitempty"`
 	Status AtlasSchemaStatus `json:"status,omitempty"`
+}
+
+// NamespacedName returns the namespaced name of the object.
+func (s *AtlasSchema) NamespacedName() types.NamespacedName {
+	return types.NamespacedName{
+		Name:      s.Name,
+		Namespace: s.Namespace,
+	}
 }
 
 //+kubebuilder:object:root=true
