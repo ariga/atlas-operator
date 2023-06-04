@@ -71,6 +71,13 @@ jobs:
 
           # Expect the excluded table to be present.
           kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "describe myapp.ignore_me"
+
+          # Update sql schema configmap
+          kubectl create configmap mysql-schema --from-file=./config/integration/schema/mysql \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+          # Expect the new column to be present.
+          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "SHOW COLUMNS FROM myapp.users LIKE 'phone';"
       - name: Reset database resources
         run: |
           kubectl delete pods -l app=mysql
