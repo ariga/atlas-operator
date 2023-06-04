@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // AtlasMigrationSpec defines the desired state of AtlasMigration
@@ -84,6 +85,14 @@ type AtlasMigration struct {
 
 	Spec   AtlasMigrationSpec   `json:"spec,omitempty"`
 	Status AtlasMigrationStatus `json:"status,omitempty"`
+}
+
+// NamespacedName returns the namespaced name of the object.
+func (m *AtlasMigration) NamespacedName() types.NamespacedName {
+	return types.NamespacedName{
+		Name:      m.Name,
+		Namespace: m.Namespace,
+	}
 }
 
 //+kubebuilder:object:root=true
