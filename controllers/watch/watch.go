@@ -25,16 +25,11 @@ func New() ResourceWatcher {
 
 // Watch will add a new object to watch.
 func (w ResourceWatcher) Watch(watchedName, dependentName types.NamespacedName) {
-	existing, hasExisting := w.watched[watchedName]
-	if !hasExisting {
-		existing = []types.NamespacedName{}
-	}
-
 	// Check if resource is already being watched.
+	existing := w.watched[watchedName]
 	if slices.Contains(existing, dependentName) {
 		return
 	}
-
 	w.watched[watchedName] = append(existing, dependentName)
 }
 
@@ -66,7 +61,6 @@ func (w ResourceWatcher) handleEvent(meta metav1.Object, queue workqueue.RateLim
 		Name:      meta.GetName(),
 		Namespace: meta.GetNamespace(),
 	}
-
 	// Enqueue reconciliation for each dependent object.
 	for _, reconciledObjectName := range w.watched[changedObjectName] {
 		queue.Add(reconcile.Request{
