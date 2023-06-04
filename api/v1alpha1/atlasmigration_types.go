@@ -46,7 +46,7 @@ type Cloud struct {
 // Dir defines the place where migrations are stored.
 type Dir struct {
 	// ConfigMapRef defines the configmap to use for migrations
-	ConfigMapRef string `json:"configMapRef,omitempty"`
+	ConfigMapRef *corev1.LocalObjectReference `json:"configMapRef,omitempty"`
 	// Remote defines the Atlas Cloud directory migration.
 	Remote Remote `json:"remote,omitempty"`
 }

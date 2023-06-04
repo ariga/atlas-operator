@@ -73,7 +73,13 @@ spec:
                 properties:
                   configMapRef:
                     description: ConfigMapRef defines the configmap to use for migrations
-                    type: string
+                    properties:
+                      name:
+                        description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?'
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
                   remote:
                     description: Remote defines the Atlas Cloud directory migration.
                     properties:

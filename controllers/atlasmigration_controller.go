@@ -208,9 +208,9 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 
 	// Get temporary directory
 	cleanUpDir := func() error { return nil }
-	if am.Spec.Dir.ConfigMapRef != "" {
+	if c := am.Spec.Dir.ConfigMapRef; c != nil {
 		tmplData.Migration = &migration{}
-		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDir(ctx, am.Namespace, am.Spec.Dir)
+		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDir(ctx, am.Namespace, c.Name)
 		if err != nil {
 			return tmplData, nil, err
 		}
@@ -257,14 +257,14 @@ func (r *AtlasMigrationReconciler) getSecretValue(
 // createTmpDir creates a temporary directory and returns its url.
 func (r *AtlasMigrationReconciler) createTmpDir(
 	ctx context.Context,
-	ns string,
-	dir dbv1alpha1.Dir) (string, func() error, error) {
+	ns, cfgName string,
+) (string, func() error, error) {
 
 	// Get configmap
 	configMap := corev1.ConfigMap{}
 	if err := r.Get(ctx, types.NamespacedName{
 		Namespace: ns,
-		Name:      dir.ConfigMapRef,
+		Name:      cfgName,
 	}, &configMap); err != nil {
 		return "", nil, transient(err)
 	}
@@ -326,9 +326,9 @@ func (r *AtlasMigrationReconciler) updateResourceStatus(
 }
 
 func (r *AtlasMigrationReconciler) watch(am dbv1alpha1.AtlasMigration) {
-	if c := am.Spec.Dir.ConfigMapRef; c != "" {
+	if c := am.Spec.Dir.ConfigMapRef; c != nil {
 		r.configMapWatcher.Watch(
-			types.NamespacedName{Name: c, Namespace: am.Namespace},
+			types.NamespacedName{Name: c.Name, Namespace: am.Namespace},
 			am.NamespacedName(),
 		)
 	}
