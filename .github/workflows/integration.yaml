@@ -22,7 +22,7 @@ jobs:
             ${{ runner.os }}-go-
       - name: Install Atlas CLI
         run: |
-          curl -sSf https://atlasgo.sh | sh
+          curl -sSf https://atlasgo.sh | ATLAS_DEBUG=true sh
       - name: Generate
         run: make generate manifests chart-manifests
         shell: bash
