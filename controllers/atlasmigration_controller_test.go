@@ -118,7 +118,7 @@ func TestReconcile_reconcile(t *testing.T) {
 		Spec: v1alpha1.AtlasMigrationSpec{
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
-				ConfigMapRef: "my-configmap",
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
 	})
@@ -142,7 +142,7 @@ func TestReconcile_reconcile_uptodate(t *testing.T) {
 		Spec: v1alpha1.AtlasMigrationSpec{
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
-				ConfigMapRef: "my-configmap",
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
 	})
@@ -199,7 +199,7 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 		Spec: v1alpha1.AtlasMigrationSpec{
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
-				ConfigMapRef: "my-configmap",
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
 	})
@@ -255,9 +255,7 @@ func TestReconcile_createTmpDir(t *testing.T) {
 	tt.initDefaultMigrationDir()
 
 	// When the configmap exists
-	dir, cleanUp, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
-		ConfigMapRef: "my-configmap",
-	})
+	dir, cleanUp, err := tt.r.createTmpDir(context.Background(), "default", "my-configmap")
 	require.NoError(t, err)
 	parse, err := url.Parse(dir)
 	require.NoError(t, err)
@@ -274,9 +272,7 @@ func TestReconcile_createTmpDir_notfound(t *testing.T) {
 	tt.initDefaultMigrationDir()
 
 	// When the configmap does not exist
-	_, _, err := tt.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
-		ConfigMapRef: "other-configmap",
-	})
+	_, _, err := tt.r.createTmpDir(context.Background(), "default", "other-configmap")
 	require.Error(t, err)
 	require.Equal(t, " \"other-configmap\" not found", err.Error())
 }
@@ -340,7 +336,7 @@ func TestReconciler_watch(t *testing.T) {
 				},
 			},
 			Dir: v1alpha1.Dir{
-				ConfigMapRef: "migration-directory",
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "migration-directory"},
 			},
 		},
 	})
@@ -520,9 +516,7 @@ func (t *migrationTest) addMigrationScript(name, content string) {
 	t.k8s.put(&cm)
 
 	// Create a temporary directory dir with a new configmap
-	dirUrl, cleanUp, err := t.r.createTmpDir(context.Background(), "default", v1alpha1.Dir{
-		ConfigMapRef: "my-configmap",
-	})
+	dirUrl, cleanUp, err := t.r.createTmpDir(context.Background(), "default", "my-configmap")
 	require.NoError(t, err)
 	defer cleanUp()
 	u, err := url.Parse(dirUrl)
@@ -550,7 +544,7 @@ func (t *migrationTest) initDefaultAtlasMigration() {
 				URL:     t.dburl,
 				Version: "latest",
 				Dir: v1alpha1.Dir{
-					ConfigMapRef: "my-configmap",
+					ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 				},
 			},
 		},

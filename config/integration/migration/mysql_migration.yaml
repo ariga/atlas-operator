@@ -15,4 +15,5 @@ spec:
       name: mysql-credentials
   version: "latest"
   dir:
-    configMapRef: "migration-dir"
+    configMapRef:
+      name: "migration-dir"
