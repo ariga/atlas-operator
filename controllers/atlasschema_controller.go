@@ -31,8 +31,6 @@ import (
 	"time"
 
 	"ariga.io/atlas/sql/sqlcheck"
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/internal/atlas"
 	"golang.org/x/exp/slices"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +43,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
+	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
 const (
@@ -63,8 +67,10 @@ type (
 	// AtlasSchemaReconciler reconciles a AtlasSchema object
 	AtlasSchemaReconciler struct {
 		client.Client
-		CLI    CLI
-		Scheme *runtime.Scheme
+		cli              CLI
+		scheme           *runtime.Scheme
+		configMapWatcher *watch.ResourceWatcher
+		secretWatcher    *watch.ResourceWatcher
 	}
 	// devDB contains values used to render a devDB pod template.
 	devDB struct {
@@ -97,6 +103,18 @@ type (
 	}
 )
 
+func NewAtlasSchemaReconciler(mgr manager.Manager, cli CLI) *AtlasSchemaReconciler {
+	configMapWatcher := watch.New()
+	secretWatcher := watch.New()
+	return &AtlasSchemaReconciler{
+		Client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		cli:              cli,
+		configMapWatcher: &configMapWatcher,
+		secretWatcher:    &secretWatcher,
+	}
+}
+
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas/finalizers,verbs=update
@@ -124,6 +142,8 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Status().Update(ctx, sc); err != nil {
 			log.Error(err, "failed to update status")
 		}
+		// Watch the configMap and secret referenced by the schema.
+		r.watch(sc)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if sc.Status.Conditions == nil || len(sc.Status.Conditions) == 0 {
@@ -142,14 +162,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNotReady(sc, "Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	// make sure we have a dev db running
-	devDB := &v1.Deployment{}
 	if managed.driver != "sqlite" {
+		// make sure we have a dev db running
+		devDB := &v1.Deployment{}
 		err = transient(
 			r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB),
 		)
 		if apierrors.IsNotFound(err) {
-			devDB, err = r.devDBDeployment(ctx, sc, managed)
+			_, err = r.devDBDeployment(ctx, sc, managed)
 			if err != nil {
 				setNotReady(sc, "CreatingDevDB", err.Error())
 				return result(err)
@@ -210,7 +230,25 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasSchema{}).
+		Owns(&dbv1alpha1.AtlasSchema{}).
+		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, r.configMapWatcher).
+		Watches(&source.Kind{Type: &corev1.Secret{}}, r.secretWatcher).
 		Complete(r)
+}
+
+func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
+	if c := sc.Spec.Schema.ConfigMapKeyRef; c != nil {
+		r.configMapWatcher.Watch(
+			types.NamespacedName{Name: c.Name, Namespace: sc.Namespace},
+			sc.NamespacedName(),
+		)
+	}
+	if s := sc.Spec.URLFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: sc.Namespace},
+			sc.NamespacedName(),
+		)
+	}
 }
 
 func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSchema) (*url.URL, error) {
@@ -257,7 +295,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	if err := yaml.NewYAMLToJSONDecoder(&b).Decode(d); err != nil {
 		return nil, err
 	}
-	if err := ctrl.SetControllerReference(sc, d, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(sc, d, r.scheme); err != nil {
 		return nil, err
 	}
 	if err := r.Create(ctx, d); err != nil {
@@ -323,7 +361,7 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		return nil, err
 	}
 	defer clean()
-	apply, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	apply, err := r.cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		URL:       des.url.String(),
 		To:        file,
 		DevURL:    devURL,

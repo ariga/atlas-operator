@@ -26,7 +26,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 		return err
 	}
 	defer os.RemoveAll(tmpdir)
-	ins, err := r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+	ins, err := r.cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
 		DevURL: devURL,
 		URL:    des.url.String(),
 		Format: "sql",
@@ -47,7 +47,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 	if len(vars) > 0 {
 		vv = vars[0]
 	}
-	dry, err := r.CLI.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	dry, err := r.cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
 		DryRun:  true,
 		URL:     des.url.String(),
 		To:      desired,
@@ -65,7 +65,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
 		return err
 	}
-	lint, err := r.CLI.Lint(ctx, &atlas.LintParams{
+	lint, err := r.cli.Lint(ctx, &atlas.LintParams{
 		DevURL:    devURL,
 		DirURL:    "file://" + tmpdir,
 		Latest:    1,
