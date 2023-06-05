@@ -104,11 +104,8 @@ func main() {
 		setupLog.Error(err, "unable to create atlas client")
 		os.Exit(1)
 	}
-	if err = (&controllers.AtlasSchemaReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		CLI:    cli,
-	}).SetupWithManager(mgr); err != nil {
+	if err = controllers.NewAtlasSchemaReconciler(mgr, cli).
+		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}

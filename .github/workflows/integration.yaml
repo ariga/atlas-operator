@@ -12,14 +12,6 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: '1.20'
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       - name: Install Atlas CLI
         run: |
           curl -sSf https://atlasgo.sh | ATLAS_DEBUG=true sh
@@ -71,6 +63,16 @@ jobs:
 
           # Expect the excluded table to be present.
           kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "describe myapp.ignore_me"
+
+          # Update sql schema configmap
+          kubectl create configmap mysql-schema --from-file=./config/integration/schema/mysql \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+          sleep 1s # Wait for the migration to be applied.
+          kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
+
+          # Expect the new column to be present.
+          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "SHOW COLUMNS FROM myapp.users LIKE 'phone';"
       - name: Reset database resources
         run: |
           kubectl delete pods -l app=mysql

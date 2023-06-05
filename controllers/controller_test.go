@@ -12,6 +12,7 @@ import (
 
 	"ariga.io/atlas/sql/sqlcheck"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/ariga/atlas-operator/internal/atlas"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -159,7 +160,7 @@ func TestSchemaConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the schema was applied.
-	inspect, err := tt.r.CLI.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+	inspect, err := tt.r.cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
 		DevURL: "sqlite://mem?mode=memory",
 		Format: "sql",
@@ -231,7 +232,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
 	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
 
-	ins, err := tt.r.CLI.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+	ins, err := tt.r.cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
 		Format: "sql",
 	})
@@ -270,7 +271,7 @@ func TestDiffPolicy(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	ins, err := tt.r.CLI.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+	ins, err := tt.r.cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
 		Format: "sql",
 	})
@@ -374,7 +375,7 @@ func cliTest(t *testing.T) *test {
 	require.NoError(t, err)
 	cli, err := atlas.NewClient(wd, "atlas")
 	require.NoError(t, err)
-	tt.r.CLI = cli
+	tt.r.cli = cli
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
 	tt.dburl = "sqlite://" + filepath.Join(td, "test.db")
@@ -388,13 +389,17 @@ func newTest(t *testing.T) *test {
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
+	configMapWatcher := watch.New()
+	secretWatcher := watch.New()
 	return &test{
 		T:   t,
 		k8s: m,
 		r: &AtlasSchemaReconciler{
-			Client: m,
-			Scheme: scheme,
-			CLI:    &mockCLI{},
+			Client:           m,
+			scheme:           scheme,
+			cli:              &mockCLI{},
+			configMapWatcher: &configMapWatcher,
+			secretWatcher:    &secretWatcher,
 		},
 	}
 }
@@ -564,14 +569,14 @@ func (t *test) cond() metav1.Condition {
 }
 
 func (t *test) mockCLI() *mockCLI {
-	return t.r.CLI.(*mockCLI)
+	return t.r.cli.(*mockCLI)
 }
 
 func (t *test) initDB(statement string) {
 	f, clean, err := atlas.TempFile(statement, "sql")
 	require.NoError(t, err)
 	defer clean()
-	_, err = t.r.CLI.SchemaApply(context.Background(), &atlas.SchemaApplyParams{
+	_, err = t.r.cli.SchemaApply(context.Background(), &atlas.SchemaApplyParams{
 		URL:    t.dburl,
 		DevURL: "sqlite://file2/?mode=memory",
 		To:     f,
