@@ -27,6 +27,10 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.title=atlas-operator
             org.opencontainers.image.description=Atlas Operator
