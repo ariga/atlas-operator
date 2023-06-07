@@ -38,6 +38,9 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          env:
+            - name: EXPERIMENTAL
+              value: "{{ .Values.experimental }}"
           livenessProbe:
             httpGet:
               path: /healthz
