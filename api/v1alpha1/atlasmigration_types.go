@@ -18,8 +18,13 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+)
+
+const (
+	MigrateReadyCond = "Ready"
 )
 
 // AtlasMigrationSpec defines the desired state of AtlasMigration
@@ -93,6 +98,37 @@ func (m *AtlasMigration) NamespacedName() types.NamespacedName {
 		Name:      m.Name,
 		Namespace: m.Namespace,
 	}
+}
+
+// IsReady returns true if the ready condition is true.
+func (m *AtlasMigration) IsReady() bool {
+	return meta.IsStatusConditionTrue(m.Status.Conditions, MigrateReadyCond)
+}
+
+// SetReady sets the ready condition to true.
+func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
+	m.Status = status
+	meta.SetStatusCondition(
+		&m.Status.Conditions,
+		metav1.Condition{
+			Type:   MigrateReadyCond,
+			Status: metav1.ConditionTrue,
+			Reason: "Applied",
+		},
+	)
+}
+
+// SetNotReady sets the ready condition to false.
+func (m *AtlasMigration) SetNotReady(reason, message string) {
+	meta.SetStatusCondition(
+		&m.Status.Conditions,
+		metav1.Condition{
+			Type:    MigrateReadyCond,
+			Status:  metav1.ConditionFalse,
+			Reason:  reason,
+			Message: message,
+		},
+	)
 }
 
 //+kubebuilder:object:root=true
