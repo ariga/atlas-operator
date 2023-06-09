@@ -23,11 +23,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -110,9 +107,8 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// At the end of reconcile, update the status of the resource base on the error
-	var err error
 	defer func() {
-		clientErr := r.updateResourceStatus(ctx, am, err)
+		clientErr := r.Status().Update(ctx, &am)
 		if clientErr != nil {
 			log.Error(clientErr, "failed to update resource status")
 		}
@@ -123,22 +119,25 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Set status to false to indicate that the resource is reconciling
 	// Other tools can use this status to know if the resource is ready or not
-	if len(am.Status.Conditions) == 0 || meta.IsStatusConditionTrue(am.Status.Conditions, "Ready") {
-		err = fmt.Errorf("Reconciling")
+	if len(am.Status.Conditions) == 0 || am.IsReady() {
+		am.SetNotReady("Reconciling", "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Only the 'latest' version is supported
 	if am.Spec.Version != "latest" {
-		err = fmt.Errorf("unsupported version: %s", am.Spec.Version)
+		am.SetNotReady("Reconciling", fmt.Sprintf("unsupported version: %s", am.Spec.Version))
 		return ctrl.Result{}, nil
 	}
 
 	// Reconcile given resource
-	am.Status, err = r.reconcile(ctx, am)
+	status, err := r.reconcile(ctx, am)
 	if err != nil {
+		am.SetNotReady("Reconciling", err.Error())
 		return result(err)
 	}
+
+	am.SetReady(status)
 	return ctrl.Result{}, nil
 }
 
@@ -300,41 +299,6 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 	return fmt.Sprintf("file://%s", tmpDir), func() error {
 		return os.RemoveAll(tmpDir)
 	}, nil
-}
-
-// Update the status of the given AtlasMigration resource.
-// If err is not nil, the status will be set to false and the reason will be set to the error message.
-func (r *AtlasMigrationReconciler) updateResourceStatus(
-	ctx context.Context,
-	am dbv1alpha1.AtlasMigration,
-	err error,
-) error {
-	conditionStatus := metav1.ConditionTrue
-	conditionMessage := ""
-	// Be careful when editing this default value, it required when updating the status of the resource
-	conditionReason := "Applied"
-
-	if err != nil {
-		conditionStatus = metav1.ConditionFalse
-		conditionReason = "Reconciling"
-		conditionMessage = strings.TrimSpace(err.Error())
-	}
-
-	meta.SetStatusCondition(
-		&am.Status.Conditions,
-		metav1.Condition{
-			Type:    "Ready",
-			Status:  conditionStatus,
-			Reason:  conditionReason,
-			Message: conditionMessage,
-		},
-	)
-
-	if err := r.Status().Update(ctx, &am); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (r *AtlasMigrationReconciler) watch(am dbv1alpha1.AtlasMigration) {

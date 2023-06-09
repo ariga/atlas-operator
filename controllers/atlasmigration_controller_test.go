@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/url"
@@ -321,42 +320,6 @@ func TestReconcile_createTmpDir_notfound(t *testing.T) {
 	_, _, err := tt.r.createTmpDir(context.Background(), "default", "other-configmap")
 	require.Error(t, err)
 	require.Equal(t, " \"other-configmap\" not found", err.Error())
-}
-
-func TestReconcile_updateResourceStatus(t *testing.T) {
-	tt := newMigrationTest(t)
-	am := v1alpha1.AtlasMigration{
-		ObjectMeta: migrationObjmeta(),
-	}
-	tt.k8s.put(&am)
-
-	// Update status with no error
-	err := tt.r.updateResourceStatus(context.Background(), am, nil)
-	require.NoError(t, err)
-	tt.k8s.Get(context.Background(), migrationReq().NamespacedName, &am)
-	require.Equal(t, am.Status.Conditions[0].Status, metav1.ConditionTrue)
-	require.Equal(t, am.Status.Conditions[0].Type, "Ready")
-	require.Equal(t, am.Status.Conditions[0].Reason, "Applied")
-}
-
-func TestReconcile_updateResourceStatus_witherr(t *testing.T) {
-	tt := newMigrationTest(t)
-	am := v1alpha1.AtlasMigration{
-		ObjectMeta: migrationObjmeta(),
-	}
-	tt.k8s.put(&am)
-
-	// Update status with error
-	err := tt.r.updateResourceStatus(context.Background(), am, errors.New("my-error"))
-	require.NoError(t, err)
-	tt.k8s.Get(context.Background(), types.NamespacedName{
-		Name:      am.Name,
-		Namespace: am.Namespace,
-	}, &am)
-	require.Equal(t, am.Status.Conditions[0].Status, metav1.ConditionFalse)
-	require.Equal(t, am.Status.Conditions[0].Type, "Ready")
-	require.Equal(t, am.Status.Conditions[0].Reason, "Reconciling")
-	require.Equal(t, am.Status.Conditions[0].Message, "my-error")
 }
 
 func TestReconciler_watch(t *testing.T) {
