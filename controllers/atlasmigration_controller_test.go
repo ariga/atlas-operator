@@ -45,21 +45,29 @@ func TestReconcile_Diff(t *testing.T) {
 	status := tt.status()
 	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
 
-	// Second reconcile
+	// Second reconcile (change to in-progress status)
 	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
-	require.EqualValues(tt, reconcile.Result{}, result)
+	require.EqualValues(tt, reconcile.Result{Requeue: true}, result)
 
+	// Third reconcile
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
 	status = tt.status()
 	fmt.Println(status.Conditions[0].Message)
 	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
 
-	// Third reconcile without any modification
+	// Fourth reconcile without any modification (change to in-progress status)
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{Requeue: true}, result)
+
+	// Fifth reconcile without any modification
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, result)
-
 	status = tt.status()
 	fmt.Println(status.Conditions[0].Message)
 	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
@@ -78,6 +86,12 @@ func TestReconcile_BadSQL(t *testing.T) {
 	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
 
 	// Second reconcile
+	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
+	result, err = tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{Requeue: true}, result)
+
+	// Third migration
 	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
@@ -103,6 +117,14 @@ func TestReconcile_Transient(t *testing.T) {
 				},
 			},
 		},
+		Status: v1alpha1.AtlasMigrationStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "Ready",
+					Status: metav1.ConditionFalse,
+				},
+			},
+		},
 	})
 	result, err := tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(t, err)
@@ -125,6 +147,30 @@ func TestReconcile_reconcile(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
+}
+
+func TestReconcile_reconciling(t *testing.T) {
+	tt := newMigrationTest(t)
+	am := &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Status: v1alpha1.AtlasMigrationStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "Ready",
+					Status: metav1.ConditionTrue,
+				},
+			},
+		},
+	}
+	tt.k8s.put(am)
+
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(t, err)
+	require.EqualValues(t, reconcile.Result{Requeue: true}, result)
+	tt.k8s.Get(context.Background(), migrationReq().NamespacedName, am)
+	require.EqualValues(t, metav1.ConditionFalse, am.Status.Conditions[0].Status)
+	require.EqualValues(t, "Reconciling", am.Status.Conditions[0].Reason)
+
 }
 
 func TestReconcile_reconcile_uptodate(t *testing.T) {
@@ -545,6 +591,14 @@ func (t *migrationTest) initDefaultAtlasMigration() {
 				Version: "latest",
 				Dir: v1alpha1.Dir{
 					ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
+				},
+			},
+			Status: v1alpha1.AtlasMigrationStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:   "Ready",
+						Status: metav1.ConditionFalse,
+					},
 				},
 			},
 		},

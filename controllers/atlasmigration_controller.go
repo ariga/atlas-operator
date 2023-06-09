@@ -108,6 +108,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Get(ctx, req.NamespacedName, &am); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	// At the end of reconcile, update the status of the resource base on the error
 	var err error
 	defer func() {
@@ -119,6 +120,13 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// After updating the status, watch the dependent resources
 		r.watch(am)
 	}()
+
+	// Set status to false to indicate that the resource is reconciling
+	// Other tools can use this status to know if the resource is ready or not
+	if len(am.Status.Conditions) == 0 || meta.IsStatusConditionTrue(am.Status.Conditions, "Ready") {
+		err = fmt.Errorf("Reconciling")
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	// Only the 'latest' version is supported
 	if am.Spec.Version != "latest" {
@@ -191,7 +199,8 @@ func (r *AtlasMigrationReconciler) reconcile(
 // Extract migration data from the given resource
 func (r *AtlasMigrationReconciler) extractMigrationData(
 	ctx context.Context,
-	am dbv1alpha1.AtlasMigration) (atlasMigrationData, func() error, error) {
+	am dbv1alpha1.AtlasMigration,
+) (atlasMigrationData, func() error, error) {
 	var (
 		tmplData atlasMigrationData
 		err      error
@@ -243,7 +252,8 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 func (r *AtlasMigrationReconciler) getSecretValue(
 	ctx context.Context,
 	ns string,
-	selector corev1.SecretKeySelector) (string, error) {
+	selector corev1.SecretKeySelector,
+) (string, error) {
 
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: selector.Name}, secret); err != nil {
@@ -296,7 +306,9 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 // If err is not nil, the status will be set to false and the reason will be set to the error message.
 func (r *AtlasMigrationReconciler) updateResourceStatus(
 	ctx context.Context,
-	am dbv1alpha1.AtlasMigration, err error) error {
+	am dbv1alpha1.AtlasMigration,
+	err error,
+) error {
 	conditionStatus := metav1.ConditionTrue
 	conditionMessage := ""
 	// Be careful when editing this default value, it required when updating the status of the resource
