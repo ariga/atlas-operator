@@ -58,12 +58,8 @@ func TestReconcile_Diff(t *testing.T) {
 	fmt.Println(status.Conditions[0].Message)
 	require.EqualValues(tt, "20230412003627", status.LastAppliedVersion)
 
-	// Fourth reconcile without any modification (change to in-progress status)
-	result, err = tt.r.Reconcile(context.Background(), migrationReq())
-	require.NoError(tt, err)
-	require.EqualValues(tt, reconcile.Result{Requeue: true}, result)
+	// Fourth reconcile without any modification
 
-	// Fifth reconcile without any modification
 	result, err = tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, result)
@@ -134,7 +130,7 @@ func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	status, err := tt.r.reconcile(context.Background(), v1alpha1.AtlasMigration{
+	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			URL: tt.dburl,
@@ -143,7 +139,9 @@ func TestReconcile_reconcile(t *testing.T) {
 			},
 		},
 	})
+	require.NoError(t, err)
 
+	status, err := tt.r.reconcile(context.Background(), md)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
 }
@@ -182,7 +180,7 @@ func TestReconcile_reconcile_uptodate(t *testing.T) {
 		},
 	})
 
-	status, err := tt.r.reconcile(context.Background(), v1alpha1.AtlasMigration{
+	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			URL: tt.dburl,
@@ -191,6 +189,9 @@ func TestReconcile_reconcile_uptodate(t *testing.T) {
 			},
 		},
 	})
+	require.NoError(t, err)
+
+	status, err := tt.r.reconcile(context.Background(), md)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
 }
@@ -259,7 +260,7 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 
 func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
-	tt.initDefaultTokenSecrect()
+	tt.initDefaultTokenSecret()
 
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -545,7 +546,7 @@ func (t *migrationTest) addMigrationScript(name, content string) {
 
 func (t *migrationTest) initDefaultAtlasMigration() {
 	t.initDefaultMigrationDir()
-	t.initDefaultTokenSecrect()
+	t.initDefaultTokenSecret()
 	t.k8s.put(
 		&v1alpha1.AtlasMigration{
 			ObjectMeta: migrationObjmeta(),
@@ -584,7 +585,7 @@ func (t *migrationTest) initDefaultMigrationDir() {
 	)
 }
 
-func (t *migrationTest) initDefaultTokenSecrect() {
+func (t *migrationTest) initDefaultTokenSecret() {
 	t.k8s.put(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-secret",
