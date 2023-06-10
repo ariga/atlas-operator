@@ -42,7 +42,7 @@ jobs:
         with:
           context: .
           build-args: |
-            OPERATOR_VERSION=${{ steps.meta.outputs.version }}
+            OPERATOR_VERSION=v${{ steps.meta.outputs.version }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
