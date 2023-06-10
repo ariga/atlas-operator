@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ariga.io/atlas/sql/migrate"
 	corev1 "k8s.io/api/core/v1"
@@ -73,6 +74,7 @@ func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigr
 // that will be used for Atlas CLI
 type (
 	atlasMigrationData struct {
+		EnvName   string
 		URL       string
 		Migration *migration
 		Cloud     *cloud
@@ -148,16 +150,10 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Only the 'latest' version is supported
-	if am.Spec.Version != "latest" {
-		am.SetNotReady("Reconciling", fmt.Sprintf("unsupported version: %s", am.Spec.Version))
-		return ctrl.Result{}, nil
-	}
-
 	// Reconcile given resource
 	status, err := r.reconcile(ctx, md)
 	if err != nil {
-		am.SetNotReady("Reconciling", err.Error())
+		am.SetNotReady("Reconciling", strings.TrimSpace(err.Error()))
 		return result(err)
 	}
 
@@ -184,7 +180,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Check if there are any pending migration files
-	status, err := r.CLI.Status(ctx, &atlas.StatusParams{ConfigURL: atlasHCL})
+	status, err := r.CLI.Status(ctx, &atlas.StatusParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
@@ -201,7 +197,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Execute Atlas CLI migrate command
-	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{ConfigURL: atlasHCL})
+	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
@@ -267,6 +263,12 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		if err != nil {
 			return tmplData, nil, err
 		}
+	}
+
+	// Mapping EnvName, default to "kubernetes"
+	tmplData.EnvName = am.Spec.EnvName
+	if tmplData.EnvName == "" {
+		tmplData.EnvName = "kubernetes"
 	}
 
 	return tmplData, cleanUpDir, nil

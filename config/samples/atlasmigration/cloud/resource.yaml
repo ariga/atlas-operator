@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/created-by: atlas-operator
   name: atlasmigration-sample
 spec:
+  env: my-env
   urlFrom:
     secretKeyRef:
       key: url
@@ -20,7 +21,6 @@ spec:
         key: token
         name: atlas-credentials
     project: "atlas"
-  version: "latest"
   dir:
     remote: 
       name: "atlas"

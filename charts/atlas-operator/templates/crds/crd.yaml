@@ -89,6 +89,10 @@ spec:
                         type: string
                     type: object
                 type: object
+              envName:
+                description: EnvName sets the environment name used for reporting
+                  runs to Atlas Cloud.
+                type: string
               url:
                 description: URL of the target database schema.
                 type: string
@@ -116,12 +120,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
-              version:
-                description: Desired Version of the target database schema.
-                type: string
             required:
             - dir
-            - version
             type: object
           status:
             description: AtlasMigrationStatus defines the observed state of AtlasMigration
