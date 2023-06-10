@@ -76,6 +76,8 @@ type AtlasMigrationStatus struct {
 	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
 	//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
 	LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
+	// ObservedHash is the hash of the most recent successful versioned migration.
+	ObservedHash string `json:"observed_hash"`
 	// LastApplied is the unix timestamp of the most recent successful versioned migration.
 	LastApplied int64 `json:"lastApplied"`
 }
@@ -103,6 +105,11 @@ func (m *AtlasMigration) NamespacedName() types.NamespacedName {
 // IsReady returns true if the ready condition is true.
 func (m *AtlasMigration) IsReady() bool {
 	return meta.IsStatusConditionTrue(m.Status.Conditions, MigrateReadyCond)
+}
+
+// IsHashModified returns true if the hash is different from the observed hash.
+func (m *AtlasMigration) IsHashModified(hash string) bool {
+	return hash != m.Status.ObservedHash
 }
 
 // SetReady sets the ready condition to true.

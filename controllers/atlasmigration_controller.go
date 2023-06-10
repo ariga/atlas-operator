@@ -18,12 +18,16 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 
+	"ariga.io/atlas/sql/migrate"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -117,10 +121,30 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.watch(am)
 	}()
 
-	// Set status to false to indicate that the resource is reconciling
-	// Other tools can use this status to know if the resource is ready or not
-	if len(am.Status.Conditions) == 0 || am.IsReady() {
+	// When the resource is first created, create the "Ready" condition.
+	if len(am.Status.Conditions) == 0 {
 		am.SetNotReady("Reconciling", "Reconciling")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Extract migration data from the given resource
+	md, cleanUp, err := r.extractMigrationData(ctx, am)
+	if err != nil {
+		am.SetNotReady("ReadMigrationData", err.Error())
+		return result(err)
+	}
+	defer cleanUp()
+	hash, err := md.hash()
+	if err != nil {
+		am.SetNotReady("CalculateHash", err.Error())
+		return ctrl.Result{}, nil
+	}
+
+	// If the migration resource has changed and the resource ready condition is not false, immediately set it to false.
+	// This is done so that the observed status of the migration reflects its "in-progress" state while it is being
+	// reconciled.
+	if am.IsReady() && am.IsHashModified(hash) {
+		am.SetNotReady("Reconciling", "Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -131,7 +155,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Reconcile given resource
-	status, err := r.reconcile(ctx, am)
+	status, err := r.reconcile(ctx, md)
 	if err != nil {
 		am.SetNotReady("Reconciling", err.Error())
 		return result(err)
@@ -144,21 +168,20 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // Reconcile the given AtlasMigration resource.
 func (r *AtlasMigrationReconciler) reconcile(
 	ctx context.Context,
-	am dbv1alpha1.AtlasMigration,
+	md atlasMigrationData,
 ) (dbv1alpha1.AtlasMigrationStatus, error) {
-	// Extract migration data from the given resource
-	migrationData, cleanUp1, err := r.extractMigrationData(ctx, am)
-	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, err
-	}
-	defer cleanUp1()
-
 	// Create atlas.hcl from template data
-	atlasHCL, cleanUp2, err := migrationData.render()
+	atlasHCL, cleanUp, err := md.render()
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-	defer cleanUp2()
+	defer cleanUp()
+
+	// Calculate the observedHash
+	hash, err := md.hash()
+	if err != nil {
+		return dbv1alpha1.AtlasMigrationStatus{}, err
+	}
 
 	// Check if there are any pending migration files
 	status, err := r.CLI.Status(ctx, &atlas.StatusParams{ConfigURL: atlasHCL})
@@ -171,6 +194,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 			lastApplied = status.Applied[len(status.Applied)-1].ExecutedAt.Unix()
 		}
 		return dbv1alpha1.AtlasMigrationStatus{
+			ObservedHash:       hash,
 			LastApplied:        lastApplied,
 			LastAppliedVersion: status.Current,
 		}, nil
@@ -190,6 +214,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	return dbv1alpha1.AtlasMigrationStatus{
+		ObservedHash:       hash,
 		LastApplied:        report.End.Unix(),
 		LastAppliedVersion: report.Target,
 	}, nil
@@ -340,4 +365,41 @@ func (amd atlasMigrationData) render() (string, func() error, error) {
 	}
 
 	return atlas.TempFile(buf.String(), "hcl")
+}
+
+// Calculate the hash of the given data
+func (amd atlasMigrationData) hash() (string, error) {
+	h := sha256.New()
+
+	// Hash cloud directory
+	h.Write([]byte(amd.URL))
+	if amd.Cloud != nil {
+		h.Write([]byte(amd.Cloud.Token))
+		h.Write([]byte(amd.Cloud.URL))
+		h.Write([]byte(amd.Cloud.Project))
+		if amd.Cloud.RemoteDir != nil {
+			h.Write([]byte(amd.Cloud.RemoteDir.Name))
+			h.Write([]byte(amd.Cloud.RemoteDir.Tag))
+			return hex.EncodeToString(h.Sum(nil)), nil
+		}
+	}
+
+	// Hash local directory
+	if amd.Migration != nil {
+		u, err := url.Parse(amd.Migration.Dir)
+		if err != nil {
+			return "", err
+		}
+		d, err := migrate.NewLocalDir(u.Path)
+		if err != nil {
+			return "", err
+		}
+		hf, err := d.Checksum()
+		if err != nil {
+			return "", err
+		}
+		h.Write([]byte(hf.Sum()))
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

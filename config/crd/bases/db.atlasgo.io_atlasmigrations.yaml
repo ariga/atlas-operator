@@ -210,8 +210,13 @@ spec:
                 description: LastDeploymentURL is the Deployment URL of the most recent
                   successful versioned migration.
                 type: string
+              observed_hash:
+                description: ObservedHash is the hash of the most recent successful
+                  versioned migration.
+                type: string
             required:
             - lastApplied
+            - observed_hash
             type: object
         type: object
     served: true
