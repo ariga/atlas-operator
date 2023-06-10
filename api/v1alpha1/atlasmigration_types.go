@@ -29,8 +29,8 @@ const (
 
 // AtlasMigrationSpec defines the desired state of AtlasMigration
 type AtlasMigrationSpec struct {
-	// Env defines the environment variables to use for migrations.
-	Env string `json:"env,omitempty"`
+	// EnvName sets the environment name used for reporting runs to Atlas Cloud.
+	EnvName string `json:"envName,omitempty"`
 	// URL of the target database schema.
 	URL string `json:"url,omitempty"`
 	// URLs may be defined as a secret key reference.

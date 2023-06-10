@@ -74,7 +74,7 @@ func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigr
 // that will be used for Atlas CLI
 type (
 	atlasMigrationData struct {
-		Env       string
+		EnvName   string
 		URL       string
 		Migration *migration
 		Cloud     *cloud
@@ -180,7 +180,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Check if there are any pending migration files
-	status, err := r.CLI.Status(ctx, &atlas.StatusParams{Env: md.Env, ConfigURL: atlasHCL})
+	status, err := r.CLI.Status(ctx, &atlas.StatusParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
@@ -197,7 +197,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Execute Atlas CLI migrate command
-	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{Env: md.Env, ConfigURL: atlasHCL})
+	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
@@ -265,7 +265,12 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		}
 	}
 
-	tmplData.Env = am.Spec.Env
+	// Mapping EnvName, default to "kubernetes"
+	tmplData.EnvName = am.Spec.EnvName
+	if tmplData.EnvName == "" {
+		tmplData.EnvName = "kubernetes"
+	}
+
 	return tmplData, cleanUpDir, nil
 }
 

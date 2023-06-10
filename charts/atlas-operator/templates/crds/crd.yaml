@@ -89,8 +89,9 @@ spec:
                         type: string
                     type: object
                 type: object
-              env:
-                description: Env defines the environment variables to use for migrations.
+              envName:
+                description: EnvName sets the environment name used for reporting
+                  runs to Atlas Cloud.
                 type: string
               url:
                 description: URL of the target database schema.

@@ -132,7 +132,6 @@ func TestReconcile_reconcile(t *testing.T) {
 	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
-			Env: "my-env",
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
@@ -183,7 +182,6 @@ func TestReconcile_reconcile_uptodate(t *testing.T) {
 	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
-			Env: "my-env",
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
@@ -244,7 +242,6 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
-			Env: "my-env",
 			URL: tt.dburl,
 			Dir: v1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
@@ -267,7 +264,6 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
-			Env: "my-env",
 			URL: tt.dburl,
 			Cloud: v1alpha1.Cloud{
 				URL:     "https://atlasgo.io/",
@@ -554,7 +550,6 @@ func (t *migrationTest) initDefaultAtlasMigration() {
 		&v1alpha1.AtlasMigration{
 			ObjectMeta: migrationObjmeta(),
 			Spec: v1alpha1.AtlasMigrationSpec{
-				Env: "my-env",
 				URL: t.dburl,
 				Dir: v1alpha1.Dir{
 					ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
