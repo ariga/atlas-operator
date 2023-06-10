@@ -13,7 +13,6 @@ spec:
     secretKeyRef:
       key: url
       name: mysql-credentials
-  version: "latest"
   dir:
     configMapRef:
       name: "migration-dir"

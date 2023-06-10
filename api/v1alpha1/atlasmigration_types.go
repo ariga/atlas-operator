@@ -29,14 +29,14 @@ const (
 
 // AtlasMigrationSpec defines the desired state of AtlasMigration
 type AtlasMigrationSpec struct {
+	// Env defines the environment variables to use for migrations.
+	Env string `json:"env,omitempty"`
 	// URL of the target database schema.
 	URL string `json:"url,omitempty"`
 	// URLs may be defined as a secret key reference.
 	URLFrom URLFrom `json:"urlFrom,omitempty"`
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud Cloud `json:"cloud,omitempty"`
-	// Desired Version of the target database schema.
-	Version string `json:"version"`
 	// Dir defines the directory to use for migrations as a configmap key reference.
 	Dir Dir `json:"dir"`
 }

@@ -18,6 +18,7 @@ type (
 	}
 	// ApplyParams are the parameters for the `migrate apply` command.
 	ApplyParams struct {
+		Env             string
 		ConfigURL       string
 		DirURL          string
 		URL             string
@@ -28,6 +29,7 @@ type (
 	}
 	// StatusParams are the parameters for the `migrate status` command.
 	StatusParams struct {
+		Env             string
 		ConfigURL       string
 		DirURL          string
 		URL             string
@@ -87,7 +89,7 @@ func (c *Client) Apply(ctx context.Context, data *ApplyParams) (*ApplyReport, er
 		"--log", "{{ json . }}",
 	}
 	if data.ConfigURL != "" {
-		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
+		args = append(args, "-c", data.ConfigURL, "--env", data.Env)
 	}
 	if data.URL != "" {
 		args = append(args, "--url", data.URL)
@@ -195,7 +197,7 @@ func (c *Client) Status(ctx context.Context, data *StatusParams) (*StatusReport,
 		"migrate", "status", "--log", "{{ json . }}",
 	}
 	if data.ConfigURL != "" {
-		args = append(args, "-c", data.ConfigURL, "--env", "k8s")
+		args = append(args, "-c", data.ConfigURL, "--env", data.Env)
 	}
 	if data.URL != "" {
 		args = append(args, "--url", data.URL)

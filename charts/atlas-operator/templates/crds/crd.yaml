@@ -89,6 +89,9 @@ spec:
                         type: string
                     type: object
                 type: object
+              env:
+                description: Env defines the environment variables to use for migrations.
+                type: string
               url:
                 description: URL of the target database schema.
                 type: string
@@ -116,12 +119,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
-              version:
-                description: Desired Version of the target database schema.
-                type: string
             required:
             - dir
-            - version
             type: object
           status:
             description: AtlasMigrationStatus defines the observed state of AtlasMigration

@@ -9,11 +9,11 @@ metadata:
     app.kubernetes.io/created-by: atlas-operator
   name: atlasmigration-sample
 spec:
+  env: my-env
   urlFrom:
     secretKeyRef:
       key: url
       name: db-credentials
-  version: "latest"
   dir:
     configMapRef:
       name: "migration-dir"
