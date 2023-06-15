@@ -93,6 +93,10 @@ spec:
                 description: EnvName sets the environment name used for reporting
                   runs to Atlas Cloud.
                 type: string
+              revisionsSchema:
+                description: RevisionsSchema defines the schema that revisions table
+                  resides in
+                type: string
               url:
                 description: URL of the target database schema.
                 type: string
