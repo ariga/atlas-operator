@@ -39,6 +39,8 @@ type AtlasMigrationSpec struct {
 	Cloud Cloud `json:"cloud,omitempty"`
 	// Dir defines the directory to use for migrations as a configmap key reference.
 	Dir Dir `json:"dir"`
+	// RevisionsSchema defines the schema that revisions table resides in
+	RevisionsSchema string `json:"revisionsSchema,omitempty"`
 }
 
 // Cloud defines the Atlas Cloud configuration.

@@ -74,10 +74,11 @@ func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigr
 // that will be used for Atlas CLI
 type (
 	atlasMigrationData struct {
-		EnvName   string
-		URL       string
-		Migration *migration
-		Cloud     *cloud
+		EnvName         string
+		URL             string
+		Migration       *migration
+		Cloud           *cloud
+		RevisionsSchema string
 	}
 
 	migration struct {
@@ -271,6 +272,7 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		tmplData.EnvName = "kubernetes"
 	}
 
+	tmplData.RevisionsSchema = am.Spec.RevisionsSchema
 	return tmplData, cleanUpDir, nil
 }
 

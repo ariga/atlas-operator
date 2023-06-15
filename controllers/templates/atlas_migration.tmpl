@@ -29,5 +29,8 @@ env {
 {{- with .Migration }}
     dir = "{{ .Dir }}"
 {{- end }}
+{{- if .RevisionsSchema }}
+    revisions_schema = "{{ .RevisionsSchema }}" 
+{{- end }}
   }
 }
