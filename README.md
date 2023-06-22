@@ -26,13 +26,13 @@ and apply it to your database using the Kubernetes API.
 - [x] Support for [declarative migrations](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations)
   for schemas defined in [Plain SQL](https://atlasgo.io/declarative/apply#sql-schema) or 
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
-- [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them. (Coming Soon)   
-- [ ] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations). (Coming Soon)
+- [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them.
+- [X] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
 - [X] Supported databases: MySQL, MariaDB, PostgresSQL, SQLite, TiDB, CockroachDB
 
 ### Declarative schema migrations
 
-![](https://user-images.githubusercontent.com/1522681/236139615-1d10feea-8b19-46a2-905b-b614883c48c8.png)
+![](https://atlasgo.io/uploads/images/operator-declarative.png)
 
 The Atlas Kubernetes Operator supports [declarative migrations](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 In declarative migrations, the desired state of the database is defined by the user and the operator is responsible
@@ -56,7 +56,7 @@ operator, follow these steps to get started:
   to the database:
 
   ```bash
-  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/mysql.yaml
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/mysql.yaml
   ```
   
   Result:
@@ -120,8 +120,93 @@ operator, follow these steps to get started:
   +-----------+--------------+------+-----+---------+----------------+
   ```
   
-  Hooray! We applied our desired schema to our target database.
+Hooray! We applied our desired schema to our target database.
 
+Now, let's try versioned migrations with a PostgreSQL database.
+
+1. Create a PostgresQL database and a secret with an [Atlas URL](https://atlasgo.io/concepts/url)
+  to the database:
+
+  ```bash
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/postgres.yaml
+  ```
+  
+  Result:
+
+  ```bash
+  deployment.apps/postgres created
+  service/postgres unchanged
+  secret/postgres-credentials configured
+  ```
+
+2. Create a file named `migrationdir.yaml` to define your migration directory
+
+  ```hcl
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: migrationdir
+  data:
+    20230316085611.sql: |
+      create sequence users_seq;
+      create table users (
+        id int not null default nextval ('users_seq'),
+        name varchar(255) not null,
+        email varchar(255) unique not null,
+        short_bio varchar(255) not null,
+        primary key (id)
+      );
+    atlas.sum: |
+      h1:FwM0ApKo8xhcZFrSlpa6dYjvi0fnDPo/aZSzajtbHLc=
+      20230316085611.sql h1:ldFr73m6ZQzNi8q9dVJsOU/ZHmkBo4Sax03AaL0VUUs=
+  ``` 
+
+3. Create a file named `atlasmigration.yaml` to define your migration resource that links to the migration directory.
+
+  ```hcl
+  apiVersion: db.atlasgo.io/v1alpha1
+  kind: AtlasMigration
+  metadata:
+    name: atlasmigration-sample
+  spec:
+    urlFrom:
+      secretKeyRef:
+        key: url
+        name: postgresql-credentials
+    dir:
+      configMapRef:
+        name: "migrationdir"
+  ```
+4. Apply migration resources:
+
+  ```bash
+  kubectl apply -f migrationdir.yaml
+  kubectl apply -f atlasmigration.yaml
+  ```
+  
+  Result:
+  ```bash
+  atlasmigration.db.atlasgo.io/atlasmigration-sample created
+  ```
+
+5. Check that our table was created:
+
+  ```
+  kubectl exec -it $(kubectl get pods -l app=postgres -o jsonpath='{.items[0].metadata.name}') -- psql -U root -d postgres -c "\d+ users"
+  ```
+
+  Result:
+
+  ```bash
+    Column   |          Type          | Collation | Nullable |            Default             | Storage  | Compression | Stats target | Description
+  -----------+------------------------+-----------+----------+--------------------------------+----------+-------------+--------------+-------------
+   id        | integer                |           | not null | nextval('users_seq'::regclass) | plain    |             |              |
+   name      | character varying(255) |           | not null |                                | extended |             |              |
+   email     | character varying(255) |           | not null |                                | extended |             |              |
+   short_bio | character varying(255) |           | not null |                                | extended |             |              |
+  ```
+  
+  Please refer to [this link](https://atlasgo.io/integrations/kubernetes/operators/versioned) to explore the supported API for versioned migrations.
 ### API Reference
 
 Example resource: 
