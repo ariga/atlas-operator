@@ -33,9 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
@@ -354,7 +356,7 @@ func (r *AtlasMigrationReconciler) watch(am dbv1alpha1.AtlasMigration) {
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&dbv1alpha1.AtlasMigration{}).
+		For(&dbv1alpha1.AtlasMigration{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasMigration{}).
 		Watches(&source.Kind{Type: &corev1.Secret{}}, r.secretWatcher).
 		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, r.configMapWatcher).
