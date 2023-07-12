@@ -46,6 +46,13 @@ metadata:
     {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
       - apps
     resources:
       - deployments
