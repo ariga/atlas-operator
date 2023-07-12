@@ -24,4 +24,5 @@ spec:
     configMapKeyRef:
       key: schema.sql
       name: mysql-schema
-
+  exclude:
+    - ignore_me
