@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -129,6 +130,9 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, metav1.ConditionTrue, cond.Status)
 	require.EqualValues(t, "Applied", cond.Reason)
 	require.EqualValues(t, []string{"a", "b"}, tt.mockCLI().applyRuns[0].Schema)
+
+	events := tt.events()
+	require.EqualValues(t, "Normal Applied Applied schema", events[0])
 }
 
 func TestSchemaConfigMap(t *testing.T) {
@@ -231,6 +235,12 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cond.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cond.Status)
 	require.EqualValues(t, "FirstRunDestructive", cond.Reason)
+
+	events := tt.events()
+	require.Len(t, events, 1)
+	ev := events[0]
+	require.Contains(t, ev, "FirstRunDestructive")
+	require.Contains(t, ev, "Warning")
 
 	ins, err := tt.r.cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -400,6 +410,7 @@ func newTest(t *testing.T) *test {
 			cli:              &mockCLI{},
 			configMapWatcher: &configMapWatcher,
 			secretWatcher:    &secretWatcher,
+			recorder:         record.NewFakeRecorder(100),
 		},
 	}
 }
@@ -582,4 +593,18 @@ func (t *test) initDB(statement string) {
 		To:     f,
 	})
 	require.NoError(t, err)
+}
+
+func (t *test) events() []string {
+	r := t.r.recorder.(*record.FakeRecorder)
+	// read events from channel
+	var events []string
+	for {
+		select {
+		case e := <-r.Events:
+			events = append(events, e)
+		default:
+			return events
+		}
+	}
 }

@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -73,6 +74,7 @@ type (
 		scheme           *runtime.Scheme
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
+		recorder         record.EventRecorder
 	}
 	// devDB contains values used to render a devDB pod template.
 	devDB struct {
@@ -114,6 +116,7 @@ func NewAtlasSchemaReconciler(mgr manager.Manager, cli CLI) *AtlasSchemaReconcil
 		cli:              cli,
 		configMapWatcher: &configMapWatcher,
 		secretWatcher:    &secretWatcher,
+		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
 	}
 }
 
@@ -124,6 +127,7 @@ func NewAtlasSchemaReconciler(mgr manager.Manager, cli CLI) *AtlasSchemaReconcil
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -210,21 +214,25 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
 			}
 			setNotReady(sc, reason, msg)
+			r.recorder.Event(sc, corev1.EventTypeWarning, reason, msg)
 			return result(err)
 		}
 	}
 	if shouldLint(managed) {
 		if err := r.lint(ctx, managed, devURL); err != nil {
 			setNotReady(sc, "LintPolicyError", err.Error())
+			r.recorder.Event(sc, corev1.EventTypeWarning, "LintPolicyError", err.Error())
 			return result(err)
 		}
 	}
 	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
 		setNotReady(sc, "ApplyingSchema", err.Error())
+		r.recorder.Event(sc, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
 		return result(err)
 	}
 	setReady(sc, managed, app)
+	r.recorder.Event(sc, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
 
@@ -303,6 +311,7 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	if err := r.Create(ctx, d); err != nil {
 		return nil, transient(err)
 	}
+	r.recorder.Eventf(sc, corev1.EventTypeNormal, "CreatedDevDB", "Created dev database deployment: %s", d.Name)
 	return d, nil
 }
 
