@@ -135,13 +135,13 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Extract migration data from the given resource
 	md, cleanUp, err := r.extractMigrationData(ctx, am)
 	if err != nil {
-		am.SetNotReady("ReadMigrationData", err.Error())
+		am.SetNotReady("ReadingMigrationData", err.Error())
 		return result(err)
 	}
 	defer cleanUp()
 	hash, err := md.hash()
 	if err != nil {
-		am.SetNotReady("CalculateHash", err.Error())
+		am.SetNotReady("CalculatingHash", err.Error())
 		return ctrl.Result{}, nil
 	}
 
@@ -156,7 +156,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Reconcile given resource
 	status, err := r.reconcile(ctx, md)
 	if err != nil {
-		am.SetNotReady("Reconciling", strings.TrimSpace(err.Error()))
+		am.SetNotReady("Migrating", strings.TrimSpace(err.Error()))
 		return result(err)
 	}
 
