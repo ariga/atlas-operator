@@ -121,6 +121,8 @@ type AtlasSchemaStatus struct {
 //+kubebuilder:subresource:status
 
 // AtlasSchema is the Schema for the atlasschemas API
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
 type AtlasSchema struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

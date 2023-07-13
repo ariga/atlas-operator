@@ -88,6 +88,8 @@ type AtlasMigrationStatus struct {
 //+kubebuilder:subresource:status
 
 // AtlasMigration is the Schema for the atlasmigrations API
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
 type AtlasMigration struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

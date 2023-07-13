@@ -24,7 +24,7 @@ jobs:
         run: |
           status=$(git status --porcelain)
           if [ -n "$status" ]; then
-            echo "you need to run 'make generate manifests' and commit the changes"
+            echo "you need to run 'make generate manifests chart-manifests' and commit the changes"
             echo "$status"
             exit 1
           fi
