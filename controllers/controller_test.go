@@ -453,6 +453,11 @@ func (m *mockClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 	return nil
 }
 
+func (m *mockClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	delete(m.state, client.ObjectKeyFromObject(obj))
+	return nil
+}
+
 // Hardcoded list of pods to simulate a running dev db.
 func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if reflect.TypeOf(list) != reflect.TypeOf(&corev1.PodList{}) {
