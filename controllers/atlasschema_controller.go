@@ -128,6 +128,7 @@ func NewAtlasSchemaReconciler(mgr manager.Manager, cli CLI) *AtlasSchemaReconcil
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -150,6 +151,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		// Watch the configMap and secret referenced by the schema.
 		r.watch(sc)
+
+		// Clean up any resources created by the controller after the reconciler is successful.
+		if meta.IsStatusConditionTrue(sc.Status.Conditions, schemaReadyCond) {
+			r.cleanUp(ctx, sc)
+		}
+
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if sc.Status.Conditions == nil || len(sc.Status.Conditions) == 0 {
@@ -259,6 +266,24 @@ func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
 			sc.NamespacedName(),
 		)
 	}
+}
+
+// Clean up any resources created by the controller
+func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
+		"app.kubernetes.io/instance": sc.Name + devDBSuffix,
+	})); err != nil {
+		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
+	}
+	for _, p := range pods.Items {
+		err := r.Delete(ctx, &p)
+		if err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
+		}
+	}
+
+	r.recorder.Eventf(sc, corev1.EventTypeNormal, "CleanUpDevDB", "Recreated devDB pods")
 }
 
 func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSchema) (*url.URL, error) {

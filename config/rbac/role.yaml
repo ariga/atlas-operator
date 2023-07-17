@@ -13,6 +13,12 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+- apiGroups:
   - apps
   resources:
   - deployments
