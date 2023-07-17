@@ -141,7 +141,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
 
 2. Create a file named `migrationdir.yaml` to define your migration directory
 
-  ```hcl
+  ```yaml
   apiVersion: v1
   kind: ConfigMap
   metadata:
@@ -163,7 +163,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
 
 3. Create a file named `atlasmigration.yaml` to define your migration resource that links to the migration directory.
 
-  ```hcl
+  ```yaml
   apiVersion: db.atlasgo.io/v1alpha1
   kind: AtlasMigration
   metadata:
@@ -176,6 +176,34 @@ Now, let's try versioned migrations with a PostgreSQL database.
     dir:
       configMapRef:
         name: "migrationdir"
+  ```
+
+  We can define a migration directory inlined in the migration resource instead of using a ConfigMap:
+  
+  ```yaml
+  apiVersion: db.atlasgo.io/v1alpha1
+  kind: AtlasMigration
+  metadata:
+    name: atlasmigration-sample
+  spec:
+    urlFrom:
+      secretKeyRef:
+        key: url
+        name: postgresql-credentials
+    dir:
+      local:
+        20230316085611.sql: |
+          create sequence users_seq;
+          create table users (
+            id int not null default nextval ('users_seq'),
+            name varchar(255) not null,
+            email varchar(255) unique not null,
+            short_bio varchar(255) not null,
+            primary key (id)
+          );
+        atlas.sum: |
+          h1:FwM0ApKo8xhcZFrSlpa6dYjvi0fnDPo/aZSzajtbHLc=
+          20230316085611.sql h1:ldFr73m6ZQzNi8q9dVJsOU/ZHmkBo4Sax03AaL0VUUs=
   ```
 4. Apply migration resources:
 

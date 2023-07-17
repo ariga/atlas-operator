@@ -242,7 +242,20 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 	cleanUpDir := func() error { return nil }
 	if c := am.Spec.Dir.ConfigMapRef; c != nil {
 		tmplData.Migration = &migration{}
-		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDir(ctx, am.Namespace, c.Name)
+		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDirFromCfgMap(ctx, am.Namespace, c.Name)
+		if err != nil {
+			return tmplData, nil, err
+		}
+	}
+
+	// Get temporary directory in case of local directory
+	if m := am.Spec.Dir.Local; m != nil {
+		if tmplData.Migration != nil {
+			return tmplData, nil, errors.New("cannot define both configmap and local directory")
+		}
+
+		tmplData.Migration = &migration{}
+		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDirFromMap(ctx, m)
 		if err != nil {
 			return tmplData, nil, err
 		}
@@ -294,8 +307,8 @@ func (r *AtlasMigrationReconciler) getSecretValue(
 	return us, nil
 }
 
-// createTmpDir creates a temporary directory and returns its url.
-func (r *AtlasMigrationReconciler) createTmpDir(
+// createTmpDirFromCM creates a temporary directory by configmap
+func (r *AtlasMigrationReconciler) createTmpDirFromCfgMap(
 	ctx context.Context,
 	ns, cfgName string,
 ) (string, func() error, error) {
@@ -309,6 +322,15 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 		return "", nil, transient(err)
 	}
 
+	return r.createTmpDirFromMap(ctx, configMap.Data)
+}
+
+// createTmpDirFromCM creates a temporary directory by configmap
+func (r *AtlasMigrationReconciler) createTmpDirFromMap(
+	ctx context.Context,
+	m map[string]string,
+) (string, func() error, error) {
+
 	// Create temporary directory and remove it at the end of the function
 	tmpDir, err := ioutil.TempDir("", "migrations")
 	if err != nil {
@@ -317,7 +339,7 @@ func (r *AtlasMigrationReconciler) createTmpDir(
 
 	// Foreach configmap to build temporary directory
 	// key is the name of the file and value is the content of the file
-	for key, value := range configMap.Data {
+	for key, value := range m {
 		filePath := filepath.Join(tmpDir, key)
 		err := ioutil.WriteFile(filePath, []byte(value), 0644)
 		if err != nil {

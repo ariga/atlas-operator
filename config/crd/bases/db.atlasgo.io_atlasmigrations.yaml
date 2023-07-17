@@ -81,8 +81,13 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  local:
+                    additionalProperties:
+                      type: string
+                    description: Local defines the local migration directory.
+                    type: object
                   remote:
-                    description: Remote defines the Atlas Cloud directory migration.
+                    description: Remote defines the Atlas Cloud migration directory.
                     properties:
                       name:
                         type: string
