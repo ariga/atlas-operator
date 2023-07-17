@@ -97,6 +97,42 @@ func TestReconcile_BadSQL(t *testing.T) {
 	require.Contains(tt, status.Conditions[0].Message, "sql/migrate: execute: executing statement")
 }
 
+func TestReconcile_LocalMigrationDir(t *testing.T) {
+	tt := migrationCliTest(t)
+	am := tt.getAtlasMigration()
+	am.Spec.Dir.Local = map[string]string{
+		"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
+		"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
+		20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
+	}
+	tt.k8s.put(am)
+
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status := tt.status()
+	require.EqualValues(tt, "20230412003626", status.LastAppliedVersion)
+}
+
+func TestReconcile_LocalMigrationDir_ConfigMap(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultMigrationDir()
+	am := tt.getAtlasMigration()
+	am.Spec.Dir.ConfigMapRef = &corev1.LocalObjectReference{Name: "my-configmap"}
+	am.Spec.Dir.Local = map[string]string{}
+
+	tt.k8s.put(am)
+
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+
+	status := tt.status()
+	require.EqualValues(tt, metav1.ConditionFalse, status.Conditions[0].Status)
+	require.Contains(tt, status.Conditions[0].Message, "cannot define both configmap and local directory")
+}
+
 func TestReconcile_Transient(t *testing.T) {
 	tt := newMigrationTest(t)
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
@@ -295,12 +331,15 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	cleanUp()
 }
 
-func TestReconcile_createTmpDir(t *testing.T) {
+func TestReconcile_createTmpDirFromMap(t *testing.T) {
 	tt := newMigrationTest(t)
-	tt.initDefaultMigrationDir()
 
 	// When the configmap exists
-	dir, cleanUp, err := tt.r.createTmpDir(context.Background(), "default", "my-configmap")
+	dir, cleanUp, err := tt.r.createTmpDirFromMap(context.Background(), map[string]string{
+		"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
+		"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
+		20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
+	})
 	require.NoError(t, err)
 	parse, err := url.Parse(dir)
 	require.NoError(t, err)
@@ -312,12 +351,29 @@ func TestReconcile_createTmpDir(t *testing.T) {
 	require.NoDirExists(t, parse.Path)
 }
 
-func TestReconcile_createTmpDir_notfound(t *testing.T) {
+func TestReconcile_createTmpDirFromCfgMap(t *testing.T) {
+	tt := newMigrationTest(t)
+	tt.initDefaultMigrationDir()
+
+	// When the configmap exists
+	dir, cleanUp, err := tt.r.createTmpDirFromCfgMap(context.Background(), "default", "my-configmap")
+	require.NoError(t, err)
+	parse, err := url.Parse(dir)
+	require.NoError(t, err)
+	require.DirExists(t, parse.Path)
+	files, err := ioutil.ReadDir(parse.Path)
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+	cleanUp()
+	require.NoDirExists(t, parse.Path)
+}
+
+func TestReconcile_createTmpDirFromCfgMap_notfound(t *testing.T) {
 	tt := newMigrationTest(t)
 	tt.initDefaultMigrationDir()
 
 	// When the configmap does not exist
-	_, _, err := tt.r.createTmpDir(context.Background(), "default", "other-configmap")
+	_, _, err := tt.r.createTmpDirFromCfgMap(context.Background(), "default", "other-configmap")
 	require.Error(t, err)
 	require.Equal(t, " \"other-configmap\" not found", err.Error())
 }
@@ -525,7 +581,7 @@ func (t *migrationTest) addMigrationScript(name, content string) {
 	t.k8s.put(&cm)
 
 	// Create a temporary directory dir with a new configmap
-	dirUrl, cleanUp, err := t.r.createTmpDir(context.Background(), "default", "my-configmap")
+	dirUrl, cleanUp, err := t.r.createTmpDirFromCfgMap(context.Background(), "default", "my-configmap")
 	require.NoError(t, err)
 	defer cleanUp()
 	u, err := url.Parse(dirUrl)
@@ -581,6 +637,24 @@ func (t *migrationTest) initDefaultMigrationDir() {
 			},
 		},
 	)
+}
+
+func (t *migrationTest) getAtlasMigration() *v1alpha1.AtlasMigration {
+	return &v1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: v1alpha1.AtlasMigrationSpec{
+			URL: t.dburl,
+		},
+		Status: v1alpha1.AtlasMigrationStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "Ready",
+					Status: metav1.ConditionFalse,
+				},
+			},
+		},
+	}
+
 }
 
 func (t *migrationTest) initDefaultTokenSecret() {
