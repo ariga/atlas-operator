@@ -268,7 +268,7 @@ deployment manifest.
 
 ### Support
 
-Need help? File issues on the [Atlas Issue Tracker](https://githb.com/ariga/atlas/issues) or join
+Need help? File issues on the [Atlas Issue Tracker](https://github.com/ariga/atlas/issues) or join
 our [Discord](https://discord.gg/zZ6sWVg6NT) server.
 
 ### Development
