@@ -283,7 +283,6 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 		}
 	}
 
-	r.recorder.Eventf(sc, corev1.EventTypeNormal, "CleanUpDevDB", "Recreated devDB pods")
 }
 
 func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSchema) (*url.URL, error) {
