@@ -159,6 +159,8 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	resp, err := tt.r.Reconcile(context.Background(), request)
 	require.NoError(t, err)
 	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, resp)
+	events := tt.events()
+	require.EqualValues(t, "Warning GetPassword Error getting password from secret pass-secret:  \"pass-secret\" not found", events[0])
 }
 
 func TestReconcile_Credentials(t *testing.T) {

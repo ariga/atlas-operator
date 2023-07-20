@@ -35,6 +35,27 @@ func TestCredentials_URL(t *testing.T) {
 			},
 			exp: "sqlite://file?mode=memory",
 		},
+		{
+			c: Credentials{
+				Scheme:   "mysql",
+				Username: "user",
+				Password: "pass",
+				Hostname: "host",
+				Database: "db",
+			},
+			exp: "mysql://user:pass@host/db",
+		},
+		{
+			c: Credentials{
+				Scheme:   "mysql",
+				Username: "user",
+				Password: "pass",
+				Hostname: "",
+				Port:     3306,
+				Database: "db",
+			},
+			exp: "mysql://user:pass@:3306/db",
+		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {
 			require.Equal(t, tt.exp, tt.c.URL().String())
