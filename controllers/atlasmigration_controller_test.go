@@ -428,8 +428,8 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
 			Credentials: dbv1alpha1.Credentials{
-				Scheme:   "sqlite",
-				Hostname: "localhost",
+				Scheme: "sqlite",
+				Host:   "localhost",
 				Parameters: map[string]string{
 					"mode": "memory",
 				},

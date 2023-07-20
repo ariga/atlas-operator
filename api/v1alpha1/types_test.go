@@ -14,9 +14,9 @@ func TestCredentials_URL(t *testing.T) {
 		{
 			c: Credentials{
 				Scheme:   "postgres",
-				Username: "user",
+				User:     "user",
 				Password: "pass",
-				Hostname: "host",
+				Host:     "host",
 				Port:     5432,
 				Database: "db",
 				Parameters: map[string]string{
@@ -27,8 +27,8 @@ func TestCredentials_URL(t *testing.T) {
 		},
 		{
 			c: Credentials{
-				Scheme:   "sqlite",
-				Hostname: "file",
+				Scheme: "sqlite",
+				Host:   "file",
 				Parameters: map[string]string{
 					"mode": "memory",
 				},
@@ -38,9 +38,9 @@ func TestCredentials_URL(t *testing.T) {
 		{
 			c: Credentials{
 				Scheme:   "mysql",
-				Username: "user",
+				User:     "user",
 				Password: "pass",
-				Hostname: "host",
+				Host:     "host",
 				Database: "db",
 			},
 			exp: "mysql://user:pass@host/db",
@@ -48,9 +48,9 @@ func TestCredentials_URL(t *testing.T) {
 		{
 			c: Credentials{
 				Scheme:   "mysql",
-				Username: "user",
+				User:     "user",
 				Password: "pass",
-				Hostname: "",
+				Host:     "",
 				Port:     3306,
 				Database: "db",
 			},

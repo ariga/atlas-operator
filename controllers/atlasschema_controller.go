@@ -297,7 +297,7 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 			return nil, transient(err)
 		}
 		us = sec
-	case s.Credentials.Hostname != "":
+	case s.Credentials.Host != "":
 		if err := hydrateCredentials(ctx, &s.Credentials, r, sch.Namespace); err != nil {
 			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
 			return nil, err

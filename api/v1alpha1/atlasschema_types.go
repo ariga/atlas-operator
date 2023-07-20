@@ -47,10 +47,10 @@ type AtlasSchemaSpec struct {
 // Credentials defines the credentials to use when connecting to the database.
 type Credentials struct {
 	Scheme       string            `json:"scheme,omitempty"`
-	Username     string            `json:"username,omitempty"`
+	User         string            `json:"user,omitempty"`
 	Password     string            `json:"password,omitempty"`
 	PasswordFrom PasswordFrom      `json:"passwordFrom,omitempty"`
-	Hostname     string            `json:"hostname,omitempty"`
+	Host         string            `json:"host,omitempty"`
 	Port         int               `json:"port,omitempty"`
 	Database     string            `json:"database,omitempty"`
 	Parameters   map[string]string `json:"parameters,omitempty"`
@@ -68,8 +68,8 @@ func (c *Credentials) URL() *url.URL {
 		Scheme: c.Scheme,
 		Path:   c.Database,
 	}
-	if c.Username != "" || c.Password != "" {
-		u.User = url.UserPassword(c.Username, c.Password)
+	if c.User != "" || c.Password != "" {
+		u.User = url.UserPassword(c.User, c.Password)
 	}
 	if len(c.Parameters) > 0 {
 		qs := url.Values{}
@@ -78,7 +78,7 @@ func (c *Credentials) URL() *url.URL {
 		}
 		u.RawQuery = qs.Encode()
 	}
-	host := c.Hostname
+	host := c.Host
 	if c.Port > 0 {
 		host = fmt.Sprintf("%s:%d", host, c.Port)
 	}

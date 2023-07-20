@@ -48,7 +48,7 @@ spec:
                 properties:
                   database:
                     type: string
-                  hostname:
+                  host:
                     type: string
                   parameters:
                     additionalProperties:
@@ -84,7 +84,7 @@ spec:
                     type: integer
                   scheme:
                     type: string
-                  username:
+                  user:
                     type: string
                 type: object
               exclude:

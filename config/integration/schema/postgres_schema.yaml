@@ -11,7 +11,8 @@ metadata:
 spec:
   credentials:
     scheme: postgres
-    username: root
+    host: postgres.default
+    user: root
     passwordFrom:
       secretKeyRef:
         key: password

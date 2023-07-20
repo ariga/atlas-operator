@@ -239,7 +239,7 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 		if err != nil {
 			return tmplData, nil, err
 		}
-	case creds.Hostname != "":
+	case creds.Host != "":
 		if err := hydrateCredentials(ctx, &creds, r, am.Namespace); err != nil {
 			return tmplData, nil, err
 		}

@@ -140,8 +140,8 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.URL = ""
 	sc.Spec.Credentials = dbv1alpha1.Credentials{
-		Scheme:   "mysql",
-		Username: "root",
+		Scheme: "mysql",
+		User:   "root",
 		PasswordFrom: dbv1alpha1.PasswordFrom{
 			SecretKeyRef: &corev1.SecretKeySelector{
 				Key: "password",
@@ -150,7 +150,7 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 				},
 			},
 		},
-		Hostname: "localhost",
+		Host:     "localhost",
 		Port:     3306,
 		Database: "test",
 	}
@@ -169,9 +169,9 @@ func TestReconcile_Credentials(t *testing.T) {
 	sc.Spec.URL = ""
 	creds := dbv1alpha1.Credentials{
 		Scheme:   "postgres",
-		Username: "root",
+		User:     "root",
 		Password: "password",
-		Hostname: "localhost",
+		Host:     "localhost",
 		Port:     3306,
 		Database: "test",
 	}
