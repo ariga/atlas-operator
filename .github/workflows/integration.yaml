@@ -8,6 +8,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Create SSH dir in Runner's home
+        run: |
+          # Fixed a BC change that rolling out in GitHub-hosted runners
+          mkdir -p ~/.ssh/
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
