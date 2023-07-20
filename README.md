@@ -260,6 +260,8 @@ This resource describes the desired schema of a MySQL database.
   * The `diff` policy defines a policy for planning the schema diff. In this example, we define a policy that will
     omit any `DROP INDEX` statements from the diff planned by Atlas.
 
+> The destructive of `lint` policy is enabled by default. To disable it, set the `destructive.error` field to `false`.
+
 ### Version checks
 
 The operator will periodically check for new versions and security advisories related to the operator.

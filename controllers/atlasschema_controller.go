@@ -516,7 +516,11 @@ func (d destructiveErr) Error() string {
 
 // shouldLint reports if the schema has a policy that requires linting.
 func shouldLint(des *managed) bool {
-	return des.policy.Lint.Destructive.Error
+	// enable destructive by default.
+	if des.policy.Lint.Destructive.Error == nil {
+		return true
+	}
+	return *des.policy.Lint.Destructive.Error
 }
 
 func configFile(policy dbv1alpha1.Policy) (string, func() error, error) {
