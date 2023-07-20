@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"net/url"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,6 +31,9 @@ type AtlasSchemaSpec struct {
 	URL string `json:"url,omitempty"`
 	// URLs may be defined as a secret key reference.
 	URLFrom URLFrom `json:"urlFrom,omitempty"`
+	// Credentials defines the credentials to use when connecting to the database.
+	// Used instead of URL or URLFrom.
+	Credentials Credentials `json:"credentials,omitempty"`
 	// Desired Schema of the target.
 	Schema Schema `json:"schema,omitempty"`
 	// Exclude a list of glob patterns used to filter existing resources being taken into account.
@@ -36,6 +42,41 @@ type AtlasSchemaSpec struct {
 	Policy Policy `json:"policy,omitempty"`
 	// The names of the schemas (named databases) on the target database to be managed.
 	Schemas []string `json:"schemas,omitempty"`
+}
+
+// Credentials defines the credentials to use when connecting to the database.
+type Credentials struct {
+	Scheme     string            `json:"scheme,omitempty"`
+	Username   string            `json:"username,omitempty"`
+	Password   string            `json:"password,omitempty"`
+	Hostname   string            `json:"hostname,omitempty"`
+	Port       int               `json:"port,omitempty"`
+	Database   string            `json:"database,omitempty"`
+	Parameters map[string]string `json:"parameters,omitempty"`
+}
+
+// URL returns the URL for the database.
+func (c *Credentials) URL() *url.URL {
+	u := &url.URL{
+		Scheme: c.Scheme,
+		Path:   c.Database,
+	}
+	if c.Username != "" || c.Password != "" {
+		u.User = url.UserPassword(c.Username, c.Password)
+	}
+	if len(c.Parameters) > 0 {
+		qs := url.Values{}
+		for k, v := range c.Parameters {
+			qs.Set(k, v)
+		}
+		u.RawQuery = qs.Encode()
+	}
+	host := c.Hostname
+	if c.Port > 0 {
+		host = fmt.Sprintf("%s:%d", host, c.Port)
+	}
+	u.Host = host
+	return u
 }
 
 // Policy defines the policies to apply when managing the schema change lifecycle.

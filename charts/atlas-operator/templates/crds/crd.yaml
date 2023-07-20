@@ -282,6 +282,25 @@ spec:
           spec:
             description: AtlasSchemaSpec defines the desired state of AtlasSchema
             properties:
+              credentials:
+                description: Credentials defines the credentials to use when connecting
+                  to the database. Used instead of URL or URLFrom.
+                properties:
+                  database:
+                    type: string
+                  hostname:
+                    type: string
+                  parameters:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  password:
+                    type: string
+                  port:
+                    type: integer
+                  username:
+                    type: string
+                type: object
               exclude:
                 description: Exclude a list of glob patterns used to filter existing
                   resources being taken into account.

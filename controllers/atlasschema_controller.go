@@ -296,6 +296,8 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 			return nil, transient(err)
 		}
 		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
+	case s.Credentials.Hostname != "":
+		return s.Credentials.URL(), nil
 	default:
 		return nil, errors.New("no url specified")
 	}

@@ -135,6 +135,25 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, "Normal Applied Applied schema", events[0])
 }
 
+func TestReconcile_Credentials(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = ""
+	sc.Spec.Credentials = dbv1alpha1.Credentials{
+		Scheme:   "mysql",
+		Username: "root",
+		Password: "password",
+		Hostname: "localhost",
+		Port:     3306,
+		Database: "test",
+	}
+	tt.k8s.put(devDBReady())
+	request := req()
+	resp, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	require.EqualValues(t, ctrl.Result{}, resp)
+}
+
 func TestSchemaConfigMap(t *testing.T) {
 	tt := cliTest(t)
 	sc := conditionReconciling()
