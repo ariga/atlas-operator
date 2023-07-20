@@ -227,15 +227,23 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 	var (
 		tmplData atlasMigrationData
 		err      error
+		creds    = am.Spec.Credentials
 	)
 
 	// Get database connection string
-	tmplData.URL = am.Spec.URL
-	if tmplData.URL == "" && am.Spec.URLFrom.SecretKeyRef != nil {
-		tmplData.URL, err = r.getSecretValue(ctx, am.Namespace, *am.Spec.URLFrom.SecretKeyRef)
+	switch {
+	case am.Spec.URL != "":
+		tmplData.URL = am.Spec.URL
+	case am.Spec.URLFrom.SecretKeyRef != nil:
+		tmplData.URL, err = getSecretValue(ctx, r, am.Namespace, *am.Spec.URLFrom.SecretKeyRef)
 		if err != nil {
 			return tmplData, nil, err
 		}
+	case creds.Hostname != "":
+		if err := hydrateCredentials(ctx, &creds, r, am.Namespace); err != nil {
+			return tmplData, nil, err
+		}
+		tmplData.URL = creds.URL().String()
 	}
 
 	// Get temporary directory
@@ -275,7 +283,7 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 			}
 		}
 
-		tmplData.Cloud.Token, err = r.getSecretValue(ctx, am.Namespace, *am.Spec.Cloud.TokenFrom.SecretKeyRef)
+		tmplData.Cloud.Token, err = getSecretValue(ctx, r, am.Namespace, *am.Spec.Cloud.TokenFrom.SecretKeyRef)
 		if err != nil {
 			return tmplData, nil, err
 		}
@@ -289,22 +297,6 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 
 	tmplData.RevisionsSchema = am.Spec.RevisionsSchema
 	return tmplData, cleanUpDir, nil
-}
-
-// Get the value of the given secret key selector.
-func (r *AtlasMigrationReconciler) getSecretValue(
-	ctx context.Context,
-	ns string,
-	selector corev1.SecretKeySelector,
-) (string, error) {
-
-	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: selector.Name}, secret); err != nil {
-		return "", transient(err)
-	}
-
-	us := string(secret.Data[selector.Key])
-	return us, nil
 }
 
 // createTmpDirFromCM creates a temporary directory by configmap

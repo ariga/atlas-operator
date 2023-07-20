@@ -35,6 +35,9 @@ type AtlasMigrationSpec struct {
 	URL string `json:"url,omitempty"`
 	// URLs may be defined as a secret key reference.
 	URLFrom URLFrom `json:"urlFrom,omitempty"`
+	// Credentials defines the credentials to use when connecting to the database.
+	// Used instead of URL or URLFrom.
+	Credentials Credentials `json:"credentials,omitempty"`
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud Cloud `json:"cloud,omitempty"`
 	// Dir defines the directory to use for migrations as a configmap key reference.

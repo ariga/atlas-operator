@@ -90,6 +90,7 @@ func (in *AtlasMigrationList) DeepCopyObject() runtime.Object {
 func (in *AtlasMigrationSpec) DeepCopyInto(out *AtlasMigrationSpec) {
 	*out = *in
 	in.URLFrom.DeepCopyInto(&out.URLFrom)
+	in.Credentials.DeepCopyInto(&out.Credentials)
 	in.Cloud.DeepCopyInto(&out.Cloud)
 	in.Dir.DeepCopyInto(&out.Dir)
 }

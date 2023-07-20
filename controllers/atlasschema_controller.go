@@ -291,19 +291,16 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 	case s.URL != "":
 		us = s.URL
 	case s.URLFrom.SecretKeyRef != nil:
-		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: sch.Namespace, Name: s.URLFrom.SecretKeyRef.Name}, secret); err != nil {
+		sec, err := getSecretValue(ctx, r, sch.Namespace, *s.Credentials.PasswordFrom.SecretKeyRef)
+		if err != nil {
+			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetURL", "Error getting URL from secret %s: %v", s.URLFrom.SecretKeyRef.Name, err)
 			return nil, transient(err)
 		}
-		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
+		us = sec
 	case s.Credentials.Hostname != "":
-		if s.Credentials.PasswordFrom.SecretKeyRef != nil {
-			secret := &corev1.Secret{}
-			if err := r.Get(ctx, client.ObjectKey{Namespace: sch.Namespace, Name: s.Credentials.PasswordFrom.SecretKeyRef.Name}, secret); err != nil {
-				r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
-				return nil, transient(err)
-			}
-			s.Credentials.Password = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
+		if err := hydrateCredentials(ctx, &s.Credentials, r, sch.Namespace); err != nil {
+			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
+			return nil, err
 		}
 		return s.Credentials.URL(), nil
 	default:

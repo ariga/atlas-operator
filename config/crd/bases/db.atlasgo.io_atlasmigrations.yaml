@@ -75,6 +75,51 @@ spec:
                   url:
                     type: string
                 type: object
+              credentials:
+                description: Credentials defines the credentials to use when connecting
+                  to the database. Used instead of URL or URLFrom.
+                properties:
+                  database:
+                    type: string
+                  hostname:
+                    type: string
+                  parameters:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  password:
+                    type: string
+                  passwordFrom:
+                    description: PasswordFrom references a key containing the password.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the password.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                  port:
+                    type: integer
+                  scheme:
+                    type: string
+                  username:
+                    type: string
+                type: object
               dir:
                 description: Dir defines the directory to use for migrations as a
                   configmap key reference.

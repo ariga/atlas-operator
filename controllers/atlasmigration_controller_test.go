@@ -246,7 +246,7 @@ func TestReconcile_getSecretValue(t *testing.T) {
 	)
 
 	// When the secret exists
-	value, err := tt.r.getSecretValue(context.Background(), "default", corev1.SecretKeySelector{
+	value, err := getSecretValue(context.Background(), tt.r, "default", corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{
 			Name: "my-secret",
 		},
@@ -260,7 +260,7 @@ func TestReconcile_getSecretValue_notfound(t *testing.T) {
 	tt := migrationCliTest(t)
 
 	// When the secret does not exist
-	value, err := tt.r.getSecretValue(context.Background(), "default", corev1.SecretKeySelector{
+	value, err := getSecretValue(context.Background(), tt.r, "default", corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{
 			Name: "other-secret",
 		},
