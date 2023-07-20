@@ -20,10 +20,6 @@ spec:
     port: 5432
     parameters:
       sslmode: disable
-  urlFrom:
-    secretKeyRef:
-      key: url
-      name: postgres-credentials
   schema:
     sql: |
       create table users2 (
