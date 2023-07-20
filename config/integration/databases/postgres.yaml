@@ -58,3 +58,4 @@ metadata:
 type: Opaque
 stringData:
   url: "postgres://root:pass@postgres.default:5432/postgres?sslmode=disable"
+  password: pass

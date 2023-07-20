@@ -291,7 +291,7 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 	case s.URL != "":
 		us = s.URL
 	case s.URLFrom.SecretKeyRef != nil:
-		sec, err := getSecretValue(ctx, r, sch.Namespace, *s.Credentials.PasswordFrom.SecretKeyRef)
+		sec, err := getSecretValue(ctx, r, sch.Namespace, *s.URLFrom.SecretKeyRef)
 		if err != nil {
 			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetURL", "Error getting URL from secret %s: %v", s.URLFrom.SecretKeyRef.Name, err)
 			return nil, transient(err)
