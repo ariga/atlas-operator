@@ -46,13 +46,20 @@ type AtlasSchemaSpec struct {
 
 // Credentials defines the credentials to use when connecting to the database.
 type Credentials struct {
-	Scheme     string            `json:"scheme,omitempty"`
-	Username   string            `json:"username,omitempty"`
-	Password   string            `json:"password,omitempty"`
-	Hostname   string            `json:"hostname,omitempty"`
-	Port       int               `json:"port,omitempty"`
-	Database   string            `json:"database,omitempty"`
-	Parameters map[string]string `json:"parameters,omitempty"`
+	Scheme       string            `json:"scheme,omitempty"`
+	Username     string            `json:"username,omitempty"`
+	Password     string            `json:"password,omitempty"`
+	PasswordFrom PasswordFrom      `json:"passwordFrom,omitempty"`
+	Hostname     string            `json:"hostname,omitempty"`
+	Port         int               `json:"port,omitempty"`
+	Database     string            `json:"database,omitempty"`
+	Parameters   map[string]string `json:"parameters,omitempty"`
+}
+
+// PasswordFrom references a key containing the password.
+type PasswordFrom struct {
+	// SecretKeyRef defines the secret key reference to use for the password.
+	SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 }
 
 // URL returns the URL for the database.

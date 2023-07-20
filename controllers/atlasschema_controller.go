@@ -297,6 +297,14 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 		}
 		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
 	case s.Credentials.Hostname != "":
+		if s.Credentials.PasswordFrom.SecretKeyRef != nil {
+			secret := &corev1.Secret{}
+			if err := r.Get(ctx, client.ObjectKey{Namespace: sch.Namespace, Name: s.Credentials.PasswordFrom.SecretKeyRef.Name}, secret); err != nil {
+				r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
+				return nil, transient(err)
+			}
+			s.Credentials.Password = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
+		}
 		return s.Credentials.URL(), nil
 	default:
 		return nil, errors.New("no url specified")
