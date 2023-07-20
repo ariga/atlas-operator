@@ -209,7 +209,6 @@ func TestReconcile_Lint(t *testing.T) {
 	tt := cliTest(t)
 	sc := conditionReconciling()
 	sc.Spec.URL = tt.dburl
-	sc.Spec.Policy.Lint.Destructive.Error = true
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
 	tt.initDB("create table x (c int);")
@@ -219,6 +218,23 @@ func TestReconcile_Lint(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
 	require.EqualValues(t, "LintPolicyError", cont.Reason)
+}
+
+func TestReconcile_Lint_With_DisabledDestructive(t *testing.T) {
+	tt := cliTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = tt.dburl
+	destErr := false
+	sc.Spec.Policy.Lint.Destructive.Error = &destErr
+	sc.Status.LastApplied = 1
+	tt.k8s.put(sc)
+	tt.initDB("create table x (c int);")
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.NoError(t, err) // this is a non transient error, therefore we don't requeue.
+	cont := tt.cond()
+	require.EqualValues(t, schemaReadyCond, cont.Type)
+	require.EqualValues(t, metav1.ConditionTrue, cont.Status)
+	require.EqualValues(t, "Applied", cont.Reason)
 }
 
 func Test_FirstRunDestructive(t *testing.T) {
@@ -255,7 +271,6 @@ func TestBadSQL(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.Schema.SQL = "bad sql;"
 	sc.Spec.URL = tt.dburl
-	sc.Spec.Policy.Lint.Destructive.Error = true
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
 	resp, err := tt.r.Reconcile(context.Background(), req())
@@ -291,9 +306,10 @@ func TestDiffPolicy(t *testing.T) {
 
 func TestConfigTemplate(t *testing.T) {
 	var buf bytes.Buffer
+	destErr := true
 	err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", dbv1alpha1.Policy{
 		Lint: dbv1alpha1.Lint{
-			Destructive: dbv1alpha1.CheckConfig{Error: true},
+			Destructive: dbv1alpha1.CheckConfig{Error: &destErr},
 		},
 		Diff: dbv1alpha1.Diff{
 			Skip: dbv1alpha1.SkipChanges{

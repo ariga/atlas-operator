@@ -90,7 +90,7 @@ type SkipChanges struct {
 
 // CheckConfig defines the configuration of a linting check.
 type CheckConfig struct {
-	Error bool `json:"error,omitempty"`
+	Error *bool `json:"error,omitempty"`
 }
 
 // URLFrom defines a reference to a secret key that contains the Atlas URL of the
