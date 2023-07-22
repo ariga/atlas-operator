@@ -246,7 +246,7 @@ func TestReconcile_getSecretValue(t *testing.T) {
 	)
 
 	// When the secret exists
-	value, err := tt.r.getSecretValue(context.Background(), "default", corev1.SecretKeySelector{
+	value, err := getSecretValue(context.Background(), tt.r, "default", corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{
 			Name: "my-secret",
 		},
@@ -260,7 +260,7 @@ func TestReconcile_getSecretValue_notfound(t *testing.T) {
 	tt := migrationCliTest(t)
 
 	// When the secret does not exist
-	value, err := tt.r.getSecretValue(context.Background(), "default", corev1.SecretKeySelector{
+	value, err := getSecretValue(context.Background(), tt.r, "default", corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{
 			Name: "other-secret",
 		},
@@ -419,6 +419,41 @@ func TestReconciler_watch(t *testing.T) {
 	require.EqualValues(t, []types.NamespacedName{
 		{Name: "atlas-migration", Namespace: "default"},
 	}, mdWatched)
+}
+
+func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
+
+	tt := migrationCliTest(t)
+	tt.k8s.put(&dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			Credentials: dbv1alpha1.Credentials{
+				Scheme: "sqlite",
+				Host:   "localhost",
+				Parameters: map[string]string{
+					"mode": "memory",
+				},
+			},
+			Dir: dbv1alpha1.Dir{
+				Local: map[string]string{
+					"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
+					"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
+				20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
+				},
+			},
+		},
+		Status: v1alpha1.AtlasMigrationStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "Ready",
+					Status: metav1.ConditionFalse,
+				},
+			},
+		},
+	})
+	c, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, c)
 }
 
 func TestWatcher_enabled(t *testing.T) {

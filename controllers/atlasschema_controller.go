@@ -266,6 +266,12 @@ func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
 			sc.NamespacedName(),
 		)
 	}
+	if s := sc.Spec.Credentials.PasswordFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: sc.Namespace},
+			sc.NamespacedName(),
+		)
+	}
 }
 
 // Clean up any resources created by the controller
@@ -291,11 +297,18 @@ func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSc
 	case s.URL != "":
 		us = s.URL
 	case s.URLFrom.SecretKeyRef != nil:
-		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: sch.Namespace, Name: s.URLFrom.SecretKeyRef.Name}, secret); err != nil {
+		sec, err := getSecretValue(ctx, r, sch.Namespace, *s.URLFrom.SecretKeyRef)
+		if err != nil {
+			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetURL", "Error getting URL from secret %s: %v", s.URLFrom.SecretKeyRef.Name, err)
 			return nil, transient(err)
 		}
-		us = string(secret.Data[s.URLFrom.SecretKeyRef.Key])
+		us = sec
+	case s.Credentials.Host != "":
+		if err := hydrateCredentials(ctx, &s.Credentials, r, sch.Namespace); err != nil {
+			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
+			return nil, err
+		}
+		return s.Credentials.URL(), nil
 	default:
 		return nil, errors.New("no url specified")
 	}

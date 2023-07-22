@@ -135,6 +135,58 @@ func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	require.EqualValues(t, "Normal Applied Applied schema", events[0])
 }
 
+func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = ""
+	sc.Spec.Credentials = dbv1alpha1.Credentials{
+		Scheme: "mysql",
+		User:   "root",
+		PasswordFrom: dbv1alpha1.PasswordFrom{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				Key: "password",
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: "pass-secret",
+				},
+			},
+		},
+		Host:     "localhost",
+		Port:     3306,
+		Database: "test",
+	}
+	tt.k8s.put(sc)
+	request := req()
+	resp, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, resp)
+	events := tt.events()
+	require.EqualValues(t, "Warning GetPassword Error getting password from secret pass-secret:  \"pass-secret\" not found", events[0])
+}
+
+func TestReconcile_Credentials(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.URL = ""
+	creds := dbv1alpha1.Credentials{
+		Scheme:   "postgres",
+		User:     "root",
+		Password: "password",
+		Host:     "localhost",
+		Port:     3306,
+		Database: "test",
+	}
+	sc.Spec.Credentials = creds
+	tt.k8s.put(sc)
+	tt.k8s.put(devDBReady())
+	request := req()
+	resp, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	require.EqualValues(t, ctrl.Result{}, resp)
+	events := tt.events()
+	require.EqualValues(t, "Normal Applied Applied schema", events[0])
+	require.EqualValues(t, creds.URL().String(), tt.mockCLI().applyRuns[1].URL)
+}
+
 func TestSchemaConfigMap(t *testing.T) {
 	tt := cliTest(t)
 	sc := conditionReconciling()

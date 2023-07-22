@@ -9,10 +9,18 @@ metadata:
     app.kubernetes.io/created-by: atlas-operator
   name: atlasschema-postgres
 spec:
-  urlFrom:
-    secretKeyRef:
-      key: url
-      name: postgres-credentials
+  credentials:
+    scheme: postgres
+    host: postgres.default
+    user: root
+    passwordFrom:
+      secretKeyRef:
+        key: password
+        name: postgres-credentials
+    database: postgres
+    port: 5432
+    parameters:
+      sslmode: disable
   schema:
     sql: |
       create table users2 (
