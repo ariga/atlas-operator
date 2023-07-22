@@ -365,6 +365,12 @@ func (r *AtlasMigrationReconciler) watch(am dbv1alpha1.AtlasMigration) {
 			am.NamespacedName(),
 		)
 	}
+	if s := am.Spec.Credentials.PasswordFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: am.Namespace},
+			am.NamespacedName(),
+		)
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

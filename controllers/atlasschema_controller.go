@@ -266,6 +266,12 @@ func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
 			sc.NamespacedName(),
 		)
 	}
+	if s := sc.Spec.Credentials.PasswordFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: sc.Namespace},
+			sc.NamespacedName(),
+		)
+	}
 }
 
 // Clean up any resources created by the controller
