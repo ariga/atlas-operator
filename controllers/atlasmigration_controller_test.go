@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -159,6 +160,9 @@ func TestReconcile_Transient(t *testing.T) {
 	result, err := tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(t, err)
 	require.EqualValues(t, reconcile.Result{RequeueAfter: 5 * time.Second}, result)
+	ev := tt.events()
+	require.Len(t, ev, 1)
+	require.EqualValues(t, "Warning TransientErr \"other-secret\" not found", ev[0])
 }
 
 func TestReconcile_reconcile(t *testing.T) {
@@ -205,7 +209,7 @@ func TestReconcile_reconciling(t *testing.T) {
 
 }
 
-func TestReconcile_reconcile_uptodate(t *testing.T) {
+func TestReconcile_reconcile_upToDate(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
@@ -422,7 +426,6 @@ func TestReconciler_watch(t *testing.T) {
 }
 
 func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
-
 	tt := migrationCliTest(t)
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
@@ -454,6 +457,9 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 	c, err := tt.r.Reconcile(context.Background(), migrationReq())
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, c)
+	ev := tt.events()
+	require.Len(t, ev, 1)
+	require.Equal(t, "Normal Applied Version 20230412003626 applied", ev[0])
 }
 
 func TestWatcher_enabled(t *testing.T) {
@@ -593,6 +599,7 @@ func newMigrationTest(t *testing.T) *migrationTest {
 			Scheme:           scheme,
 			secretWatcher:    &secretWatcher,
 			configMapWatcher: &configMapWatcher,
+			recorder:         record.NewFakeRecorder(100),
 		},
 	}
 }
@@ -702,4 +709,8 @@ func (t *migrationTest) initDefaultTokenSecret() {
 			`token`: []byte(`my-token`),
 		},
 	})
+}
+
+func (t *migrationTest) events() []string {
+	return events(t.r.recorder)
 }

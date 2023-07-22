@@ -597,9 +597,13 @@ func isSQLErr(err error) bool {
 // as errors because they cause the controller to requeue indefinitely. Instead,
 // they should be reported as a status condition.
 func result(err error) (ctrl.Result, error) {
-	var t *transientErr
-	if errors.As(err, &t) {
+	if isTransient(err) {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func isTransient(err error) bool {
+	var t *transientErr
+	return errors.As(err, &t)
 }
