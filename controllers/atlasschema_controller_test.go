@@ -653,15 +653,18 @@ func (t *test) initDB(statement string) {
 }
 
 func (t *test) events() []string {
-	r := t.r.recorder.(*record.FakeRecorder)
+	return events(t.r.recorder)
+}
+
+func events(r record.EventRecorder) []string {
 	// read events from channel
-	var events []string
+	var ev []string
 	for {
 		select {
-		case e := <-r.Events:
-			events = append(events, e)
+		case e := <-r.(*record.FakeRecorder).Events:
+			ev = append(ev, e)
 		default:
-			return events
+			return ev
 		}
 	}
 }

@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,6 +59,7 @@ type AtlasMigrationReconciler struct {
 	Scheme           *runtime.Scheme
 	secretWatcher    *watch.ResourceWatcher
 	configMapWatcher *watch.ResourceWatcher
+	recorder         record.EventRecorder
 }
 
 func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigrationReconciler {
@@ -69,6 +71,7 @@ func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigr
 		Scheme:           mgr.GetScheme(),
 		configMapWatcher: &configMapWatcher,
 		secretWatcher:    &secretWatcher,
+		recorder:         mgr.GetEventRecorderFor("atlasmigration-controller"),
 	}
 }
 
@@ -104,6 +107,7 @@ type (
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -136,6 +140,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	md, cleanUp, err := r.extractMigrationData(ctx, am)
 	if err != nil {
 		am.SetNotReady("ReadingMigrationData", err.Error())
+		r.recordErrEvent(am, err)
 		return result(err)
 	}
 	defer cleanUp()
@@ -157,11 +162,20 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	status, err := r.reconcile(ctx, md)
 	if err != nil {
 		am.SetNotReady("Migrating", strings.TrimSpace(err.Error()))
+		r.recordErrEvent(am, err)
 		return result(err)
 	}
-
+	r.recorder.Eventf(&am, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
 	am.SetReady(status)
 	return ctrl.Result{}, nil
+}
+
+func (r *AtlasMigrationReconciler) recordErrEvent(am dbv1alpha1.AtlasMigration, err error) {
+	reason := "Error"
+	if isTransient(err) {
+		reason = "TransientErr"
+	}
+	r.recorder.Event(&am, corev1.EventTypeWarning, reason, strings.TrimSpace(err.Error()))
 }
 
 // Reconcile the given AtlasMigration resource.
@@ -211,7 +225,6 @@ func (r *AtlasMigrationReconciler) reconcile(
 		}
 		return dbv1alpha1.AtlasMigrationStatus{}, err
 	}
-
 	return dbv1alpha1.AtlasMigrationStatus{
 		ObservedHash:       hash,
 		LastApplied:        report.End.Unix(),
