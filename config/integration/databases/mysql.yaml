@@ -42,11 +42,3 @@ spec:
       port: 3306
       targetPort: mysql
   type: ClusterIP
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-credentials
-type: Opaque
-stringData:
-  url: "mysql://root:pass@mysql.default:3306/myapp"
