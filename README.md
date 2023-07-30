@@ -39,12 +39,22 @@ In declarative migrations, the desired state of the database is defined by the u
 for reconciling the desired state with the actual state of the database (planning and executing `CREATE`, `ALTER`
 and `DROP` statements).
 
+### Versioned schema migrations
+
+![](https://atlasgo.io/uploads/k8s/operator/versioned-flow.png)
+
+The Atlas Kubernetes Operator also supports [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
+In versioned migrations, the database schema is defined by a series of SQL scripts ("migrations") that are applied
+in lexicographical order. The user can specify the version and migration directory to run, which can be located
+on the [Atlas Cloud](https://atlasgo.io/cloud/getting-started) or stored as a `ConfigMap` in your Kubernetes
+cluster.
+
 ### Installation
 
 The Atlas Kubernetes Operator is available as a Helm chart. To install the chart with the release name `atlas-operator`:
 
 ```bash
-helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator
+helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator --create-namespace --namespace atlas-operator
 ```
 
 ### Getting started
@@ -136,7 +146,6 @@ Now, let's try versioned migrations with a PostgreSQL database.
   ```bash
   deployment.apps/postgres created
   service/postgres unchanged
-  secret/postgres-credentials configured
   ```
 
 2. Create a file named `migrationdir.yaml` to define your migration directory
@@ -178,7 +187,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
         name: "migrationdir"
   ```
 
-  We can define a migration directory inlined in the migration resource instead of using a ConfigMap:
+  Alternatively, we can define a migration directory inlined in the migration resource instead of using a ConfigMap:
   
   ```yaml
   apiVersion: db.atlasgo.io/v1alpha1
@@ -235,6 +244,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
   ```
   
   Please refer to [this link](https://atlasgo.io/integrations/kubernetes/operators/versioned) to explore the supported API for versioned migrations.
+
 ### API Reference
 
 Example resource: 
