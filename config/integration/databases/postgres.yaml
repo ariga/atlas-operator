@@ -50,3 +50,12 @@ spec:
       port: 5432
       targetPort: postgres
   type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+type: Opaque
+stringData:
+  url: "postgres://root:pass@postgres.default:5432/postgres?sslmode=disable"
+  password: pass

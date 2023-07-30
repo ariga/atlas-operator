@@ -84,7 +84,6 @@ operator, follow these steps to get started:
   kind: AtlasSchema
   metadata:
     name: atlasschema-mysql
-    namespace: atlas-operator
   spec:
     urlFrom:
       secretKeyRef:
@@ -147,7 +146,6 @@ Now, let's try versioned migrations with a PostgreSQL database.
   ```bash
   deployment.apps/postgres created
   service/postgres unchanged
-  secret/postgres-credentials configured
   ```
 
 2. Create a file named `migrationdir.yaml` to define your migration directory
@@ -189,7 +187,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
         name: "migrationdir"
   ```
 
-  We can define a migration directory inlined in the migration resource instead of using a ConfigMap:
+  Alternatively, we can define a migration directory inlined in the migration resource instead of using a ConfigMap:
   
   ```yaml
   apiVersion: db.atlasgo.io/v1alpha1
@@ -246,6 +244,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
   ```
   
   Please refer to [this link](https://atlasgo.io/integrations/kubernetes/operators/versioned) to explore the supported API for versioned migrations.
+
 ### API Reference
 
 Example resource: 
