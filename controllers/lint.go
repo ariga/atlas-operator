@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/sqlcheck"
-	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
 func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL string, vars ...atlas.Vars) error {

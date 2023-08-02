@@ -24,7 +24,7 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/ariga/atlas-operator/internal/atlas"
+	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"github.com/ariga/atlas-operator/internal/vercheck"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
