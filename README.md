@@ -181,7 +181,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
     urlFrom:
       secretKeyRef:
         key: url
-        name: postgresql-credentials
+        name: postgres-credentials
     dir:
       configMapRef:
         name: "migrationdir"
@@ -198,7 +198,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
     urlFrom:
       secretKeyRef:
         key: url
-        name: postgresql-credentials
+        name: postgres-credentials
     dir:
       local:
         20230316085611.sql: |
