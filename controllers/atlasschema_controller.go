@@ -17,16 +17,16 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
 
-	"ariga.io/atlas/sql/sqlcheck"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -57,7 +57,7 @@ type (
 	// AtlasSchemaReconciler reconciles a AtlasSchema object
 	AtlasSchemaReconciler struct {
 		client.Client
-		cli              CLI
+		execPath         string
 		scheme           *runtime.Scheme
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
@@ -65,37 +65,23 @@ type (
 	}
 	// managedData contains information about the managed database and its desired state.
 	managedData struct {
-		ext        string
-		desired    string
-		driver     string
-		url        *url.URL
-		exclude    []string
-		configfile string
-		policy     dbv1alpha1.Policy
-		schemas    []string
-		devURL     *url.URL
-	}
-	CLI interface {
-		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
-		SchemaInspect(ctx context.Context, data *atlas.SchemaInspectParams) (string, error)
-		Lint(ctx context.Context, data *atlas.LintParams) (*atlas.SummaryReport, error)
-	}
-	destructiveErr struct {
-		diags []sqlcheck.Diagnostic
+		EnvName string
+		URL     *url.URL
+		DevURL  string
+		Schemas []string
+		Exclude []string
+		Policy  dbv1alpha1.Policy
+
+		desired []byte
+		ext     string
 	}
 )
 
 func NewAtlasSchemaReconciler(mgr Manager, execPath string) *AtlasSchemaReconciler {
-	cli, err := atlas.NewClientWithDir("", execPath)
-	if err != nil {
-		// safe to panic here because the operator
-		// won't start without a valid cli.
-		panic(err)
-	}
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		cli:              cli,
+		execPath:         execPath,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
@@ -104,22 +90,23 @@ func NewAtlasSchemaReconciler(mgr Manager, execPath string) *AtlasSchemaReconcil
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
 	var (
 		log = log.FromContext(ctx)
 		res = &dbv1alpha1.AtlasSchema{}
 	)
-	if err := r.Get(ctx, req.NamespacedName, res); err != nil {
+	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() {
+		// At the end of reconcile, update the status of the resource base on the error
+		if err != nil {
+			r.recordErrEvent(res, err)
+		}
 		if err := r.Status().Update(ctx, res); err != nil {
 			log.Error(err, "failed to update resource status")
 		}
-		// Watch the configMap and secret referenced by the schema.
+		// After updating the status, watch the dependent resources
 		r.watchRefs(res)
 		// Clean up any resources created by the controller after the reconciler is successful.
 		if res.IsReady() {
@@ -134,69 +121,97 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	data, err := r.extractData(ctx, res)
 	if err != nil {
 		res.SetNotReady("ReadSchema", err.Error())
+		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
-	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
-	// reconciled.
-	hash := data.hash()
+	hash, err := data.hash()
+	if err != nil {
+		res.SetNotReady("CalculatingHash", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	// We need to update the ready condition immediately before doing
+	// any heavy jobs if the hash is different from the last applied.
+	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
 		res.SetNotReady("Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	var devURL string
-	if data.devURL != nil {
-		// if the user has specified a devURL, use it.
-		devURL = data.devURL.String()
-	} else {
-		// otherwise, spin up a dev database.
-		devURL, err = r.devURL(ctx, res, *data.url)
-		if err != nil {
-			res.SetNotReady("GettingDevDBURL", err.Error())
-			return result(err)
-		}
-	}
-	conf, cleanconf, err := configFile(res.Spec.Policy)
+	// ====================================================
+	// Starting area to handle the heavy jobs.
+	// Below this line is the main logic of the controller.
+	// ====================================================
+	data.DevURL, err = r.devURL(ctx, res, *data.URL)
 	if err != nil {
-		res.SetNotReady("CreatingConfigFile", err.Error())
+		res.SetNotReady("GettingDevDB", err.Error())
 		return result(err)
 	}
-	defer cleanconf()
-	data.configfile = conf
-	// Verify the first run doesn't contain destructive changes.
-	if res.Status.LastApplied == 0 {
-		if err := r.verifyFirstRun(ctx, data, devURL); err != nil {
-			reason := "VerifyingFirstRun"
-			msg := err.Error()
-			var d destructiveErr
-			if errors.As(err, &d) {
-				reason = "FirstRunDestructive"
-				msg = err.Error() + "\n" +
-					"To prevent accidental drop of resources, first run of a schema must not contain destructive changes.\n" +
-					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
-			}
+	// Create a working directory for the Atlas CLI
+	// The working directory contains the atlas.hcl config.
+	wd, err := atlas.NewWorkingDir(atlas.WithAtlasHCL(data.render))
+	if err != nil {
+		res.SetNotReady("CreatingWorkingDir", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	defer wd.Close()
+	// Write the schema file to the working directory.
+	_, err = wd.WriteFile(data.Source(), data.desired)
+	if err != nil {
+		res.SetNotReady("CreatingSchemaFile", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	switch {
+	case res.Status.LastApplied == 0:
+		// Verify the first run doesn't contain destructive changes.
+		err = r.lint(ctx, wd, data.EnvName, atlas.Vars{"lint_destructive": "true"})
+		switch d := (&destructiveErr{}); {
+		case err == nil:
+		case errors.As(err, &d):
+			reason, msg := d.FirstRun()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+			// Don't requeue destructive errors.
+			return ctrl.Result{}, nil
+		default:
+			reason, msg := "VerifyingFirstRun", err.Error()
+			res.SetNotReady(reason, msg)
+			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+			if !isSQLErr(err) {
+				err = transient(err)
+			}
+			r.recordErrEvent(res, err)
+			return result(err)
+		}
+	case data.shouldLint():
+		// Run the linting policy.
+		if err = r.lint(ctx, wd, data.EnvName, nil); err != nil {
+			reason, msg := "LintPolicyError", err.Error()
+			res.SetNotReady(reason, msg)
+			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+			if !isSQLErr(err) {
+				err = transient(err)
+			}
+			r.recordErrEvent(res, err)
 			return result(err)
 		}
 	}
-	if shouldLint(data) {
-		if err := r.lint(ctx, data, devURL); err != nil {
-			res.SetNotReady("LintPolicyError", err.Error())
-			r.recorder.Event(res, corev1.EventTypeWarning, "LintPolicyError", err.Error())
-			return result(err)
-		}
-	}
-	app, err := r.apply(ctx, data, devURL)
+	report, err := r.apply(ctx, wd.Path(), data.EnvName)
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
+		if !isSQLErr(err) {
+			err = transient(err)
+		}
+		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	res.SetReady(dbv1alpha1.AtlasSchemaStatus{
-		ObservedHash: hash,
+	status := dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
-	}, app)
+		ObservedHash: hash,
+	}
+	res.SetReady(status, report)
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
@@ -238,72 +253,39 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, data *managedData, devURL string) (*atlas.SchemaApply, error) {
-	file, clean, err := atlas.TempFile(data.desired, data.ext)
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName string) (*atlas.SchemaApply, error) {
+	cli, err := atlas.NewClientWithDir(dir, r.execPath)
 	if err != nil {
 		return nil, err
 	}
-	defer clean()
-	apply, err := r.cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		URL:       data.url.String(),
-		To:        file,
-		DevURL:    devURL,
-		Exclude:   data.exclude,
-		ConfigURL: data.configfile,
-		Schema:    data.schemas,
+	return cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
+		Env: envName,
 	})
-	if isSQLErr(err) {
-		return nil, err
-	}
-	if err != nil {
-		return nil, transient(err)
-	}
-	return apply, nil
 }
 
 // extractData extracts the info about the managed database and its desired state.
-func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasSchema) (*managedData, error) {
+func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasSchema) (_ *managedData, err error) {
 	var (
-		dbURL, devURL *url.URL
+		s    = res.Spec
+		data = &managedData{
+			EnvName: defaultEnvName,
+			Schemas: s.Schemas,
+			Exclude: s.Exclude,
+			Policy:  s.Policy,
+		}
 	)
-	data, ext, err := res.Spec.Schema.Content(ctx, r.Client, res.Namespace)
+	data.URL, err = s.DatabaseURL(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
 	}
-	dbURL, err = res.Spec.DatabaseURL(ctx, r, res.Namespace)
+	data.desired, data.ext, err = s.Schema.Content(ctx, r, res.Namespace)
 	if err != nil {
-		r.recorder.Eventf(res, corev1.EventTypeWarning, "DatabaseURL", err.Error())
 		return nil, transient(err)
 	}
-	switch spec := res.Spec; {
-	case spec.DevURL != "":
-		devURL, err = url.Parse(res.Spec.DevURL)
-		if err != nil {
-			return nil, err
-		}
-	case spec.DevURLFrom.SecretKeyRef != nil:
-		v, err := getSecretValue(ctx, r, res.Namespace, spec.DevURLFrom.SecretKeyRef)
-		if err != nil {
-			return nil, err
-		}
-		devURL, err = url.Parse(v)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &managedData{
-		desired: string(data),
-		driver:  driver(dbURL.Scheme),
-		exclude: res.Spec.Exclude,
-		ext:     ext,
-		policy:  res.Spec.Policy,
-		schemas: res.Spec.Schemas,
-		url:     dbURL,
-		devURL:  devURL,
-	}, nil
+	return data, nil
 }
 
-func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, err error) {
+func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err error) {
 	reason := "Error"
 	if isTransient(err) {
 		reason = "TransientErr"
@@ -311,47 +293,39 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, e
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, strings.TrimSpace(err.Error()))
 }
 
+// Source returns the file name of the desired schema.
+func (d *managedData) Source() string {
+	return fmt.Sprintf("schema.%s", d.ext)
+}
+
+// ShouldLint returns true if the linting policy is set to error.
+func (d *managedData) shouldLint() bool {
+	return d.Policy.Lint.Destructive.Error
+}
+
 // hash returns the sha256 hash of the desired.
-func (d *managedData) hash() string {
+func (d *managedData) hash() (string, error) {
 	h := sha256.New()
 	h.Write([]byte(d.desired))
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (d *managedData) schemaBound() bool {
-	switch {
-	case d.driver == "sqlite":
-		return true
-	case d.driver == "postgres":
-		if d.url.Query().Get("search_path") != "" {
-			return true
-		}
-	case d.driver == "mysql":
-		if d.url.Path != "" {
-			return true
-		}
+// render renders the atlas.hcl template.
+//
+// The template is used by the Atlas CLI to apply the schema.
+// It also validates the data before rendering the template.
+func (d *managedData) render(w io.Writer) error {
+	if d.EnvName == "" {
+		return errors.New("env name is not set")
 	}
-	return false
-}
-
-func (d destructiveErr) Error() string {
-	var buf strings.Builder
-	buf.WriteString("destructive changes detected:\n")
-	for _, diag := range d.diags {
-		buf.WriteString("- " + diag.Text + "\n")
+	if d.URL == nil {
+		return errors.New("database url is not set")
 	}
-	return buf.String()
-}
-
-// shouldLint reports if the schema has a policy that requires linting.
-func shouldLint(des *managedData) bool {
-	return des.policy.Lint.Destructive.Error
-}
-
-func configFile(policy dbv1alpha1.Policy) (string, func() error, error) {
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", policy); err != nil {
-		return "", nil, err
+	if d.DevURL == "" {
+		return errors.New("dev url is not set")
 	}
-	return atlas.TempFile(buf.String(), "hcl")
+	if d.ext == "" {
+		return errors.New("schema extension is not set")
+	}
+	return tmpl.ExecuteTemplate(w, "atlas_schema.tmpl", d)
 }
