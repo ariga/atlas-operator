@@ -23,84 +23,87 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const (
-	MigrateReadyCond = "Ready"
+type (
+	//+kubebuilder:object:root=true
+	//
+	// AtlasMigrationList contains a list of AtlasMigration
+	AtlasMigrationList struct {
+		metav1.TypeMeta `json:",inline"`
+		metav1.ListMeta `json:"metadata,omitempty"`
+
+		Items []AtlasMigration `json:"items"`
+	}
+	//+kubebuilder:object:root=true
+	//+kubebuilder:subresource:status
+	//
+	// AtlasMigration is the Schema for the atlasmigrations API
+	// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+	// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
+	AtlasMigration struct {
+		metav1.TypeMeta   `json:",inline"`
+		metav1.ObjectMeta `json:"metadata,omitempty"`
+
+		Spec   AtlasMigrationSpec   `json:"spec,omitempty"`
+		Status AtlasMigrationStatus `json:"status,omitempty"`
+	}
+	// AtlasMigrationStatus defines the observed state of AtlasMigration
+	AtlasMigrationStatus struct {
+		// Conditions represent the latest available observations of an object's state.
+		Conditions []metav1.Condition `json:"conditions,omitempty"`
+		// LastAppliedVersion is the version of the most recent successful versioned migration.
+		LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
+		//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
+		LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
+		// ObservedHash is the hash of the most recent successful versioned migration.
+		ObservedHash string `json:"observed_hash"`
+		// LastApplied is the unix timestamp of the most recent successful versioned migration.
+		LastApplied int64 `json:"lastApplied"`
+	}
+	// AtlasMigrationSpec defines the desired state of AtlasMigration
+	AtlasMigrationSpec struct {
+		TargetSpec `json:",inline"`
+		// EnvName sets the environment name used for reporting runs to Atlas Cloud.
+		EnvName string `json:"envName,omitempty"`
+		// Cloud defines the Atlas Cloud configuration.
+		Cloud Cloud `json:"cloud,omitempty"`
+		// Dir defines the directory to use for migrations as a configmap key reference.
+		Dir Dir `json:"dir"`
+		// RevisionsSchema defines the schema that revisions table resides in
+		RevisionsSchema string `json:"revisionsSchema,omitempty"`
+	}
+	// Cloud defines the Atlas Cloud configuration.
+	Cloud struct {
+		URL       string    `json:"url,omitempty"`
+		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
+		Project   string    `json:"project,omitempty"`
+	}
+	// TokenFrom defines a reference to a secret key that contains the Atlas Cloud Token
+	TokenFrom struct {
+		// SecretKeyRef references to the key of a secret in the same namespace.
+		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+	}
+	// Dir defines the place where migrations are stored.
+	Dir struct {
+		// ConfigMapRef defines the configmap to use for migrations
+		ConfigMapRef *corev1.LocalObjectReference `json:"configMapRef,omitempty"`
+		// Remote defines the Atlas Cloud migration directory.
+		Remote Remote `json:"remote,omitempty"`
+		// Local defines the local migration directory.
+		Local map[string]string `json:"local,omitempty"`
+	}
+	// Remote defines the Atlas Cloud directory migration.
+	Remote struct {
+		Name string `json:"name,omitempty"`
+		Tag  string `json:"tag,omitempty"`
+	}
 )
 
-// AtlasMigrationSpec defines the desired state of AtlasMigration
-type AtlasMigrationSpec struct {
-	// EnvName sets the environment name used for reporting runs to Atlas Cloud.
-	EnvName string `json:"envName,omitempty"`
-	// URL of the target database schema.
-	URL string `json:"url,omitempty"`
-	// URLs may be defined as a secret key reference.
-	URLFrom URLFrom `json:"urlFrom,omitempty"`
-	// Credentials defines the credentials to use when connecting to the database.
-	// Used instead of URL or URLFrom.
-	Credentials Credentials `json:"credentials,omitempty"`
-	// Cloud defines the Atlas Cloud configuration.
-	Cloud Cloud `json:"cloud,omitempty"`
-	// Dir defines the directory to use for migrations as a configmap key reference.
-	Dir Dir `json:"dir"`
-	// RevisionsSchema defines the schema that revisions table resides in
-	RevisionsSchema string `json:"revisionsSchema,omitempty"`
-}
+const (
+	readyCond = "Ready"
+)
 
-// Cloud defines the Atlas Cloud configuration.
-type Cloud struct {
-	URL       string    `json:"url,omitempty"`
-	TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
-	Project   string    `json:"project,omitempty"`
-}
-
-// Dir defines the place where migrations are stored.
-type Dir struct {
-	// ConfigMapRef defines the configmap to use for migrations
-	ConfigMapRef *corev1.LocalObjectReference `json:"configMapRef,omitempty"`
-	// Remote defines the Atlas Cloud migration directory.
-	Remote Remote `json:"remote,omitempty"`
-	// Local defines the local migration directory.
-	Local map[string]string `json:"local,omitempty"`
-}
-
-// Remote defines the Atlas Cloud directory migration.
-type Remote struct {
-	Name string `json:"name,omitempty"`
-	Tag  string `json:"tag,omitempty"`
-}
-
-// TokenFrom defines a reference to a secret key that contains the Atlas Cloud Token
-type TokenFrom struct {
-	// SecretKeyRef references to the key of a secret in the same namespace.
-	SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
-}
-
-// AtlasMigrationStatus defines the observed state of AtlasMigration
-type AtlasMigrationStatus struct {
-	// Conditions represent the latest available observations of an object's state.
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// LastAppliedVersion is the version of the most recent successful versioned migration.
-	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
-	//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
-	LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
-	// ObservedHash is the hash of the most recent successful versioned migration.
-	ObservedHash string `json:"observed_hash"`
-	// LastApplied is the unix timestamp of the most recent successful versioned migration.
-	LastApplied int64 `json:"lastApplied"`
-}
-
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// AtlasMigration is the Schema for the atlasmigrations API
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
-type AtlasMigration struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   AtlasMigrationSpec   `json:"spec,omitempty"`
-	Status AtlasMigrationStatus `json:"status,omitempty"`
+func init() {
+	SchemeBuilder.Register(&AtlasMigration{}, &AtlasMigrationList{})
 }
 
 // NamespacedName returns the namespaced name of the object.
@@ -113,7 +116,7 @@ func (m *AtlasMigration) NamespacedName() types.NamespacedName {
 
 // IsReady returns true if the ready condition is true.
 func (m *AtlasMigration) IsReady() bool {
-	return meta.IsStatusConditionTrue(m.Status.Conditions, MigrateReadyCond)
+	return meta.IsStatusConditionTrue(m.Status.Conditions, readyCond)
 }
 
 // IsHashModified returns true if the hash is different from the observed hash.
@@ -124,38 +127,19 @@ func (m *AtlasMigration) IsHashModified(hash string) bool {
 // SetReady sets the ready condition to true.
 func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
 	m.Status = status
-	meta.SetStatusCondition(
-		&m.Status.Conditions,
-		metav1.Condition{
-			Type:   MigrateReadyCond,
-			Status: metav1.ConditionTrue,
-			Reason: "Applied",
-		},
-	)
+	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+		Type:   readyCond,
+		Status: metav1.ConditionTrue,
+		Reason: "Applied",
+	})
 }
 
 // SetNotReady sets the ready condition to false.
 func (m *AtlasMigration) SetNotReady(reason, message string) {
-	meta.SetStatusCondition(
-		&m.Status.Conditions,
-		metav1.Condition{
-			Type:    MigrateReadyCond,
-			Status:  metav1.ConditionFalse,
-			Reason:  reason,
-			Message: message,
-		},
-	)
-}
-
-//+kubebuilder:object:root=true
-
-// AtlasMigrationList contains a list of AtlasMigration
-type AtlasMigrationList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AtlasMigration `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&AtlasMigration{}, &AtlasMigrationList{})
+	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+		Type:    readyCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	})
 }
