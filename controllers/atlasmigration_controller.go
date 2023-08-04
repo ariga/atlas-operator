@@ -240,25 +240,13 @@ func (r *AtlasMigrationReconciler) extractMigrationData(
 	var (
 		tmplData atlasMigrationData
 		err      error
-		creds    = am.Spec.Credentials
 	)
-
 	// Get database connection string
-	switch {
-	case am.Spec.URL != "":
-		tmplData.URL = am.Spec.URL
-	case am.Spec.URLFrom.SecretKeyRef != nil:
-		tmplData.URL, err = getSecretValue(ctx, r, am.Namespace, *am.Spec.URLFrom.SecretKeyRef)
-		if err != nil {
-			return tmplData, nil, err
-		}
-	case creds.Host != "":
-		if err := hydrateCredentials(ctx, &creds, r, am.Namespace); err != nil {
-			return tmplData, nil, err
-		}
-		tmplData.URL = creds.URL().String()
+	u, err := am.Spec.DatabaseURL(ctx, r, am.Namespace)
+	if err != nil {
+		return tmplData, nil, transient(err)
 	}
-
+	tmplData.URL = u.String()
 	// Get temporary directory
 	cleanUpDir := func() error { return nil }
 	if c := am.Spec.Dir.ConfigMapRef; c != nil {

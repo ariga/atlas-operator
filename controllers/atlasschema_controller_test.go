@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ariga.io/atlas/sql/sqlcheck"
+	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/ariga/atlas-operator/internal/atlas"
@@ -57,7 +58,9 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			Schema: dbv1alpha1.Schema{SQL: "create table foo (id int primary key);"},
-			URL:    "mysql://root:password@localhost:3306/test",
+			TargetSpec: v1alpha1.TargetSpec{
+				URL: "mysql://root:password@localhost:3306/test",
+			},
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{
 			ObservedHash: "old",
@@ -160,7 +163,7 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, resp)
 	events := tt.events()
-	require.EqualValues(t, "Warning GetPassword Error getting password from secret pass-secret:  \"pass-secret\" not found", events[0])
+	require.EqualValues(t, `Warning DatabaseURL  "pass-secret" not found`, events[0])
 }
 
 func TestReconcile_Credentials(t *testing.T) {
@@ -381,7 +384,9 @@ func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			URL:    "mysql://root:password@localhost:3306/test",
+			TargetSpec: v1alpha1.TargetSpec{
+				URL: "mysql://root:password@localhost:3306/test",
+			},
 			Schema: dbv1alpha1.Schema{SQL: "CREATE TABLE foo (id INT PRIMARY KEY);"},
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{

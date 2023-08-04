@@ -22,7 +22,6 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -35,8 +34,6 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -153,26 +150,26 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.watch(sc)
 
 		// Clean up any resources created by the controller after the reconciler is successful.
-		if meta.IsStatusConditionTrue(sc.Status.Conditions, schemaReadyCond) {
+		if sc.IsReady() {
 			r.cleanUp(ctx, sc)
 		}
-
 	}()
 	// When the resource is first created, create the "Ready" condition.
-	if sc.Status.Conditions == nil || len(sc.Status.Conditions) == 0 {
-		setNotReady(sc, "Reconciling", "Reconciling")
+	if len(sc.Status.Conditions) == 0 {
+		sc.SetNotReady("Reconciling", "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	managed, err = r.extractManaged(ctx, sc)
 	if err != nil {
-		setNotReady(sc, "ReadSchema", err.Error())
+		sc.SetNotReady("ReadSchema", err.Error())
 		return result(err)
 	}
 	// If the schema has changed and the schema's ready condition is not false, immediately set it to false.
 	// This is done so that the observed status of the schema reflects its "in-progress" state while it is being
 	// reconciled.
-	if !meta.IsStatusConditionFalse(sc.Status.Conditions, schemaReadyCond) && managed.hash() != sc.Status.ObservedHash {
-		setNotReady(sc, "Reconciling", "current schema does not match last applied")
+	hash := managed.hash()
+	if sc.IsReady() && sc.IsHashModified(hash) {
+		sc.SetNotReady("Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	if managed.driver != "sqlite" {
@@ -184,7 +181,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if apierrors.IsNotFound(err) {
 			_, err = r.devDBDeployment(ctx, sc, managed)
 			if err != nil {
-				setNotReady(sc, "CreatingDevDB", err.Error())
+				sc.SetNotReady("CreatingDevDB", err.Error())
 				return result(err)
 			}
 			return ctrl.Result{
@@ -192,18 +189,18 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}, nil
 		}
 		if err != nil {
-			setNotReady(sc, "GettingDevDB", err.Error())
+			sc.SetNotReady("GettingDevDB", err.Error())
 			return result(err)
 		}
 	}
 	devURL, err := r.devURL(ctx, req.Name, managed.driver)
 	if err != nil {
-		setNotReady(sc, "GettingDevDBURL", err.Error())
+		sc.SetNotReady("GettingDevDBURL", err.Error())
 		return result(err)
 	}
 	conf, cleanconf, err := configFile(sc.Spec.Policy)
 	if err != nil {
-		setNotReady(sc, "CreatingConfigFile", err.Error())
+		sc.SetNotReady("CreatingConfigFile", err.Error())
 		return result(err)
 	}
 	defer cleanconf()
@@ -220,25 +217,28 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					"To prevent accidental drop of resources, first run of a schema must not contain destructive changes.\n" +
 					"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
 			}
-			setNotReady(sc, reason, msg)
+			sc.SetNotReady(reason, msg)
 			r.recorder.Event(sc, corev1.EventTypeWarning, reason, msg)
 			return result(err)
 		}
 	}
 	if shouldLint(managed) {
 		if err := r.lint(ctx, managed, devURL); err != nil {
-			setNotReady(sc, "LintPolicyError", err.Error())
+			sc.SetNotReady("LintPolicyError", err.Error())
 			r.recorder.Event(sc, corev1.EventTypeWarning, "LintPolicyError", err.Error())
 			return result(err)
 		}
 	}
 	app, err := r.apply(ctx, managed, devURL)
 	if err != nil {
-		setNotReady(sc, "ApplyingSchema", err.Error())
+		sc.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(sc, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
 		return result(err)
 	}
-	setReady(sc, managed, app)
+	sc.SetReady(dbv1alpha1.AtlasSchemaStatus{
+		ObservedHash: hash,
+		LastApplied:  time.Now().Unix(),
+	}, app)
 	r.recorder.Event(sc, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
@@ -289,30 +289,6 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 		}
 	}
 
-}
-
-func (r *AtlasSchemaReconciler) url(ctx context.Context, sch *dbv1alpha1.AtlasSchema) (*url.URL, error) {
-	var us string
-	switch s := sch.Spec; {
-	case s.URL != "":
-		us = s.URL
-	case s.URLFrom.SecretKeyRef != nil:
-		sec, err := getSecretValue(ctx, r, sch.Namespace, *s.URLFrom.SecretKeyRef)
-		if err != nil {
-			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetURL", "Error getting URL from secret %s: %v", s.URLFrom.SecretKeyRef.Name, err)
-			return nil, transient(err)
-		}
-		us = sec
-	case s.Credentials.Host != "":
-		if err := hydrateCredentials(ctx, &s.Credentials, r, sch.Namespace); err != nil {
-			r.recorder.Eventf(sch, corev1.EventTypeWarning, "GetPassword", "Error getting password from secret %s: %v", s.Credentials.PasswordFrom.SecretKeyRef.Name, err)
-			return nil, err
-		}
-		return s.Credentials.URL(), nil
-	default:
-		return nil, errors.New("no url specified")
-	}
-	return url.Parse(us)
 }
 
 func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alpha1.AtlasSchema, m *managed) (*v1.Deployment, error) {
@@ -442,49 +418,24 @@ func (d *devDB) ConnTmpl() string {
 
 // extractManaged extracts the info about the managed database and its desired state.
 func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alpha1.AtlasSchema) (*managed, error) {
-	var d managed
-	switch sch := sc.Spec.Schema; {
-	case sch.HCL != "":
-		d.desired = sch.HCL
-		d.ext = "hcl"
-	case sch.SQL != "":
-		d.desired = sch.SQL
-		d.ext = "sql"
-	case sch.ConfigMapKeyRef != nil:
-		cm := &corev1.ConfigMap{}
-		if err := r.Get(ctx, types.NamespacedName{
-			Namespace: sc.Namespace,
-			Name:      sch.ConfigMapKeyRef.Name,
-		}, cm); err != nil {
-			return nil, transient(err)
-		}
-		var ok bool
-		k := sch.ConfigMapKeyRef.Key
-		d.desired, ok = cm.Data[k]
-		if !ok {
-			return nil, fmt.Errorf("configmap %s/%s does not contain key %s", sc.Namespace, sch.ConfigMapKeyRef.Name, k)
-		}
-		switch {
-		case strings.HasSuffix(k, ".hcl"):
-			d.ext = "hcl"
-		case strings.HasSuffix(k, ".sql"):
-			d.ext = "sql"
-		default:
-			return nil, fmt.Errorf("unsupported configmap key %s", k)
-		}
-	default:
-		return nil, fmt.Errorf("no desired schema specified")
-	}
-	u, err := r.url(ctx, sc)
+	data, ext, err := sc.Spec.Schema.Content(ctx, r.Client, sc.Namespace)
 	if err != nil {
-		return nil, err
+		return nil, transient(err)
 	}
-	d.url = u
-	d.driver = driver(u.Scheme)
-	d.exclude = sc.Spec.Exclude
-	d.policy = sc.Spec.Policy
-	d.schemas = sc.Spec.Schemas
-	return &d, nil
+	u, err := sc.Spec.DatabaseURL(ctx, r, sc.Namespace)
+	if err != nil {
+		r.recorder.Eventf(sc, corev1.EventTypeWarning, "DatabaseURL", err.Error())
+		return nil, transient(err)
+	}
+	return &managed{
+		desired: string(data),
+		driver:  driver(u.Scheme),
+		exclude: sc.Spec.Exclude,
+		ext:     ext,
+		policy:  sc.Spec.Policy,
+		schemas: sc.Spec.Schemas,
+		url:     u,
+	}, nil
 }
 
 // hash returns the sha256 hash of the desired.
@@ -508,38 +459,6 @@ func (d *managed) schemaBound() bool {
 		}
 	}
 	return false
-}
-
-func setNotReady(sc *dbv1alpha1.AtlasSchema, reason, msg string) {
-	meta.SetStatusCondition(
-		&sc.Status.Conditions,
-		metav1.Condition{
-			Type:    schemaReadyCond,
-			Status:  metav1.ConditionFalse,
-			Reason:  reason,
-			Message: msg,
-		},
-	)
-}
-
-func setReady(sc *dbv1alpha1.AtlasSchema, des *managed, apply *atlas.SchemaApply) {
-	var msg string
-	if j, err := json.Marshal(apply); err != nil {
-		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
-	} else {
-		msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
-	}
-	meta.SetStatusCondition(
-		&sc.Status.Conditions,
-		metav1.Condition{
-			Type:    schemaReadyCond,
-			Status:  metav1.ConditionTrue,
-			Reason:  "Applied",
-			Message: msg,
-		},
-	)
-	sc.Status.ObservedHash = des.hash()
-	sc.Status.LastApplied = time.Now().Unix()
 }
 
 func (d destructiveErr) Error() string {
