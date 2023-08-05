@@ -3,7 +3,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -686,14 +685,4 @@ func events(r record.EventRecorder) []string {
 			return ev
 		}
 	}
-}
-
-// sqlitedb returns a path to an initialized sqlite database file. The file is
-// created in a temporary directory and will be deleted when the test finishes.
-func sqlitedb(t *testing.T) string {
-	td := t.TempDir()
-	dbpath := filepath.Join(td, "file.db")
-	_, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&_fk=1", dbpath))
-	require.NoError(t, err)
-	return dbpath
 }
