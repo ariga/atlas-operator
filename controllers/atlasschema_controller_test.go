@@ -3,6 +3,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,6 +117,19 @@ func TestReconcile_HasSchema(t *testing.T) {
 		Name:      request.Name + devDBSuffix,
 	}].(*appsv1.Deployment)
 	require.EqualValues(t, "mysql:8", d.Spec.Template.Spec.Containers[0].Image)
+}
+
+func TestReconcile_CustomDevURL(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	tt.k8s.put(sc)
+	request := req()
+	_, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	runs := tt.mockCLI().applyRuns
+	require.EqualValues(t, "mysql://dev", runs[0].DevURL)
+	require.EqualValues(t, "mysql://dev", runs[1].DevURL)
 }
 
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
@@ -672,4 +686,14 @@ func events(r record.EventRecorder) []string {
 			return ev
 		}
 	}
+}
+
+// sqlitedb returns a path to an initialized sqlite database file. The file is
+// created in a temporary directory and will be deleted when the test finishes.
+func sqlitedb(t *testing.T) string {
+	td := t.TempDir()
+	dbpath := filepath.Join(td, "file.db")
+	_, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&_fk=1", dbpath))
+	require.NoError(t, err)
+	return dbpath
 }

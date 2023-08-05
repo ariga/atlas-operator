@@ -87,6 +87,11 @@ spec:
                   user:
                     type: string
                 type: object
+              devURL:
+                description: DevURL is the URL of the database to use for normalization
+                  and calculations. If not specified, the operator will spin up a
+                  temporary database container to use for these operations.
+                type: string
               exclude:
                 description: Exclude a list of glob patterns used to filter existing
                   resources being taken into account.

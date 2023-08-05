@@ -93,6 +93,7 @@ type (
 		configfile string
 		policy     dbv1alpha1.Policy
 		schemas    []string
+		devURL     *url.URL
 	}
 	CLI interface {
 		SchemaApply(context.Context, *atlas.SchemaApplyParams) (*atlas.SchemaApply, error)
@@ -172,7 +173,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		sc.SetNotReady("Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	if managed.driver != "sqlite" {
+	if managed.needsDevDB() {
 		// make sure we have a dev db running
 		devDB := &v1.Deployment{}
 		err = transient(
@@ -193,7 +194,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
-	devURL, err := r.devURL(ctx, req.Name, managed.driver)
+	devURL, err := r.devURL(ctx, req.Name, managed)
 	if err != nil {
 		sc.SetNotReady("GettingDevDBURL", err.Error())
 		return result(err)
@@ -328,14 +329,17 @@ func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alp
 	return d, nil
 }
 
-func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name, driver string) (string, error) {
-	if driver == "sqlite" {
+func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name string, managed *managed) (string, error) {
+	switch m := managed; {
+	case m.devURL != nil:
+		return managed.devURL.String(), nil
+	case m.driver == "sqlite":
 		return "sqlite://db?mode=memory", nil
 	}
 	pods := &corev1.PodList{}
 	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
 		"app.kubernetes.io/instance": name + devDBSuffix,
-		"atlasgo.io/engine":          driver,
+		"atlasgo.io/engine":          managed.driver,
 	})); err != nil {
 		return "", transient(err)
 	}
@@ -418,23 +422,33 @@ func (d *devDB) ConnTmpl() string {
 
 // extractManaged extracts the info about the managed database and its desired state.
 func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alpha1.AtlasSchema) (*managed, error) {
+	var (
+		dbURL, devURL *url.URL
+	)
 	data, ext, err := sc.Spec.Schema.Content(ctx, r.Client, sc.Namespace)
 	if err != nil {
 		return nil, transient(err)
 	}
-	u, err := sc.Spec.DatabaseURL(ctx, r, sc.Namespace)
+	dbURL, err = sc.Spec.DatabaseURL(ctx, r, sc.Namespace)
 	if err != nil {
 		r.recorder.Eventf(sc, corev1.EventTypeWarning, "DatabaseURL", err.Error())
 		return nil, transient(err)
 	}
+	if sc.Spec.DevURL != "" {
+		devURL, err = url.Parse(sc.Spec.DevURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &managed{
 		desired: string(data),
-		driver:  driver(u.Scheme),
+		driver:  driver(dbURL.Scheme),
 		exclude: sc.Spec.Exclude,
 		ext:     ext,
 		policy:  sc.Spec.Policy,
 		schemas: sc.Spec.Schemas,
-		url:     u,
+		url:     dbURL,
+		devURL:  devURL,
 	}, nil
 }
 
@@ -459,6 +473,16 @@ func (d *managed) schemaBound() bool {
 		}
 	}
 	return false
+}
+
+// needsDevDB reports if the operator should spin up a dev db for this schema.
+// This value is false if the target database is sqlite or if the the user explicitly
+// provided a url to a dev database.
+func (d *managed) needsDevDB() bool {
+	if d.driver == "sqlite" {
+		return false
+	}
+	return d.devURL == nil
 }
 
 func (d destructiveErr) Error() string {
