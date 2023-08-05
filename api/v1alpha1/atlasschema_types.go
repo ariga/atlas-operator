@@ -67,6 +67,10 @@ type (
 		TargetSpec `json:",inline"`
 		// Desired Schema of the target.
 		Schema Schema `json:"schema,omitempty"`
+		// +optional
+		// DevURL is the URL of the database to use for normalization and calculations.
+		// If not specified, the operator will spin up a temporary database container to use for these operations.
+		DevURL string `json:"devURL"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
 		// Policy defines the policies to apply when managing the schema change lifecycle.

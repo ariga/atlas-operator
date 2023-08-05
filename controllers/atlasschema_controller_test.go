@@ -118,6 +118,19 @@ func TestReconcile_HasSchema(t *testing.T) {
 	require.EqualValues(t, "mysql:8", d.Spec.Template.Spec.Containers[0].Image)
 }
 
+func TestReconcile_CustomDevURL(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	tt.k8s.put(sc)
+	request := req()
+	_, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	runs := tt.mockCLI().applyRuns
+	require.EqualValues(t, "mysql://dev", runs[0].DevURL)
+	require.EqualValues(t, "mysql://dev", runs[1].DevURL)
+}
+
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	tt := newTest(t)
 	sc := conditionReconciling()
