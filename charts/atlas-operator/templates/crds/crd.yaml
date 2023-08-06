@@ -377,6 +377,31 @@ spec:
                   and calculations. If not specified, the operator will spin up a
                   temporary database container to use for these operations.
                 type: string
+              devURLFrom:
+                description: DevURLFrom is a reference to a secret containing the
+                  URL of the database to use for normalization and calculations.
+                properties:
+                  secretKeyRef:
+                    description: SecretKeyRef references to the key of a secret in
+                      the same namespace.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?'
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               exclude:
                 description: Exclude a list of glob patterns used to filter existing
                   resources being taken into account.

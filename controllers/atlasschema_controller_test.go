@@ -131,6 +131,35 @@ func TestReconcile_CustomDevURL(t *testing.T) {
 	require.EqualValues(t, "mysql://dev", runs[1].DevURL)
 }
 
+func TestReconcile_CustomDevURL_Secret(t *testing.T) {
+	tt := newTest(t)
+	sc := conditionReconciling()
+	tt.k8s.put(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "devdb",
+			Namespace: "test",
+		},
+		Data: map[string][]byte{
+			"url": []byte("mysql://dev"),
+		},
+	})
+	sc.Spec.DevURLFrom = dbv1alpha1.URLFrom{
+		SecretKeyRef: &corev1.SecretKeySelector{
+			Key: "url",
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: "devdb",
+			},
+		},
+	}
+	tt.k8s.put(sc)
+	request := req()
+	_, err := tt.r.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	runs := tt.mockCLI().applyRuns
+	require.EqualValues(t, "mysql://dev", runs[0].DevURL)
+	require.EqualValues(t, "mysql://dev", runs[1].DevURL)
+}
+
 func TestReconcile_HasSchemaAndDB(t *testing.T) {
 	tt := newTest(t)
 	sc := conditionReconciling()

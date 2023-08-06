@@ -190,6 +190,7 @@ func (in *AtlasSchemaSpec) DeepCopyInto(out *AtlasSchemaSpec) {
 	*out = *in
 	in.TargetSpec.DeepCopyInto(&out.TargetSpec)
 	in.Schema.DeepCopyInto(&out.Schema)
+	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
 	if in.Exclude != nil {
 		in, out := &in.Exclude, &out.Exclude
 		*out = make([]string, len(*in))

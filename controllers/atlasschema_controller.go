@@ -273,6 +273,12 @@ func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
 			sc.NamespacedName(),
 		)
 	}
+	if s := sc.Spec.DevURLFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: sc.Namespace},
+			sc.NamespacedName(),
+		)
+	}
 }
 
 // Clean up any resources created by the controller
@@ -434,8 +440,18 @@ func (r *AtlasSchemaReconciler) extractManaged(ctx context.Context, sc *dbv1alph
 		r.recorder.Eventf(sc, corev1.EventTypeWarning, "DatabaseURL", err.Error())
 		return nil, transient(err)
 	}
-	if sc.Spec.DevURL != "" {
+	switch spec := sc.Spec; {
+	case spec.DevURL != "":
 		devURL, err = url.Parse(sc.Spec.DevURL)
+		if err != nil {
+			return nil, err
+		}
+	case spec.DevURLFrom.SecretKeyRef != nil:
+		v, err := getSecretValue(ctx, r, sc.Namespace, *spec.DevURLFrom.SecretKeyRef)
+		if err != nil {
+			return nil, err
+		}
+		devURL, err = url.Parse(v)
 		if err != nil {
 			return nil, err
 		}
@@ -479,6 +495,13 @@ func (d *managed) schemaBound() bool {
 // This value is false if the target database is sqlite or if the the user explicitly
 // provided a url to a dev database.
 func (d *managed) needsDevDB() bool {
+	switch {
+	case d.driver == "sqlite":
+		return false
+	case d.devURL != nil:
+		return false
+
+	}
 	if d.driver == "sqlite" {
 		return false
 	}
