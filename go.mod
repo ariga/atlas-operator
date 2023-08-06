@@ -3,8 +3,9 @@ module github.com/ariga/atlas-operator
 go 1.19
 
 require (
-	ariga.io/atlas v0.10.2-0.20230423084120-30a2c72536f8
-	github.com/stretchr/testify v1.8.3
+	ariga.io/atlas v0.12.2-0.20230801155208-e69a7788b101
+	ariga.io/atlas-go-sdk v0.1.0
+	github.com/stretchr/testify v1.8.4
 	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb
 	golang.org/x/mod v0.8.0
 	k8s.io/api v0.26.0

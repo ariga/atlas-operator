@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/sqlcheck"
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
-	"github.com/ariga/atlas-operator/internal/atlas"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

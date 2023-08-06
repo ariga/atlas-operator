@@ -41,9 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
-	"github.com/ariga/atlas-operator/internal/atlas"
 )
 
 // CLI is the interface used to interact with Atlas CLI
