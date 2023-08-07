@@ -1,0 +1,205 @@
+package controllers
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"strings"
+	"time"
+
+	"golang.org/x/exp/slices"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+)
+
+const (
+	annoConnTmpl  = "atlasgo.io/conntmpl"
+	labelEngine   = "atlasgo.io/engine"
+	labelInstance = "app.kubernetes.io/instance"
+	hostReplace   = "REPLACE_HOST"
+)
+
+// cleanUp clean up any resources created by the controller
+func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
+	pods := &corev1.PodList{}
+	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
+		labelInstance: nameDevDB(sc.ObjectMeta).Name,
+	}))
+	if err != nil {
+		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
+	}
+	for _, p := range pods.Items {
+		if err := r.Delete(ctx, &p); err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
+		}
+	}
+}
+
+// devURL returns the URL of the dev database for the given target URL.
+// It creates a dev database if it does not exist.
+func (r *AtlasSchemaReconciler) devURL(ctx context.Context, sc *dbv1alpha1.AtlasSchema, targetURL url.URL) (string, error) {
+	drv := driver(targetURL.Scheme)
+	if drv == "sqlite" {
+		return "sqlite://db?mode=memory", nil
+	}
+	// make sure we have a dev db running
+	key := nameDevDB(sc.ObjectMeta)
+	switch err := r.Get(ctx, key, &appsv1.Deployment{}); {
+	case err == nil:
+		// The dev database already exists,
+		// return the connection string.
+	case apierrors.IsNotFound(err):
+		// The dev database does not exist, create it.
+		deploy, err := deploymentDevDB(key, drv, isSchemaBound(drv, &targetURL))
+		if err != nil {
+			return "", err
+		}
+		ctrl.SetControllerReference(sc, deploy, r.scheme)
+		if err := r.Create(ctx, deploy); err != nil {
+			return "", transient(err)
+		}
+		r.recorder.Eventf(sc, corev1.EventTypeNormal, "CreatedDevDB", "Created dev database deployment: %s", deploy.Name)
+		return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
+	default:
+		// An error occurred while getting the dev database,
+		sc.SetNotReady("GettingDevDB", err.Error())
+		return "", err
+	}
+	pods := &corev1.PodList{}
+	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
+		labelEngine:   drv,
+		labelInstance: key.Name,
+	}))
+	switch {
+	case err != nil:
+		return "", transient(err)
+	case len(pods.Items) == 0:
+		return "", transient(errors.New("no pods found"))
+	}
+	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
+		return p.Status.Phase == corev1.PodRunning
+	})
+	if idx == -1 {
+		return "", transient(errors.New("no running pods found"))
+	}
+	pod := pods.Items[idx]
+	if conn, ok := pod.Annotations[annoConnTmpl]; ok {
+		return strings.ReplaceAll(conn, hostReplace, pod.Status.PodIP), nil
+	}
+	// If the connection template is not found, there is an issue with
+	// the pod spec and the error is not transient.
+	return "", errors.New("no connection template annotation found")
+}
+
+// devDB contains values used to render a devDB pod template.
+type devDB struct {
+	types.NamespacedName
+	Driver      string
+	Port        int
+	UID         int
+	DB          string
+	SchemaBound bool
+}
+
+// ConnTmpl returns a connection template for the devDB.
+func (d *devDB) ConnTmpl() string {
+	u := url.URL{
+		Scheme: d.Driver,
+		User:   url.UserPassword("root", "pass"),
+		Host:   fmt.Sprintf("%s:%d", hostReplace, d.Port),
+		Path:   d.DB,
+	}
+	if q := u.Query(); d.Driver == "postgres" {
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+func (d *devDB) Render(w io.Writer) error {
+	return tmpl.ExecuteTemplate(w, "devdb.tmpl", d)
+}
+
+// deploymentDevDB returns a deployment for a dev database.
+func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*appsv1.Deployment, error) {
+	v := &devDB{
+		Driver:         drv,
+		NamespacedName: name,
+		SchemaBound:    schemaBound,
+	}
+	switch drv {
+	case "postgres":
+		v.DB = "postgres"
+		v.Port = 5432
+		v.UID = 999
+	case "mysql":
+		if schemaBound {
+			v.DB = "dev"
+		}
+		v.Port = 3306
+		v.UID = 1000
+	default:
+		return nil, fmt.Errorf("unsupported driver %q", v.Driver)
+	}
+	b := &bytes.Buffer{}
+	if err := v.Render(b); err != nil {
+		return nil, err
+	}
+	d := &appsv1.Deployment{}
+	if err := yaml.NewYAMLToJSONDecoder(b).Decode(d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// nameDevDB returns the namespaced name of the dev database.
+func nameDevDB(owner metav1.ObjectMeta) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-atlas-dev-db", owner.Name),
+		Namespace: owner.Namespace,
+	}
+}
+
+// driver returns the driver from the given schema.
+// it remove the schema modifier if present.
+// e.g. mysql+unix -> mysql
+// it also handles aliases.
+// e.g. mariadb -> mysql
+func driver(schema string) string {
+	p := strings.SplitN(schema, "+", 2)
+	switch drv := strings.ToLower(p[0]); drv {
+	case "libsql":
+		return "sqlite"
+	case "maria", "mariadb":
+		return "mysql"
+	case "postgresql":
+		return "postgres"
+	default:
+		return drv
+	}
+}
+
+// isSchemaBound returns true if the given target URL is schema bound.
+// e.g. sqlite, postgres with search_path, mysql with path
+func isSchemaBound(drv string, u *url.URL) bool {
+	switch drv {
+	case "sqlite":
+		return true
+	case "postgres":
+		return u.Query().Get("search_path") != ""
+	case "mysql":
+		return u.Path != ""
+	}
+	return false
+}

@@ -30,6 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	devDBSuffix     = "-atlas-dev-db"
+	schemaReadyCond = "Ready"
+)
+
 func TestReconcile_NotFound(t *testing.T) {
 	tt := newTest(t)
 	resp, err := tt.r.Reconcile(context.Background(), req())
@@ -636,8 +641,10 @@ func (m *mockClient) Create(ctx context.Context, obj client.Object, opts ...clie
 func TestTemplateSanity(t *testing.T) {
 	var b bytes.Buffer
 	v := &devDB{
-		Name:      "test",
-		Namespace: "default",
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
 	}
 	for _, tt := range []string{"mysql", "postgres"} {
 		t.Run(tt, func(t *testing.T) {
