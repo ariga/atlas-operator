@@ -47,9 +47,6 @@ jobs:
             exit 1
           fi
         shell: bash
-      - name: Run tests
-        run: go test ./... -race
-        shell: bash
       - uses: azure/setup-kubectl@v3
       - name: Start minikube
         id: minikube
@@ -66,6 +63,9 @@ jobs:
           # Enable experiment flag
           kubectl set env -n atlas-operator-system deployment/atlas-operator-controller-manager \
           EXPERIMENTAL=true
+      - name: Run tests
+        run: go test ./... -race
+        shell: bash
       - name: Integration test
         run: |
           # Wait for mysql ready
