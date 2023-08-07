@@ -141,10 +141,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Starting area to handle the heavy jobs.
 	// Below this line is the main logic of the controller.
 	// ====================================================
-	data.DevURL, err = r.devURL(ctx, res, *data.URL)
-	if err != nil {
-		res.SetNotReady("GettingDevDB", err.Error())
-		return result(err)
+	if data.DevURL == "" {
+		// The user has not specified an URL for dev-db,
+		// spin up a dev-db and get the connection string.
+		data.DevURL, err = r.devURL(ctx, res, *data.URL)
+		if err != nil {
+			res.SetNotReady("GettingDevDB", err.Error())
+			return result(err)
+		}
 	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
@@ -269,6 +273,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 		s    = res.Spec
 		data = &managedData{
 			EnvName: defaultEnvName,
+			DevURL:  s.DevURL,
 			Schemas: s.Schemas,
 			Exclude: s.Exclude,
 			Policy:  s.Policy,
@@ -281,6 +286,14 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	data.desired, data.ext, err = s.Schema.Content(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
+	}
+	if s := s.DevURLFrom.SecretKeyRef; s != nil {
+		// SecretKeyRef is set, get the secret value
+		// then override the dev url.
+		data.DevURL, err = getSecretValue(ctx, r, res.Namespace, s)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return data, nil
 }
