@@ -20,12 +20,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"errors"
 	"net/url"
 	"strings"
-	"text/template"
 	"time"
 
 	"ariga.io/atlas/sql/sqlcheck"
@@ -37,19 +35,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
-)
-
-var (
-	//go:embed templates
-	tmpls embed.FS
-	tmpl  = template.Must(template.New("operator").ParseFS(tmpls, "templates/*.tmpl"))
 )
 
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas,verbs=get;list;watch;create;update;patch;delete
@@ -94,11 +85,17 @@ type (
 	}
 )
 
-func NewAtlasSchemaReconciler(mgr manager.Manager, execPath string) *AtlasSchemaReconciler {
+func NewAtlasSchemaReconciler(mgr Manager, execPath string) *AtlasSchemaReconciler {
+	cli, err := atlas.NewClientWithDir("", execPath)
+	if err != nil {
+		// safe to panic here because the operator
+		// won't start without a valid cli.
+		panic(err)
+	}
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		cli:              atlas.NewClientWithPath(execPath),
+		cli:              cli,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
@@ -120,7 +117,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	defer func() {
 		if err := r.Status().Update(ctx, res); err != nil {
-			log.Error(err, "failed to update status")
+			log.Error(err, "failed to update resource status")
 		}
 		// Watch the configMap and secret referenced by the schema.
 		r.watchRefs(res)
@@ -285,7 +282,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 			return nil, err
 		}
 	case spec.DevURLFrom.SecretKeyRef != nil:
-		v, err := getSecretValue(ctx, r, res.Namespace, *spec.DevURLFrom.SecretKeyRef)
+		v, err := getSecretValue(ctx, r, res.Namespace, spec.DevURLFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}

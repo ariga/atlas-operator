@@ -2,28 +2,77 @@ package controllers
 
 import (
 	"context"
+	"embed"
 	"errors"
+	"fmt"
+	"io/fs"
+	"strconv"
 	"strings"
+	"testing/fstest"
+	"text/template"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const defaultEnvName = "kubernetes"
+
+type Manager interface {
+	GetClient() client.Client
+	GetScheme() *runtime.Scheme
+	GetEventRecorderFor(name string) record.EventRecorder
+}
+
+var (
+	//go:embed templates
+	tmpls embed.FS
+	tmpl  = template.Must(template.New("operator").
+		Funcs(template.FuncMap{
+			"quotes": func(s []string) []string {
+				r := make([]string, len(s))
+				for i, v := range s {
+					r[i] = strconv.Quote(v)
+				}
+				return r
+			},
+		}).
+		ParseFS(tmpls, "templates/*.tmpl"),
+	)
+)
+
+func getConfigMap(ctx context.Context, r client.Reader, ns string, ref *corev1.LocalObjectReference) (*corev1.ConfigMap, error) {
+	cfg := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, cfg)
+	if err != nil {
+		return nil, transient(err)
+	}
+	return cfg, nil
+}
+
 // getSecretValue gets the value of the given secret key selector.
-func getSecretValue(
-	ctx context.Context,
-	r client.Reader,
-	ns string,
-	selector corev1.SecretKeySelector,
-) (string, error) {
+func getSecretValue(ctx context.Context, r client.Reader, ns string, selector *corev1.SecretKeySelector) (string, error) {
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: selector.Name}, secret); err != nil {
+	err := r.Get(ctx, client.ObjectKey{Name: selector.Name, Namespace: ns}, secret)
+	if err != nil {
 		return "", transient(err)
 	}
-	us := string(secret.Data[selector.Key])
-	return us, nil
+	if _, ok := secret.Data[selector.Key]; !ok {
+		return "", fmt.Errorf("secret %s/%s does not contain key %q", ns, selector.Name, selector.Key)
+	}
+	return string(secret.Data[selector.Key]), nil
+}
+
+func mapFS(m map[string]string) fs.FS {
+	f := fstest.MapFS{}
+	for key, value := range m {
+		f[key] = &fstest.MapFile{Data: []byte(value)}
+	}
+	return f
 }
 
 // isSQLErr returns true if the error is a SQL error.

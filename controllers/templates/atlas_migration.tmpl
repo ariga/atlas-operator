@@ -10,6 +10,7 @@ atlas {
   {{- end }}
   }
 }
+{{- if .HasRemoteDir }}
 {{- with .RemoteDir }}
 data "remote_dir" "this" {
   name = "{{ .Name }}"
@@ -19,15 +20,15 @@ data "remote_dir" "this" {
 }
 {{- end }}
 {{- end }}
+{{- end }}
 env {
   name = atlas.env
   url = "{{ .URL }}"
   migration {
-{{- with .Cloud }}
+{{- if .Cloud.HasRemoteDir }}
     dir = data.remote_dir.this.url
-{{- end }}
-{{- with .Migration }}
-    dir = "{{ .Dir }}"
+{{- else }}
+    dir = "file://migrations"
 {{- end }}
 {{- if .RevisionsSchema }}
     revisions_schema = "{{ .RevisionsSchema }}" 
