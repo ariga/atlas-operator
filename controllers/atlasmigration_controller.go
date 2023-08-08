@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -68,7 +67,7 @@ type (
 		configMapWatcher *watch.ResourceWatcher
 		recorder         record.EventRecorder
 	}
-	// atlasMigrationData is the data used to render the HCL template
+	// migrationData is the data used to render the HCL template
 	// that will be used for Atlas CLI
 	migrationData struct {
 		EnvName         string
@@ -342,7 +341,7 @@ func (r *AtlasMigrationReconciler) createTmpDirFromMap(
 ) (string, func() error, error) {
 
 	// Create temporary directory and remove it at the end of the function
-	tmpDir, err := ioutil.TempDir("", "migrations")
+	tmpDir, err := os.MkdirTemp("", "migrations")
 	if err != nil {
 		return "", nil, err
 	}
@@ -351,7 +350,7 @@ func (r *AtlasMigrationReconciler) createTmpDirFromMap(
 	// key is the name of the file and value is the content of the file
 	for key, value := range m {
 		filePath := filepath.Join(tmpDir, key)
-		err := ioutil.WriteFile(filePath, []byte(value), 0644)
+		err := os.WriteFile(filePath, []byte(value), 0644)
 		if err != nil {
 			// Remove the temporary directory if there is an error
 			os.RemoveAll(tmpDir)

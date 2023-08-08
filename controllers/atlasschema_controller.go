@@ -72,7 +72,7 @@ type (
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
 	}
-	// managedData contains information about the managedData database and its desired state.
+	// managedData contains information about the managed database and its desired state.
 	managedData struct {
 		ext        string
 		desired    string
