@@ -11,7 +11,7 @@ import (
 	"ariga.io/atlas/sql/sqlcheck"
 )
 
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL string, vars ...atlas.Vars) error {
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managedData, devURL string, vars ...atlas.Vars) error {
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", des.policy); err != nil {
 		return err
@@ -84,7 +84,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managed, devURL s
 	return nil
 }
 
-func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managed, devURL string) error {
+func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managedData, devURL string) error {
 	return r.lint(ctx, des, devURL, atlas.Vars{
 		"lint_destructive": "true",
 	})
