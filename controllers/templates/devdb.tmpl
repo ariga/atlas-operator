@@ -45,6 +45,8 @@ spec:
           {{- else if eq .Driver "postgres" }}
           image: postgres:15
           env:
+            - name: POSTGRES_DB
+              value: {{ .DB }}
             - name: POSTGRES_PASSWORD
               value: pass
             - name: POSTGRES_USER

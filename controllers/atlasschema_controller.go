@@ -23,20 +23,15 @@ import (
 	"embed"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 	"text/template"
 	"time"
 
 	"ariga.io/atlas/sql/sqlcheck"
-	"golang.org/x/exp/slices"
-	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -49,12 +44,6 @@ import (
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
-)
-
-const (
-	devDBSuffix     = "-atlas-dev-db"
-	hostReplace     = "REPLACE_HOST"
-	schemaReadyCond = "Ready"
 )
 
 var (
@@ -72,16 +61,6 @@ type (
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
-	}
-	// devDB contains values used to render a devDB pod template.
-	devDB struct {
-		Name        string
-		Namespace   string
-		SchemaBound bool
-		Driver      string
-		DB          string
-		Port        int
-		UID         int
 	}
 	// managed contains information about the managed database and its desired state.
 	managed struct {
@@ -173,31 +152,17 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		sc.SetNotReady("Reconciling", "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	if managed.needsDevDB() {
-		// make sure we have a dev db running
-		devDB := &v1.Deployment{}
-		err = transient(
-			r.Get(ctx, types.NamespacedName{Name: req.Name + devDBSuffix, Namespace: req.Namespace}, devDB),
-		)
-		if apierrors.IsNotFound(err) {
-			_, err = r.devDBDeployment(ctx, sc, managed)
-			if err != nil {
-				sc.SetNotReady("CreatingDevDB", err.Error())
-				return result(err)
-			}
-			return ctrl.Result{
-				RequeueAfter: time.Second * 15,
-			}, nil
-		}
+	var devURL string
+	if managed.devURL != nil {
+		// if the user has specified a devURL, use it.
+		devURL = managed.devURL.String()
+	} else {
+		// otherwise, spin up a dev database.
+		devURL, err = r.devURL(ctx, sc, *managed.url)
 		if err != nil {
-			sc.SetNotReady("GettingDevDB", err.Error())
+			sc.SetNotReady("GettingDevDBURL", err.Error())
 			return result(err)
 		}
-	}
-	devURL, err := r.devURL(ctx, req.Name, managed)
-	if err != nil {
-		sc.SetNotReady("GettingDevDBURL", err.Error())
-		return result(err)
 	}
 	conf, cleanconf, err := configFile(sc.Spec.Policy)
 	if err != nil {
@@ -281,114 +246,6 @@ func (r *AtlasSchemaReconciler) watch(sc *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-// Clean up any resources created by the controller
-func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
-	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-		"app.kubernetes.io/instance": sc.Name + devDBSuffix,
-	})); err != nil {
-		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
-	}
-	for _, p := range pods.Items {
-		err := r.Delete(ctx, &p)
-		if err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
-		}
-	}
-
-}
-
-func (r *AtlasSchemaReconciler) devDBDeployment(ctx context.Context, sc *dbv1alpha1.AtlasSchema, m *managed) (*v1.Deployment, error) {
-	d := &v1.Deployment{}
-	v := devDB{
-		Name:        sc.Name + devDBSuffix,
-		Namespace:   sc.Namespace,
-		Driver:      m.driver,
-		UID:         1000,
-		SchemaBound: m.schemaBound(),
-	}
-	switch m.driver {
-	case "postgres":
-		v.Port = 5432
-		v.UID = 999
-		v.DB = "postgres"
-	case "mysql":
-		v.Port = 3306
-		if v.SchemaBound {
-			v.DB = "dev"
-		}
-	}
-	var b bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", &v); err != nil {
-		return nil, err
-	}
-	if err := yaml.NewYAMLToJSONDecoder(&b).Decode(d); err != nil {
-		return nil, err
-	}
-	if err := ctrl.SetControllerReference(sc, d, r.scheme); err != nil {
-		return nil, err
-	}
-	if err := r.Create(ctx, d); err != nil {
-		return nil, transient(err)
-	}
-	r.recorder.Eventf(sc, corev1.EventTypeNormal, "CreatedDevDB", "Created dev database deployment: %s", d.Name)
-	return d, nil
-}
-
-func (r *AtlasSchemaReconciler) devURL(ctx context.Context, name string, managed *managed) (string, error) {
-	switch m := managed; {
-	case m.devURL != nil:
-		return managed.devURL.String(), nil
-	case m.driver == "sqlite":
-		return "sqlite://db?mode=memory", nil
-	}
-	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-		"app.kubernetes.io/instance": name + devDBSuffix,
-		"atlasgo.io/engine":          managed.driver,
-	})); err != nil {
-		return "", transient(err)
-	}
-	if len(pods.Items) == 0 {
-		return "", transient(
-			errors.New("no pods found"),
-		)
-	}
-	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
-		return p.Status.Phase == corev1.PodRunning
-	})
-	if idx == -1 {
-		return "", transient(
-			errors.New("no running pods found"),
-		)
-	}
-	pod := pods.Items[idx]
-	ct, ok := pod.Annotations["atlasgo.io/conntmpl"]
-	if !ok {
-		// If the connection template is not found, there is an issue with the pod spec and the error
-		// is not transient.
-		return "", errors.New("no connection template label found")
-	}
-	return strings.ReplaceAll(
-		ct,
-		hostReplace,
-		fmt.Sprintf("%s:%d", pod.Status.PodIP, pod.Spec.Containers[0].Ports[0].ContainerPort),
-	), nil
-}
-
-func driver(scheme string) string {
-	switch {
-	case strings.HasPrefix(scheme, "mysql"):
-		return "mysql"
-	case strings.HasPrefix(scheme, "postgres"):
-		return "postgres"
-	case scheme == "sqlite":
-		return "sqlite"
-	default:
-		return ""
-	}
-}
-
 func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL string) (*atlas.SchemaApply, error) {
 	file, clean, err := atlas.TempFile(des.desired, des.ext)
 	if err != nil {
@@ -410,20 +267,6 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, des *managed, devURL 
 		return nil, transient(err)
 	}
 	return apply, nil
-}
-
-func (d *devDB) ConnTmpl() string {
-	u := url.URL{
-		Scheme: d.Driver,
-		User:   url.UserPassword("root", "pass"),
-		Host:   hostReplace,
-		Path:   d.DB,
-	}
-	if q := u.Query(); d.Driver == "postgres" {
-		q.Set("sslmode", "disable")
-		u.RawQuery = q.Encode()
-	}
-	return u.String()
 }
 
 // extractManaged extracts the info about the managed database and its desired state.
@@ -491,23 +334,6 @@ func (d *managed) schemaBound() bool {
 	return false
 }
 
-// needsDevDB reports if the operator should spin up a dev db for this schema.
-// This value is false if the target database is sqlite or if the the user explicitly
-// provided a url to a dev database.
-func (d *managed) needsDevDB() bool {
-	switch {
-	case d.driver == "sqlite":
-		return false
-	case d.devURL != nil:
-		return false
-
-	}
-	if d.driver == "sqlite" {
-		return false
-	}
-	return d.devURL == nil
-}
-
 func (d destructiveErr) Error() string {
 	var buf strings.Builder
 	buf.WriteString("destructive changes detected:\n")
@@ -541,35 +367,4 @@ func (t *transientErr) Error() string {
 
 func (t *transientErr) Unwrap() error {
 	return t.err
-}
-
-// transient wraps an error to indicate that it should be retried.
-func transient(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &transientErr{err: err}
-}
-
-func isSQLErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "sql/migrate: execute: executing statement")
-}
-
-// result returns a ctrl.Result and an error. If the error is transient, the
-// task will be requeued after 5 seconds. Permanent errors are not returned
-// as errors because they cause the controller to requeue indefinitely. Instead,
-// they should be reported as a status condition.
-func result(err error) (ctrl.Result, error) {
-	if isTransient(err) {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
-	return ctrl.Result{}, nil
-}
-
-func isTransient(err error) bool {
-	var t *transientErr
-	return errors.As(err, &t)
 }
