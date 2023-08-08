@@ -503,8 +503,6 @@ func newTest(t *testing.T) *test {
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
-	configMapWatcher := watch.New()
-	secretWatcher := watch.New()
 	return &test{
 		T:   t,
 		k8s: m,
@@ -512,8 +510,8 @@ func newTest(t *testing.T) *test {
 			Client:           m,
 			scheme:           scheme,
 			cli:              &mockCLI{},
-			configMapWatcher: &configMapWatcher,
-			secretWatcher:    &secretWatcher,
+			configMapWatcher: watch.New(),
+			secretWatcher:    watch.New(),
 			recorder:         record.NewFakeRecorder(100),
 		},
 	}

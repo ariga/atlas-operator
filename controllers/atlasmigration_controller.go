@@ -55,22 +55,20 @@ type MigrateCLI interface {
 // AtlasMigrationReconciler reconciles a AtlasMigration object
 type AtlasMigrationReconciler struct {
 	client.Client
-	CLI              MigrateCLI
-	Scheme           *runtime.Scheme
+	cli              MigrateCLI
+	scheme           *runtime.Scheme
 	secretWatcher    *watch.ResourceWatcher
 	configMapWatcher *watch.ResourceWatcher
 	recorder         record.EventRecorder
 }
 
-func NewAtlasMigrationReconciler(mgr manager.Manager, cli MigrateCLI) *AtlasMigrationReconciler {
-	secretWatcher := watch.New()
-	configMapWatcher := watch.New()
+func NewAtlasMigrationReconciler(mgr manager.Manager, execPath string) *AtlasMigrationReconciler {
 	return &AtlasMigrationReconciler{
-		CLI:              cli,
 		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		configMapWatcher: &configMapWatcher,
-		secretWatcher:    &secretWatcher,
+		scheme:           mgr.GetScheme(),
+		cli:              atlas.NewClientWithPath(execPath),
+		configMapWatcher: watch.New(),
+		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasmigration-controller"),
 	}
 }
@@ -197,7 +195,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Check if there are any pending migration files
-	status, err := r.CLI.Status(ctx, &atlas.StatusParams{Env: md.EnvName, ConfigURL: atlasHCL})
+	status, err := r.cli.Status(ctx, &atlas.StatusParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}
@@ -214,7 +212,7 @@ func (r *AtlasMigrationReconciler) reconcile(
 	}
 
 	// Execute Atlas CLI migrate command
-	report, err := r.CLI.Apply(ctx, &atlas.ApplyParams{Env: md.EnvName, ConfigURL: atlasHCL})
+	report, err := r.cli.Apply(ctx, &atlas.ApplyParams{Env: md.EnvName, ConfigURL: atlasHCL})
 	if err != nil {
 		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
 	}

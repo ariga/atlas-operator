@@ -577,7 +577,7 @@ func migrationCliTest(t *testing.T) *migrationTest {
 	require.NoError(t, err)
 	cli, err := atlas.NewClient(wd, "atlas")
 	require.NoError(t, err)
-	tt.r.CLI = cli
+	tt.r.cli = cli
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
 	tt.dburl = "sqlite://" + filepath.Join(td, "test.db")
@@ -595,8 +595,6 @@ type migrationTest struct {
 func newMigrationTest(t *testing.T) *migrationTest {
 	scheme := runtime.NewScheme()
 	dbv1alpha1.AddToScheme(scheme)
-	secretWatcher := watch.New()
-	configMapWatcher := watch.New()
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
@@ -605,9 +603,9 @@ func newMigrationTest(t *testing.T) *migrationTest {
 		k8s: m,
 		r: &AtlasMigrationReconciler{
 			Client:           m,
-			Scheme:           scheme,
-			secretWatcher:    &secretWatcher,
-			configMapWatcher: &configMapWatcher,
+			scheme:           scheme,
+			secretWatcher:    watch.New(),
+			configMapWatcher: watch.New(),
 			recorder:         record.NewFakeRecorder(100),
 		},
 	}

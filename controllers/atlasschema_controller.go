@@ -84,15 +84,13 @@ type (
 	}
 )
 
-func NewAtlasSchemaReconciler(mgr manager.Manager, cli CLI) *AtlasSchemaReconciler {
-	configMapWatcher := watch.New()
-	secretWatcher := watch.New()
+func NewAtlasSchemaReconciler(mgr manager.Manager, execPath string) *AtlasSchemaReconciler {
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		cli:              cli,
-		configMapWatcher: &configMapWatcher,
-		secretWatcher:    &secretWatcher,
+		cli:              atlas.NewClientWithPath(execPath),
+		configMapWatcher: watch.New(),
+		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
 	}
 }
