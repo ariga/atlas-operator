@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -171,7 +170,7 @@ func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
+	md, _, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
@@ -224,7 +223,7 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 		},
 	})
 
-	md, _, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
+	md, _, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
@@ -284,7 +283,7 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
+	amd, cleanUp, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
@@ -306,7 +305,7 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultTokenSecret()
 
-	amd, cleanUp, err := tt.r.extractMigrationData(context.Background(), v1alpha1.AtlasMigration{
+	amd, cleanUp, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
@@ -353,7 +352,7 @@ func TestReconcile_createTmpDirFromMap(t *testing.T) {
 	parse, err := url.Parse(dir)
 	require.NoError(t, err)
 	require.DirExists(t, parse.Path)
-	files, err := ioutil.ReadDir(parse.Path)
+	files, err := os.ReadDir(parse.Path)
 	require.NoError(t, err)
 	require.Len(t, files, 2)
 	cleanUp()
@@ -370,7 +369,7 @@ func TestReconcile_createTmpDirFromCfgMap(t *testing.T) {
 	parse, err := url.Parse(dir)
 	require.NoError(t, err)
 	require.DirExists(t, parse.Path)
-	files, err := ioutil.ReadDir(parse.Path)
+	files, err := os.ReadDir(parse.Path)
 	require.NoError(t, err)
 	require.Len(t, files, 2)
 	cleanUp()
@@ -390,7 +389,7 @@ func TestReconcile_createTmpDirFromCfgMap_notfound(t *testing.T) {
 func TestReconciler_watch(t *testing.T) {
 	tt := newMigrationTest(t)
 
-	tt.r.watch(dbv1alpha1.AtlasMigration{
+	tt.r.watchRefs(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{
@@ -488,7 +487,7 @@ func TestWatcher_enabled(t *testing.T) {
 }
 
 func TestDefaultTemplate(t *testing.T) {
-	migrate := atlasMigrationData{}
+	migrate := &migrationData{}
 	migrate.Migration = &migration{
 		Dir: "my-dir",
 	}
@@ -513,7 +512,7 @@ env {
 }
 
 func TestCloudTemplate(t *testing.T) {
-	migrate := atlasMigrationData{}
+	migrate := &migrationData{}
 	migrate.Cloud = &cloud{
 		URL:     "https://atlasgo.io/",
 		Project: "my-project",
@@ -577,7 +576,7 @@ func migrationCliTest(t *testing.T) *migrationTest {
 	require.NoError(t, err)
 	cli, err := atlas.NewClient(wd, "atlas")
 	require.NoError(t, err)
-	tt.r.CLI = cli
+	tt.r.cli = cli
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
 	tt.dburl = "sqlite://" + filepath.Join(td, "test.db")
@@ -595,8 +594,6 @@ type migrationTest struct {
 func newMigrationTest(t *testing.T) *migrationTest {
 	scheme := runtime.NewScheme()
 	dbv1alpha1.AddToScheme(scheme)
-	secretWatcher := watch.New()
-	configMapWatcher := watch.New()
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
@@ -605,9 +602,9 @@ func newMigrationTest(t *testing.T) *migrationTest {
 		k8s: m,
 		r: &AtlasMigrationReconciler{
 			Client:           m,
-			Scheme:           scheme,
-			secretWatcher:    &secretWatcher,
-			configMapWatcher: &configMapWatcher,
+			scheme:           scheme,
+			secretWatcher:    watch.New(),
+			configMapWatcher: watch.New(),
 			recorder:         record.NewFakeRecorder(100),
 		},
 	}

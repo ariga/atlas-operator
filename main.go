@@ -24,7 +24,6 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"github.com/ariga/atlas-operator/internal/vercheck"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -55,11 +54,11 @@ const (
 	// envNoUpdate when enabled it cancels checking for update
 	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
+	execPath    = "/atlas"
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(dbv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -94,23 +93,12 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		setupLog.Error(err, "unable to get current working directory")
-		os.Exit(1)
-	}
-	cli, err := atlas.NewClient(cwd, "atlas")
-	if err != nil {
-		setupLog.Error(err, "unable to create atlas client")
-		os.Exit(1)
-	}
-	if err = controllers.NewAtlasSchemaReconciler(mgr, cli).
+	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
-
-	if err = controllers.NewAtlasMigrationReconciler(mgr, cli).
+	if err = controllers.NewAtlasMigrationReconciler(mgr, execPath).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 		os.Exit(1)

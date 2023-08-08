@@ -17,8 +17,8 @@ type ResourceWatcher struct {
 }
 
 // New will create a new ResourceWatcher with no watched objects.
-func New() ResourceWatcher {
-	return ResourceWatcher{
+func New() *ResourceWatcher {
+	return &ResourceWatcher{
 		watched: make(map[types.NamespacedName][]types.NamespacedName),
 	}
 }
