@@ -54,6 +54,7 @@ const (
 	// envNoUpdate when enabled it cancels checking for update
 	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
+	execPath    = "/atlas"
 )
 
 func init() {
@@ -92,7 +93,6 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	execPath := "/atlas"
 	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
