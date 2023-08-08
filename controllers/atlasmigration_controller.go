@@ -341,9 +341,6 @@ func (d *migrationData) render(w io.Writer) error {
 			return errors.New("Atlas Cloud token is empty")
 		}
 	case d.Dir != nil:
-		if d.Cloud.HasRemoteDir() {
-			return errors.New("cannot use both remote and local directory")
-		}
 	default:
 		return errors.New("migration directory is empty")
 	}
