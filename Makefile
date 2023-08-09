@@ -266,4 +266,4 @@ catalog-push: ## Push a catalog image.
 .PHONY: license
 license: ## Add license headers to all files.
 	@echo "Adding license headers to all files..."
-	go run -mod=mod github.com/google/addlicense@latest -ignore "**/*.sql" -l apache -c "The Atlas Operator Authors." .
+	go run -mod=mod github.com/google/addlicense@latest -ignore "**/*.sql" -ignore "charts/**/*" -l apache -c "The Atlas Operator Authors." .
