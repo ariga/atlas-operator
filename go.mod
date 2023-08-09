@@ -4,10 +4,10 @@ go 1.19
 
 require (
 	ariga.io/atlas v0.12.2-0.20230801155208-e69a7788b101
-	ariga.io/atlas-go-sdk v0.1.0
+	ariga.io/atlas-go-sdk v0.1.1-0.20230809060943-e475a9f5125d
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb
-	golang.org/x/mod v0.8.0
+	golang.org/x/mod v0.9.0
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
 	k8s.io/client-go v0.26.0

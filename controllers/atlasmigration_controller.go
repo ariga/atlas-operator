@@ -16,18 +16,15 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"io"
+	"io/fs"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"ariga.io/atlas/sql/migrate"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,12 +32,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
 )
@@ -53,49 +49,37 @@ import (
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 type (
-	// CLI is the interface used to interact with Atlas CLI
-	MigrateCLI interface {
-		Apply(ctx context.Context, data *atlas.ApplyParams) (*atlas.ApplyReport, error)
-		Status(ctx context.Context, data *atlas.StatusParams) (*atlas.StatusReport, error)
-	}
 	// AtlasMigrationReconciler reconciles a AtlasMigration object
 	AtlasMigrationReconciler struct {
 		client.Client
-		cli              MigrateCLI
 		scheme           *runtime.Scheme
-		secretWatcher    *watch.ResourceWatcher
+		execPath         string
 		configMapWatcher *watch.ResourceWatcher
+		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
 	}
 	// migrationData is the data used to render the HCL template
 	// that will be used for Atlas CLI
 	migrationData struct {
 		EnvName         string
-		URL             string
-		Migration       *migration
+		URL             *url.URL
+		Dir             fs.FS
 		Cloud           *cloud
 		RevisionsSchema string
-	}
-	migration struct {
-		Dir string
 	}
 	cloud struct {
 		URL       string
 		Token     string
 		Project   string
-		RemoteDir *remoteDir
-	}
-	remoteDir struct {
-		Name string
-		Tag  string
+		RemoteDir *dbv1alpha1.Remote
 	}
 )
 
-func NewAtlasMigrationReconciler(mgr manager.Manager, execPath string) *AtlasMigrationReconciler {
+func NewAtlasMigrationReconciler(mgr Manager, execPath string) *AtlasMigrationReconciler {
 	return &AtlasMigrationReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		cli:              atlas.NewClientWithPath(execPath),
+		execPath:         execPath,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasmigration-controller"),
@@ -106,14 +90,17 @@ func NewAtlasMigrationReconciler(mgr manager.Manager, execPath string) *AtlasMig
 // move the current state of the cluster closer to the desired state.
 func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
 	var (
-		log = log.FromContext(ctx)
+		log = ctrl.LoggerFrom(ctx)
 		res = &dbv1alpha1.AtlasMigration{}
 	)
-	if err := r.Get(ctx, req.NamespacedName, res); err != nil {
+	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// At the end of reconcile, update the status of the resource base on the error
 	defer func() {
+		// At the end of reconcile, update the status of the resource base on the error
+		if err != nil {
+			r.recordErrEvent(res, err)
+		}
 		if err := r.Status().Update(ctx, res); err != nil {
 			log.Error(err, "failed to update resource status")
 		}
@@ -125,35 +112,56 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		res.SetNotReady("Reconciling", "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	// Extract migration data from the given resource
-	data, cleanUp, err := r.extractData(ctx, res)
+	data, err := r.extractData(ctx, res)
 	if err != nil {
 		res.SetNotReady("ReadingMigrationData", err.Error())
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	defer cleanUp()
 	hash, err := data.hash()
 	if err != nil {
 		res.SetNotReady("CalculatingHash", err.Error())
-		return ctrl.Result{}, nil
+		r.recordErrEvent(res, err)
+		return result(err)
 	}
-	// If the migration resource has changed and the resource ready condition is not false, immediately set it to false.
-	// This is done so that the observed status of the migration reflects its "in-progress" state while it is being
-	// reconciled.
+	// We need to update the ready condition immediately before doing
+	// any heavy jobs if the hash is different from the last applied.
+	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
 		res.SetNotReady("Reconciling", "Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
+	// ====================================================
+	// Starting area to handle the heavy jobs.
+	// Below this line is the main logic of the controller.
+	// ====================================================
+
+	// TODO(giautm): Create DevDB and run linter for new migration
+	// files before applying it to the target database.
+
+	// Create a working directory for the Atlas CLI
+	// The working directory contains the atlas.hcl config
+	// and the migrations directory (if any)
+	wd, err := atlas.NewWorkingDir(
+		atlas.WithAtlasHCL(data.render),
+		atlas.WithMigrations(data.Dir),
+	)
+	if err != nil {
+		res.SetNotReady("ReadingMigrationData", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	defer wd.Close()
 	// Reconcile given resource
-	status, err := r.reconcile(ctx, data)
+	status, err := r.reconcile(ctx, wd.Path(), data.EnvName)
 	if err != nil {
 		res.SetNotReady("Migrating", strings.TrimSpace(err.Error()))
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
+	status.ObservedHash = hash
+	res.SetReady(*status)
 	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
-	res.SetReady(status)
 	return ctrl.Result{}, nil
 }
 
@@ -195,117 +203,90 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 }
 
 // Reconcile the given AtlasMigration resource.
-func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migrationData) (dbv1alpha1.AtlasMigrationStatus, error) {
-	// Create atlas.hcl from template data
-	atlasHCL, cleanUp, err := data.render()
+func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
+	c, err := atlas.NewClientWithDir(dir, r.execPath)
 	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, err
+		return nil, err
 	}
-	defer cleanUp()
-
-	// Calculate the observedHash
-	hash, err := data.hash()
-	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, err
-	}
-
 	// Check if there are any pending migration files
-	status, err := r.cli.Status(ctx, &atlas.StatusParams{Env: data.EnvName, ConfigURL: atlasHCL})
+	status, err := c.Status(ctx, &atlas.StatusParams{Env: envName})
 	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
+		return nil, transient(err)
 	}
 	if len(status.Pending) == 0 {
 		var lastApplied int64
 		if len(status.Applied) > 0 {
 			lastApplied = status.Applied[len(status.Applied)-1].ExecutedAt.Unix()
 		}
-		return dbv1alpha1.AtlasMigrationStatus{
-			ObservedHash:       hash,
+		return &dbv1alpha1.AtlasMigrationStatus{
 			LastApplied:        lastApplied,
 			LastAppliedVersion: status.Current,
 		}, nil
 	}
-
 	// Execute Atlas CLI migrate command
-	report, err := r.cli.Apply(ctx, &atlas.ApplyParams{Env: data.EnvName, ConfigURL: atlasHCL})
+	report, err := c.Apply(ctx, &atlas.ApplyParams{Env: envName})
 	if err != nil {
-		return dbv1alpha1.AtlasMigrationStatus{}, transient(err)
+		return nil, transient(err)
 	}
 	if report != nil && report.Error != "" {
 		err = errors.New(report.Error)
 		if !isSQLErr(err) {
 			err = transient(err)
 		}
-		return dbv1alpha1.AtlasMigrationStatus{}, err
+		return nil, err
 	}
-	return dbv1alpha1.AtlasMigrationStatus{
-		ObservedHash:       hash,
+	return &dbv1alpha1.AtlasMigrationStatus{
 		LastApplied:        report.End.Unix(),
 		LastAppliedVersion: report.Target,
 	}, nil
 }
 
 // Extract migration data from the given resource
-func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasMigration) (*migrationData, func() error, error) {
-	// Get database connection string
-	u, err := res.Spec.DatabaseURL(ctx, r, res.Namespace)
-	if err != nil {
-		return nil, nil, transient(err)
+func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasMigration) (_ *migrationData, err error) {
+	var (
+		s    = res.Spec
+		data = &migrationData{
+			EnvName:         defaultEnvName,
+			RevisionsSchema: s.RevisionsSchema,
+		}
+	)
+	if env := s.EnvName; env != "" {
+		data.EnvName = env
 	}
-	tmplData := &migrationData{
-		URL: u.String(),
+	if data.URL, err = s.DatabaseURL(ctx, r, res.Namespace); err != nil {
+		return nil, transient(err)
 	}
-	// Get temporary directory
-	cleanUpDir := func() error { return nil }
-	if c := res.Spec.Dir.ConfigMapRef; c != nil {
-		tmplData.Migration = &migration{}
-		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDirFromCfgMap(ctx, res.Namespace, c.Name)
+	switch d := s.Dir; {
+	case d.Remote.Name != "":
+		c := s.Cloud
+		if c.TokenFrom.SecretKeyRef == nil {
+			return nil, errors.New("cannot use remote directory without Atlas Cloud token")
+		}
+		token, err := getSecretValue(ctx, r, res.Namespace, c.TokenFrom.SecretKeyRef)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-	}
-
-	// Get temporary directory in case of local directory
-	if m := res.Spec.Dir.Local; m != nil {
-		if tmplData.Migration != nil {
-			return nil, nil, errors.New("cannot define both configmap and local directory")
+		data.Cloud = &cloud{
+			Token:     token,
+			Project:   c.Project,
+			URL:       c.URL,
+			RemoteDir: &d.Remote,
 		}
-
-		tmplData.Migration = &migration{}
-		tmplData.Migration.Dir, cleanUpDir, err = r.createTmpDirFromMap(ctx, m)
+	case d.ConfigMapRef != nil:
+		if d.Local != nil {
+			return nil, errors.New("cannot use both configmaps and local directory")
+		}
+		cfgMap, err := getConfigMap(ctx, r, res.Namespace, d.ConfigMapRef)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		data.Dir = mapFS(cfgMap.Data)
+	case d.Local != nil:
+		data.Dir = mapFS(d.Local)
+	default:
+		return nil, errors.New("no directory specified")
 	}
-
-	// Get Atlas Cloud Token from secret
-	if res.Spec.Cloud.TokenFrom.SecretKeyRef != nil {
-		tmplData.Cloud = &cloud{
-			URL:     res.Spec.Cloud.URL,
-			Project: res.Spec.Cloud.Project,
-		}
-
-		if res.Spec.Dir.Remote.Name != "" {
-			tmplData.Cloud.RemoteDir = &remoteDir{
-				Name: res.Spec.Dir.Remote.Name,
-				Tag:  res.Spec.Dir.Remote.Tag,
-			}
-		}
-
-		tmplData.Cloud.Token, err = getSecretValue(ctx, r, res.Namespace, *res.Spec.Cloud.TokenFrom.SecretKeyRef)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	// Mapping EnvName, default to "kubernetes"
-	tmplData.EnvName = res.Spec.EnvName
-	if tmplData.EnvName == "" {
-		tmplData.EnvName = "kubernetes"
-	}
-
-	tmplData.RevisionsSchema = res.Spec.RevisionsSchema
-	return tmplData, cleanUpDir, nil
+	return data, nil
 }
 
 func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, err error) {
@@ -316,96 +297,78 @@ func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, strings.TrimSpace(err.Error()))
 }
 
-// createTmpDirFromCM creates a temporary directory by configmap
-func (r *AtlasMigrationReconciler) createTmpDirFromCfgMap(
-	ctx context.Context,
-	ns, cfgName string,
-) (string, func() error, error) {
-
-	// Get configmap
-	configMap := corev1.ConfigMap{}
-	if err := r.Get(ctx, types.NamespacedName{
-		Namespace: ns,
-		Name:      cfgName,
-	}, &configMap); err != nil {
-		return "", nil, transient(err)
-	}
-
-	return r.createTmpDirFromMap(ctx, configMap.Data)
-}
-
-// createTmpDirFromCM creates a temporary directory by configmap
-func (r *AtlasMigrationReconciler) createTmpDirFromMap(
-	ctx context.Context,
-	m map[string]string,
-) (string, func() error, error) {
-
-	// Create temporary directory and remove it at the end of the function
-	tmpDir, err := os.MkdirTemp("", "migrations")
-	if err != nil {
-		return "", nil, err
-	}
-
-	// Foreach configmap to build temporary directory
-	// key is the name of the file and value is the content of the file
-	for key, value := range m {
-		filePath := filepath.Join(tmpDir, key)
-		err := os.WriteFile(filePath, []byte(value), 0644)
-		if err != nil {
-			// Remove the temporary directory if there is an error
-			os.RemoveAll(tmpDir)
-			return "", nil, err
-		}
-	}
-
-	return fmt.Sprintf("file://%s", tmpDir), func() error {
-		return os.RemoveAll(tmpDir)
-	}, nil
-}
-
-// Render atlas.hcl file from the given data
-func (d *migrationData) render() (string, func() error, error) {
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "atlas_migration.tmpl", d); err != nil {
-		return "", nil, err
-	}
-
-	return atlas.TempFile(buf.String(), "hcl")
-}
-
 // Calculate the hash of the given data
 func (d *migrationData) hash() (string, error) {
 	h := sha256.New()
-
-	// Hash cloud directory
-	h.Write([]byte(d.URL))
-	if d.Cloud != nil {
-		h.Write([]byte(d.Cloud.Token))
-		h.Write([]byte(d.Cloud.URL))
-		h.Write([]byte(d.Cloud.Project))
-		if d.Cloud.RemoteDir != nil {
-			h.Write([]byte(d.Cloud.RemoteDir.Name))
-			h.Write([]byte(d.Cloud.RemoteDir.Tag))
-			return hex.EncodeToString(h.Sum(nil)), nil
-		}
+	h.Write([]byte(d.URL.String()))
+	if c := d.Cloud; c != nil {
+		h.Write([]byte(c.Token))
+		h.Write([]byte(c.URL))
+		h.Write([]byte(c.Project))
 	}
-
-	// Hash local directory
-	if d.Migration != nil {
-		u, err := url.Parse(d.Migration.Dir)
-		if err != nil {
-			return "", err
-		}
-		d, err := migrate.NewLocalDir(u.Path)
-		if err != nil {
-			return "", err
-		}
-		hf, err := d.Checksum()
+	switch {
+	case d.Cloud.HasRemoteDir():
+		// Hash cloud directory
+		h.Write([]byte(d.Cloud.RemoteDir.Name))
+		h.Write([]byte(d.Cloud.RemoteDir.Tag))
+	case d.Dir != nil:
+		// Hash local directory
+		hf, err := checkSumDir(d.Dir)
 		if err != nil {
 			return "", err
 		}
 		h.Write([]byte(hf.Sum()))
+	default:
+		return "", errors.New("migration data is empty")
 	}
-
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// render renders the atlas.hcl template.
+//
+// The template is used by the Atlas CLI to apply the migrations directory.
+// It also validates the data before rendering the template.
+func (d *migrationData) render(w io.Writer) error {
+	if d.URL == nil {
+		return errors.New("database URL is empty")
+	}
+	switch {
+	case d.Cloud.HasRemoteDir():
+		if d.Dir != nil {
+			return errors.New("cannot use both remote and local directory")
+		}
+		if d.Cloud.Token == "" {
+			return errors.New("Atlas Cloud token is empty")
+		}
+	case d.Dir != nil:
+	default:
+		return errors.New("migration directory is empty")
+	}
+	return tmpl.ExecuteTemplate(w, "atlas_migration.tmpl", d)
+}
+
+// HasRemoteDir returns true if the given migration data has a remote directory
+func (c *cloud) HasRemoteDir() bool {
+	if c == nil {
+		return false
+	}
+	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+func checkSumDir(src fs.FS) (migrate.HashFile, error) {
+	names, err := fs.Glob(src, "*.sql")
+	if err != nil {
+		return nil, err
+	}
+	dir := &migrate.MemDir{}
+	for _, name := range names {
+		data, err := fs.ReadFile(src, name)
+		if err != nil {
+			return nil, err
+		}
+		if err = dir.WriteFile(name, data); err != nil {
+			return nil, err
+		}
+	}
+	return dir.Checksum()
 }
