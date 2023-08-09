@@ -1,93 +1,71 @@
 package controllers
 
 import (
-	"bytes"
 	"context"
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/sqlcheck"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, des *managedData, devURL string, vars ...atlas.Vars) error {
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "conf.tmpl", des.policy); err != nil {
-		return err
-	}
-	lintcfg, cleancfg, err := atlas.TempFile(buf.String(), "hcl")
+const lintDirName = "lint-migrations"
+
+// lint run `atlas migrate lint` to check for destructive changes.
+// It returns a destructiveErr if destructive changes are detected.
+//
+// It works by creating two versions of migration:
+// - 1.sql: the current schema.
+// - 2.sql: the pending changes.
+// Then it runs `atlas migrate lint` in the temporary directory.
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, envName string, vars atlas.Vars) error {
+	cli, err := atlas.NewClientWithDir(wd.Path(), r.execPath)
 	if err != nil {
 		return err
 	}
-	defer cleancfg()
-	tmpdir, err := os.MkdirTemp("", "run-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpdir)
-	ins, err := r.cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
-		DevURL: devURL,
-		URL:    des.url.String(),
+	current, err := cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+		Env:    envName,
 		Format: "sql",
-		Schema: des.schemas,
 	})
 	if err != nil {
-		return transient(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmpdir, "1.sql"), []byte(ins), 0644); err != nil {
 		return err
 	}
-	desired, clean, err := atlas.TempFile(des.desired, des.ext)
-	if err != nil {
-		return err
-	}
-	defer clean()
-	var vv atlas.Vars
-	if len(vars) > 0 {
-		vv = vars[0]
-	}
-	dry, err := r.cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		DryRun:  true,
-		URL:     des.url.String(),
-		To:      desired,
-		DevURL:  devURL,
-		Exclude: des.exclude,
-		Schema:  des.schemas,
+	plan, err := cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
+		DryRun: true, // Dry run to get pending changes.
+		Env:    envName,
 	})
-	if isSQLErr(err) {
-		return err
-	}
 	if err != nil {
-		return transient(err)
-	}
-	plan := strings.Join(dry.Changes.Pending, ";\n")
-	if err := os.WriteFile(filepath.Join(tmpdir, "2.sql"), []byte(plan), 0644); err != nil {
 		return err
 	}
-	lint, err := r.cli.Lint(ctx, &atlas.LintParams{
-		DevURL:    devURL,
-		DirURL:    "file://" + tmpdir,
-		Latest:    1,
-		ConfigURL: lintcfg,
-		Vars:      vv,
+	defer func() {
+		dir := wd.Path(lintDirName)
+		if err := os.RemoveAll(dir); err != nil {
+			log.FromContext(ctx).Error(err,
+				"unable to remove temporary directory", "dir", dir)
+		}
+	}()
+	err = wd.CopyFS(lintDirName, mapFS(map[string]string{
+		"1.sql": current,
+		"2.sql": strings.Join(plan.Changes.Pending, ";\n"),
+	}))
+	if err != nil {
+		return err
+	}
+	lint, err := cli.Lint(ctx, &atlas.LintParams{
+		DirURL: fmt.Sprintf("file://./%s", lintDirName),
+		Env:    envName,
+		Latest: 1, // Only lint 2.sql, pending changes.
+		Vars:   vars,
 	})
-	if isSQLErr(err) {
-		return err
-	}
 	if err != nil {
-		return transient(err)
+		return err
 	}
 	if diags := destructive(lint.Files); len(diags) > 0 {
-		return destructiveErr{diags: diags}
+		return &destructiveErr{diags: diags}
 	}
 	return nil
-}
-
-func (r *AtlasSchemaReconciler) verifyFirstRun(ctx context.Context, des *managedData, devURL string) error {
-	return r.lint(ctx, des, devURL, atlas.Vars{
-		"lint_destructive": "true",
-	})
 }
 
 func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {
@@ -104,4 +82,23 @@ func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {
 		}
 	}
 	return
+}
+
+type destructiveErr struct {
+	diags []sqlcheck.Diagnostic
+}
+
+func (d *destructiveErr) Error() string {
+	var buf strings.Builder
+	buf.WriteString("destructive changes detected:\n")
+	for _, diag := range d.diags {
+		buf.WriteString("- " + diag.Text + "\n")
+	}
+	return buf.String()
+}
+
+func (d *destructiveErr) FirstRun() (string, string) {
+	return "FirstRunDestructive", d.Error() + "\n" +
+		"To prevent accidental drop of resources, first run of a schema must not contain destructive changes.\n" +
+		"Read more: https://atlasgo.io/integrations/kubernetes/#destructive-changes"
 }

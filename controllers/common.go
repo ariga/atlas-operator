@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"strconv"
 	"strings"
 	"testing/fstest"
 	"text/template"
@@ -33,12 +32,17 @@ var (
 	tmpls embed.FS
 	tmpl  = template.Must(template.New("operator").
 		Funcs(template.FuncMap{
-			"quotes": func(s []string) []string {
-				r := make([]string, len(s))
+			"slides": func(s []string) string {
+				b := &strings.Builder{}
+				b.WriteRune('[')
 				for i, v := range s {
-					r[i] = strconv.Quote(v)
+					if i > 0 {
+						b.WriteRune(',')
+					}
+					fmt.Fprintf(b, "%q", v)
 				}
-				return r
+				b.WriteRune(']')
+				return b.String()
 			},
 		}).
 		ParseFS(tmpls, "templates/*.tmpl"),
