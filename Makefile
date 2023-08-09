@@ -262,3 +262,8 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: license
+license: ## Add license headers to all files.
+	@echo "Adding license headers to all files..."
+	go run -mod=mod github.com/google/addlicense@latest -ignore "**/*.sql" -l apache -c "The Atlas Operator Authors." .
