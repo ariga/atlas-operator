@@ -421,7 +421,8 @@ func TestConfigTemplate(t *testing.T) {
 				},
 			},
 		},
-		ext: "sql",
+		Schemas: []string{"foo", "bar"},
+		ext:     "sql",
 	}
 	err := data.render(&buf)
 	require.NoError(t, err)
@@ -445,7 +446,7 @@ env {
   src  = "schema.sql"
   url  = "mysql://root:password@localhost:3306/test"
   dev  = "mysql://root:password@localhost:3306/dev"
-  schemas = []
+  schemas = ["foo","bar"]
   exclude = []
 }
 `
