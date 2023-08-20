@@ -1,0 +1,11 @@
+kubectl -n $ns create configmap mysql-schema --from-file=schema.sql
+kubectl -n $ns describe configmap/mysql-schema
+
+-- schema.sql --
+create table users (
+  id int not null auto_increment,
+  name varchar(255) not null,
+  email varchar(255) unique not null,
+  short_bio varchar(255) not null,
+  primary key (id)
+);

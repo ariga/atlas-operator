@@ -5,6 +5,7 @@ go 1.19
 require (
 	ariga.io/atlas v0.12.2-0.20230801155208-e69a7788b101
 	ariga.io/atlas-go-sdk v0.1.1-0.20230809094434-aac65e944787
+	github.com/rogpeppe/go-internal v1.11.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb
 	golang.org/x/mod v0.9.0
@@ -65,6 +66,7 @@ require (
 	golang.org/x/term v0.5.0 // indirect
 	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
+	golang.org/x/tools v0.6.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
