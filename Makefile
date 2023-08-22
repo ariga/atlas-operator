@@ -108,8 +108,8 @@ test: manifests generate fmt vet envtest ## Run tests.
 ##@ Build
 
 .PHONY: chart-manifests
-chart-manifests: manifests
-	kubectl kustomize config/crd > charts/atlas-operator/templates/crds/crd.yaml
+chart-manifests: manifests license kustomize
+	$(KUSTOMIZE) build config/crd -o charts/atlas-operator/templates/crds/crd.yaml
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
