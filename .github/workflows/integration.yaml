@@ -63,9 +63,6 @@ jobs:
           make install # Install CRDs into the cluster
           kubectl apply -f config/integration/databases
           skaffold run --wait-for-connection=true
-          # Enable experiment flag
-          kubectl set env -n atlas-operator-system deployment/atlas-operator-controller-manager \
-          EXPERIMENTAL=true
       - name: Integration test
         run: |
           # Wait for mysql ready
