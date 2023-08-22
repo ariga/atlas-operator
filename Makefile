@@ -183,8 +183,8 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.11.1
+KUSTOMIZE_VERSION ?= v5.1.1
+CONTROLLER_TOOLS_VERSION ?= v0.13.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -267,3 +267,6 @@ catalog-push: ## Push a catalog image.
 license: ## Add license headers to all files.
 	@echo "Adding license headers to all files..."
 	go run -mod=mod github.com/google/addlicense@latest -ignore "**/*.sql" -ignore "charts/**/*" -l apache -c "The Atlas Operator Authors." .
+
+.PHONY: cli-gen
+cli-gen: generate manifests chart-manifests license

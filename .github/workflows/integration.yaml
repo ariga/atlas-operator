@@ -34,7 +34,7 @@ jobs:
         run: |
           curl -sSf https://atlasgo.sh | ATLAS_DEBUG=true sh
       - name: Generate
-        run: make generate manifests chart-manifests license
+        run: make cli-gen
         shell: bash
       - name: Run Go mod tidy
         run: go mod tidy
@@ -42,7 +42,7 @@ jobs:
         run: |
           status=$(git status --porcelain)
           if [ -n "$status" ]; then
-            echo "you need to run 'make generate manifests chart-manifests' and commit the changes"
+            echo "you need to run 'make cli-gen' and commit the changes"
             echo "$status"
             exit 1
           fi
