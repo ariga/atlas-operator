@@ -3,58 +3,56 @@ kind: Deployment
 metadata:
   name: {{ include "atlas-operator.fullname" . }}
   labels:
-    {{- include "atlas-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+    control-plane: controller-manager
+  {{- include "atlas-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "atlas-operator.selectorLabels" . | nindent 6 }}
+      control-plane: controller-manager
+    {{- include "atlas-operator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      labels:
+        control-plane: controller-manager
+      {{- include "atlas-operator.selectorLabels" . | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
         kubectl.kubernetes.io/default-container: manager
       {{- end }}
-      labels:
-        control-plane: controller-manager
-        {{- include "atlas-operator.selectorLabels" . | nindent 8 }}
     spec:
+      containers:
+      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        securityContext:
+          {{- toYaml .Values.containerSecurityContext | nindent 12 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "atlas-operator.serviceAccountName" . }}
-      terminationGracePeriodSeconds: 10
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:
-        - name: manager
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          env:
-            - name: EXPERIMENTAL
-              value: "{{ .Values.experimental }}"
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8081
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8081
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+      serviceAccountName: {{ include "atlas-operator.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

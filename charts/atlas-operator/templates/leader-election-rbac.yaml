@@ -1,0 +1,61 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "atlas-operator.leaderElectionRole" . }}
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+  {{- include "atlas-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "atlas-operator.leaderElectionRole" . }}-binding
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+  {{- include "atlas-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "atlas-operator.leaderElectionRole" . }}'
+subjects:
+- kind: ServiceAccount
+  name: '{{ include "atlas-operator.serviceAccountName" . }}'
+  namespace: '{{ .Release.Namespace }}'
+{{- end }}

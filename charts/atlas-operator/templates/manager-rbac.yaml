@@ -1,0 +1,117 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "atlas-operator.managerRoleName" . }}
+  labels:
+  {{- include "atlas-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasmigrations/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasschemas
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasschemas/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlasschemas/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "atlas-operator.managerRoleName" . }}-binding
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+  {{- include "atlas-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "atlas-operator.managerRoleName" . }}'
+subjects:
+- kind: ServiceAccount
+  name: '{{ include "atlas-operator.serviceAccountName" . }}'
+  namespace: '{{ .Release.Namespace }}'
+{{- end }}
