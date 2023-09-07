@@ -97,11 +97,11 @@ spec:
                   host:
                     type: string
                   hostFrom:
-                    description: HostFrom references a key containing the host.
+                    description: Secret defines a secret key reference.
                     properties:
                       secretKeyRef:
                         description: SecretKeyRef defines the secret key reference
-                          to use for the host.
+                          to use for the user.
                         properties:
                           key:
                             description: The key of the secret to select from.  Must
@@ -127,11 +127,11 @@ spec:
                   password:
                     type: string
                   passwordFrom:
-                    description: PasswordFrom references a key containing the password.
+                    description: Secret defines a secret key reference.
                     properties:
                       secretKeyRef:
                         description: SecretKeyRef defines the secret key reference
-                          to use for the password.
+                          to use for the user.
                         properties:
                           key:
                             description: The key of the secret to select from.  Must
@@ -157,7 +157,7 @@ spec:
                   user:
                     type: string
                   userFrom:
-                    description: UserFrom references a key containing the user.
+                    description: Secret defines a secret key reference.
                     properties:
                       secretKeyRef:
                         description: SecretKeyRef defines the secret key reference
@@ -223,8 +223,8 @@ spec:
                 description: URLs may be defined as a secret key reference.
                 properties:
                   secretKeyRef:
-                    description: SecretKeyRef references to the key of a secret in
-                      the same namespace.
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
                     properties:
                       key:
                         description: The key of the secret to select from.  Must be

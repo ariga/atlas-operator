@@ -71,7 +71,7 @@ type (
 		DevURL string `json:"devURL"`
 		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
 		// +optional
-		DevURLFrom URLFrom `json:"devURLFrom,omitempty"`
+		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
 		// Policy defines the policies to apply when managing the schema change lifecycle.

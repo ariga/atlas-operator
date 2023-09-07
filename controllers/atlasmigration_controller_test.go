@@ -332,7 +332,7 @@ func TestReconcile_Transient(t *testing.T) {
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{
-				URLFrom: v1alpha1.URLFrom{
+				URLFrom: v1alpha1.Secret{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "other-secret",
@@ -552,7 +552,7 @@ func TestReconciler_watch(t *testing.T) {
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{
-				URLFrom: v1alpha1.URLFrom{
+				URLFrom: v1alpha1.Secret{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "database-connection",

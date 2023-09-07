@@ -30,7 +30,7 @@ type (
 		// URL of the target database schema.
 		URL string `json:"url,omitempty"`
 		// URLs may be defined as a secret key reference.
-		URLFrom URLFrom `json:"urlFrom,omitempty"`
+		URLFrom Secret `json:"urlFrom,omitempty"`
 		// Credentials defines the credentials to use when connecting to the database.
 		// Used instead of URL or URLFrom.
 		Credentials Credentials `json:"credentials,omitempty"`
@@ -39,34 +39,18 @@ type (
 	Credentials struct {
 		Scheme       string            `json:"scheme,omitempty"`
 		User         string            `json:"user,omitempty"`
-		UserFrom     UserFrom          `json:"userFrom,omitempty"`
+		UserFrom     Secret            `json:"userFrom,omitempty"`
 		Password     string            `json:"password,omitempty"`
-		PasswordFrom PasswordFrom      `json:"passwordFrom,omitempty"`
+		PasswordFrom Secret            `json:"passwordFrom,omitempty"`
 		Host         string            `json:"host,omitempty"`
-		HostFrom     HostFrom          `json:"hostFrom,omitempty"`
+		HostFrom     Secret            `json:"hostFrom,omitempty"`
 		Port         int               `json:"port,omitempty"`
 		Database     string            `json:"database,omitempty"`
 		Parameters   map[string]string `json:"parameters,omitempty"`
 	}
-	// UserFrom references a key containing the user.
-	UserFrom struct {
+	// Secret defines a secret key reference.
+	Secret struct {
 		// SecretKeyRef defines the secret key reference to use for the user.
-		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
-	}
-	// PasswordFrom references a key containing the password.
-	PasswordFrom struct {
-		// SecretKeyRef defines the secret key reference to use for the password.
-		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
-	}
-	// HostFrom references a key containing the host.
-	HostFrom struct {
-		// SecretKeyRef defines the secret key reference to use for the host.
-		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
-	}
-	// URLFrom defines a reference to a secret key that contains the Atlas URL of the
-	// target database schema.
-	URLFrom struct {
-		// SecretKeyRef references to the key of a secret in the same namespace.
 		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 	}
 )

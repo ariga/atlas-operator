@@ -190,7 +190,7 @@ func TestExtractData_CustomDevURL_Secret(t *testing.T) {
 			"url": []byte("mysql://dev"),
 		},
 	})
-	sc.Spec.DevURLFrom = dbv1alpha1.URLFrom{
+	sc.Spec.DevURLFrom = dbv1alpha1.Secret{
 		SecretKeyRef: &corev1.SecretKeySelector{
 			Key: "url",
 			LocalObjectReference: corev1.LocalObjectReference{
@@ -211,7 +211,7 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	sc.Spec.Credentials = dbv1alpha1.Credentials{
 		Scheme: "mysql",
 		User:   "root",
-		PasswordFrom: dbv1alpha1.PasswordFrom{
+		PasswordFrom: dbv1alpha1.Secret{
 			SecretKeyRef: &corev1.SecretKeySelector{
 				Key: "password",
 				LocalObjectReference: corev1.LocalObjectReference{
