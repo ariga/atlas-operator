@@ -96,6 +96,30 @@ spec:
                     type: string
                   host:
                     type: string
+                  hostFrom:
+                    description: HostFrom references a key containing the host.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the host.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                   parameters:
                     additionalProperties:
                       type: string
@@ -132,6 +156,30 @@ spec:
                     type: string
                   user:
                     type: string
+                  userFrom:
+                    description: UserFrom references a key containing the user.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the user.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                 type: object
               dir:
                 description: Dir defines the directory to use for migrations as a

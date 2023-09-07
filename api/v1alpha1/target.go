@@ -39,16 +39,28 @@ type (
 	Credentials struct {
 		Scheme       string            `json:"scheme,omitempty"`
 		User         string            `json:"user,omitempty"`
+		UserFrom     UserFrom          `json:"userFrom,omitempty"`
 		Password     string            `json:"password,omitempty"`
 		PasswordFrom PasswordFrom      `json:"passwordFrom,omitempty"`
 		Host         string            `json:"host,omitempty"`
+		HostFrom     HostFrom          `json:"hostFrom,omitempty"`
 		Port         int               `json:"port,omitempty"`
 		Database     string            `json:"database,omitempty"`
 		Parameters   map[string]string `json:"parameters,omitempty"`
 	}
+	// UserFrom references a key containing the user.
+	UserFrom struct {
+		// SecretKeyRef defines the secret key reference to use for the user.
+		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+	}
 	// PasswordFrom references a key containing the password.
 	PasswordFrom struct {
 		// SecretKeyRef defines the secret key reference to use for the password.
+		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
+	}
+	// HostFrom references a key containing the host.
+	HostFrom struct {
+		// SecretKeyRef defines the secret key reference to use for the host.
 		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 	}
 	// URLFrom defines a reference to a secret key that contains the Atlas URL of the
@@ -61,33 +73,41 @@ type (
 
 // DatabaseURL returns the database url.
 func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string) (*url.URL, error) {
-	switch {
-	case s.URLFrom.SecretKeyRef != nil:
-		val := &corev1.Secret{}
-		ref := s.URLFrom.SecretKeyRef
-		err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
+	if s.URLFrom.SecretKeyRef != nil {
+		val, err := getSecrectValue(ctx, r, ns, s.URLFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
-		return url.Parse(string(val.Data[ref.Key]))
-	case s.URL != "":
-		return url.Parse(s.URL)
-	case s.Credentials.Host != "":
-		// Read the password from the secret if defined.
-		if s.Credentials.PasswordFrom.SecretKeyRef != nil {
-			val := &corev1.Secret{}
-			ref := s.Credentials.PasswordFrom.SecretKeyRef
-			err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
-			if err != nil {
-				return nil, err
-			}
-			// Set the password.
-			s.Credentials.Password = string(val.Data[ref.Key])
-		}
-		return s.Credentials.URL(), nil
-	default:
-		return nil, fmt.Errorf("no target database defined")
+		return url.Parse(val)
 	}
+	if s.URL != "" {
+		return url.Parse(s.URL)
+	}
+	if s.Credentials.UserFrom.SecretKeyRef != nil {
+		val, err := getSecrectValue(ctx, r, ns, s.Credentials.UserFrom.SecretKeyRef)
+		if err != nil {
+			return nil, err
+		}
+		s.Credentials.User = val
+	}
+	if s.Credentials.PasswordFrom.SecretKeyRef != nil {
+		val, err := getSecrectValue(ctx, r, ns, s.Credentials.PasswordFrom.SecretKeyRef)
+		if err != nil {
+			return nil, err
+		}
+		s.Credentials.Password = val
+	}
+	if s.Credentials.HostFrom.SecretKeyRef != nil {
+		val, err := getSecrectValue(ctx, r, ns, s.Credentials.HostFrom.SecretKeyRef)
+		if err != nil {
+			return nil, err
+		}
+		s.Credentials.Host = val
+	}
+	if s.Credentials.Host != "" {
+		return s.Credentials.URL(), nil
+	}
+	return nil, fmt.Errorf("no target database defined")
 }
 
 // URL returns the URL for the database.
@@ -112,4 +132,18 @@ func (c *Credentials) URL() *url.URL {
 	}
 	u.Host = host
 	return u
+}
+
+func getSecrectValue(
+	ctx context.Context,
+	r client.Reader,
+	ns string,
+	ref *corev1.SecretKeySelector,
+) (string, error) {
+	val := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
+	if err != nil {
+		return "", err
+	}
+	return string(val.Data[ref.Key]), nil
 }
