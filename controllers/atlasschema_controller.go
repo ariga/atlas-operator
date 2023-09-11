@@ -58,6 +58,7 @@ type (
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
+		disposeDevDB     bool
 	}
 	// managedData contains information about the managed database and its desired state.
 	managedData struct {
@@ -73,7 +74,7 @@ type (
 	}
 )
 
-func NewAtlasSchemaReconciler(mgr Manager, execPath string) *AtlasSchemaReconciler {
+func NewAtlasSchemaReconciler(mgr Manager, execPath string, disposeDevDB bool) *AtlasSchemaReconciler {
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
@@ -81,6 +82,7 @@ func NewAtlasSchemaReconciler(mgr Manager, execPath string) *AtlasSchemaReconcil
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
+		disposeDevDB:     disposeDevDB,
 	}
 }
 

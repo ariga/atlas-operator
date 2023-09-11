@@ -45,6 +45,11 @@ spec:
           {{- toYaml .Values.resources | nindent 12 }}
         securityContext:
           {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+        env:
+        {{- if .Values.disposeDevDB }}
+        - name: DISPOSE_DEVDB
+          value: "true"
+        {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
