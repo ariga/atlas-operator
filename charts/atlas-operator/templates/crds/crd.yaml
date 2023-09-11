@@ -81,6 +81,30 @@ spec:
                     type: string
                   host:
                     type: string
+                  hostFrom:
+                    description: Secret defines a secret key reference.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the user.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                   parameters:
                     additionalProperties:
                       type: string
@@ -88,11 +112,11 @@ spec:
                   password:
                     type: string
                   passwordFrom:
-                    description: PasswordFrom references a key containing the password.
+                    description: Secret defines a secret key reference.
                     properties:
                       secretKeyRef:
                         description: SecretKeyRef defines the secret key reference
-                          to use for the password.
+                          to use for the user.
                         properties:
                           key:
                             description: The key of the secret to select from.  Must
@@ -117,6 +141,30 @@ spec:
                     type: string
                   user:
                     type: string
+                  userFrom:
+                    description: Secret defines a secret key reference.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the user.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                 type: object
               dir:
                 description: Dir defines the directory to use for migrations as a
@@ -160,8 +208,8 @@ spec:
                 description: URLs may be defined as a secret key reference.
                 properties:
                   secretKeyRef:
-                    description: SecretKeyRef references to the key of a secret in
-                      the same namespace.
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
                     properties:
                       key:
                         description: The key of the secret to select from.  Must be
@@ -333,6 +381,30 @@ spec:
                     type: string
                   host:
                     type: string
+                  hostFrom:
+                    description: Secret defines a secret key reference.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the user.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                   parameters:
                     additionalProperties:
                       type: string
@@ -340,11 +412,11 @@ spec:
                   password:
                     type: string
                   passwordFrom:
-                    description: PasswordFrom references a key containing the password.
+                    description: Secret defines a secret key reference.
                     properties:
                       secretKeyRef:
                         description: SecretKeyRef defines the secret key reference
-                          to use for the password.
+                          to use for the user.
                         properties:
                           key:
                             description: The key of the secret to select from.  Must
@@ -369,6 +441,30 @@ spec:
                     type: string
                   user:
                     type: string
+                  userFrom:
+                    description: Secret defines a secret key reference.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef defines the secret key reference
+                          to use for the user.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?'
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                 type: object
               devURL:
                 description: DevURL is the URL of the database to use for normalization
@@ -380,8 +476,8 @@ spec:
                   URL of the database to use for normalization and calculations.
                 properties:
                   secretKeyRef:
-                    description: SecretKeyRef references to the key of a secret in
-                      the same namespace.
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
                     properties:
                       key:
                         description: The key of the secret to select from.  Must be
@@ -501,8 +597,8 @@ spec:
                 description: URLs may be defined as a secret key reference.
                 properties:
                   secretKeyRef:
-                    description: SecretKeyRef references to the key of a secret in
-                      the same namespace.
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
                     properties:
                       key:
                         description: The key of the secret to select from.  Must be

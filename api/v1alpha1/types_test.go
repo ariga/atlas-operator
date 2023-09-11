@@ -40,6 +40,8 @@ func TestTargetSpec_DatabaseURL(t *testing.T) {
 					Namespace: "default",
 				},
 				Data: map[string][]byte{
+					"user":     []byte("nobody"),
+					"host":     []byte("default"),
 					"url":      []byte("mysql://root:root@localhost:3306/secret"),
 					"password": []byte("123456"),
 				},
@@ -66,6 +68,24 @@ func TestTargetSpec_DatabaseURL(t *testing.T) {
 	}
 	equal("mysql://nobody:secret@localhost:3306/local")
 
+	// Should return the User from the secret
+	target.Credentials.UserFrom.SecretKeyRef = &v1.SecretKeySelector{
+		LocalObjectReference: v1.LocalObjectReference{
+			Name: "test",
+		},
+		Key: "user",
+	}
+	equal("mysql://nobody:secret@localhost:3306/local")
+
+	// Should return the Host from the secret
+	target.Credentials.HostFrom.SecretKeyRef = &v1.SecretKeySelector{
+		LocalObjectReference: v1.LocalObjectReference{
+			Name: "test",
+		},
+		Key: "host",
+	}
+	equal("mysql://nobody:secret@default:3306/local")
+
 	// Should return the URL from the credentials and the password from the secret
 	target.Credentials.PasswordFrom.SecretKeyRef = &v1.SecretKeySelector{
 		LocalObjectReference: v1.LocalObjectReference{
@@ -73,7 +93,7 @@ func TestTargetSpec_DatabaseURL(t *testing.T) {
 		},
 		Key: "password",
 	}
-	equal("mysql://nobody:123456@localhost:3306/local")
+	equal("mysql://nobody:123456@default:3306/local")
 
 	// Should return the same URL if explicitly defined
 	target.URL = "mysql://root:root@localhost:3306/test"
