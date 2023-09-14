@@ -46,8 +46,8 @@ spec:
         securityContext:
           {{- toYaml .Values.containerSecurityContext | nindent 12 }}
         env:
-        {{- if .Values.disposeDevDB }}
-        - name: DISPOSE_DEVDB
+        {{- if .Values.prewarmDevDB }}
+        - name: PREWARM_DEVDB
           value: "true"
         {{- end }}
       {{- with .Values.imagePullSecrets }}

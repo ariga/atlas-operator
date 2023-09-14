@@ -43,4 +43,4 @@ affinity: {}
 
 # By default, the operator will recreate devdb pods after migration
 # Set this to true to keep the devdb pods around.
-disposeDevDB: false
+prewarmDevDB: true

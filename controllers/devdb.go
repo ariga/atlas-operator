@@ -46,21 +46,9 @@ const (
 
 // cleanUp clean up any resources created by the controller
 func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
-	// If disposeDevDB is true, scale down the deployment to 0
-	// Otherwise, delete pods to clean up
-	if r.disposeDevDB {
-		deploy := &appsv1.Deployment{}
-		key := nameDevDB(sc.ObjectMeta)
-		err := r.Get(ctx, key, deploy)
-		if err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
-			return
-		}
-		deploy.Spec.Replicas = new(int32)
-		if err := r.Update(ctx, deploy); err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error scaling down devDB deployment: %v", err)
-		}
-	} else {
+	// If prewarmDevDB is true, delete pods to clean up
+	// Otherwise, scale down the deployment to 0
+	if r.prewarmDevDB {
 		pods := &corev1.PodList{}
 		err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
 			labelInstance: nameDevDB(sc.ObjectMeta).Name,
@@ -74,8 +62,19 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 				r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
 			}
 		}
+	} else {
+		deploy := &appsv1.Deployment{}
+		key := nameDevDB(sc.ObjectMeta)
+		err := r.Get(ctx, key, deploy)
+		if err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
+			return
+		}
+		deploy.Spec.Replicas = new(int32)
+		if err := r.Update(ctx, deploy); err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error scaling down devDB deployment: %v", err)
+		}
 	}
-
 }
 
 // devURL returns the URL of the dev database for the given target URL.

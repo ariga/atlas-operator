@@ -111,7 +111,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 		Spec:       dbv1alpha1.AtlasSchemaSpec{},
 	}
 	h, reconcile := newRunner(func(mgr Manager, name string) reconcile.Reconciler {
-		return NewAtlasSchemaReconciler(mgr, name, false)
+		return NewAtlasSchemaReconciler(mgr, name, true)
 	}, func(cb *fake.ClientBuilder) {
 		cb.WithObjects(obj)
 	})

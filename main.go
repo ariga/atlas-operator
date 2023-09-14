@@ -54,8 +54,8 @@ const (
 	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
 	execPath    = "/atlas"
-	// disposeDevDB when enabled it deletes the devDB pods after the schema is created
-	disposeDevDB = "DISPOSE_DEVDB"
+	// prewarmDevDB when disabled it deletes the devDB pods after the schema is created
+	prewarmDevDB = "PREWARM_DEVDB"
 )
 
 func init() {
@@ -94,8 +94,8 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	disposeDevDB := getDisposeDevDBEnv()
-	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath, disposeDevDB).
+	prewarmDevDB := getPrewarmDevDBEnv()
+	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
@@ -159,16 +159,16 @@ func checkForUpdate() {
 	}
 }
 
-// getDisposeDevDBEnv returns the value of the env var DISPOSE_DEVDB.
-func getDisposeDevDBEnv() bool {
-	env := os.Getenv(disposeDevDB)
+// getPrewarmDevDBEnv returns the value of the env var PREWARM_DEVDB.
+func getPrewarmDevDBEnv() bool {
+	env := os.Getenv(prewarmDevDB)
 	if env == "" {
 		return false
 	}
-	disposeDevDB, err := strconv.ParseBool(env)
+	prewarmDevDB, err := strconv.ParseBool(env)
 	if err != nil {
-		setupLog.Error(err, "invalid value for env var DISPOSE_DEVDB, expected true or false")
+		setupLog.Error(err, "invalid value for env var PREWARM_DEVDB, expected true or false")
 		os.Exit(1)
 	}
-	return disposeDevDB
+	return prewarmDevDB
 }
