@@ -46,23 +46,8 @@ const (
 
 // cleanUp clean up any resources created by the controller
 func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
-	// If prewarmDevDB is true, delete pods to clean up
-	// Otherwise, scale down the deployment to 0
-	if r.prewarmDevDB {
-		pods := &corev1.PodList{}
-		err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-			labelInstance: nameDevDB(sc.ObjectMeta).Name,
-		}))
-		if err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
-		}
-
-		for _, p := range pods.Items {
-			if err := r.Delete(ctx, &p); err != nil {
-				r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
-			}
-		}
-	} else {
+	// If prewarmDevDB is false, scale down the deployment to 0
+	if !r.prewarmDevDB {
 		deploy := &appsv1.Deployment{}
 		key := nameDevDB(sc.ObjectMeta)
 		err := r.Get(ctx, key, deploy)
@@ -73,6 +58,21 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 		deploy.Spec.Replicas = new(int32)
 		if err := r.Update(ctx, deploy); err != nil {
 			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error scaling down devDB deployment: %v", err)
+		}
+		return
+	}
+
+	// delete pods to clean up
+	pods := &corev1.PodList{}
+	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
+		labelInstance: nameDevDB(sc.ObjectMeta).Name,
+	}))
+	if err != nil {
+		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
+	}
+	for _, p := range pods.Items {
+		if err := r.Delete(ctx, &p); err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
 		}
 	}
 }

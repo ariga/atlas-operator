@@ -160,10 +160,11 @@ func checkForUpdate() {
 }
 
 // getPrewarmDevDBEnv returns the value of the env var PREWARM_DEVDB.
+// if the env var is not set, it returns true.
 func getPrewarmDevDBEnv() bool {
 	env := os.Getenv(prewarmDevDB)
 	if env == "" {
-		return false
+		return true
 	}
 	prewarmDevDB, err := strconv.ParseBool(env)
 	if err != nil {
