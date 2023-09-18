@@ -31,7 +31,7 @@ spec:
         runAsUser: 999
       containers:
         - name: postgres
-          image: postgres:latest
+          image: postgres:15.4
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
