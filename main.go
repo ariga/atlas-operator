@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"flag"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -53,6 +54,8 @@ const (
 	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
 	execPath    = "/atlas"
+	// prewarmDevDB when disabled it deletes the devDB pods after the schema is created
+	prewarmDevDB = "PREWARM_DEVDB"
 )
 
 func init() {
@@ -91,7 +94,8 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath).
+	prewarmDevDB := getPrewarmDevDBEnv()
+	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
@@ -153,4 +157,19 @@ func checkForUpdate() {
 		}
 		<-time.After(24 * time.Hour)
 	}
+}
+
+// getPrewarmDevDBEnv returns the value of the env var PREWARM_DEVDB.
+// if the env var is not set, it returns true.
+func getPrewarmDevDBEnv() bool {
+	env := os.Getenv(prewarmDevDB)
+	if env == "" {
+		return true
+	}
+	prewarmDevDB, err := strconv.ParseBool(env)
+	if err != nil {
+		setupLog.Error(err, "invalid value for env var PREWARM_DEVDB, expected true or false")
+		os.Exit(1)
+	}
+	return prewarmDevDB
 }

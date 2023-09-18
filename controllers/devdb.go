@@ -46,6 +46,23 @@ const (
 
 // cleanUp clean up any resources created by the controller
 func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
+	// If prewarmDevDB is false, scale down the deployment to 0
+	if !r.prewarmDevDB {
+		deploy := &appsv1.Deployment{}
+		key := nameDevDB(sc.ObjectMeta)
+		err := r.Get(ctx, key, deploy)
+		if err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
+			return
+		}
+		deploy.Spec.Replicas = new(int32)
+		if err := r.Update(ctx, deploy); err != nil {
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error scaling down devDB deployment: %v", err)
+		}
+		return
+	}
+
+	// delete pods to clean up
 	pods := &corev1.PodList{}
 	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
 		labelInstance: nameDevDB(sc.ObjectMeta).Name,
@@ -69,10 +86,20 @@ func (r *AtlasSchemaReconciler) devURL(ctx context.Context, sc *dbv1alpha1.Atlas
 	}
 	// make sure we have a dev db running
 	key := nameDevDB(sc.ObjectMeta)
-	switch err := r.Get(ctx, key, &appsv1.Deployment{}); {
+	deploy := &appsv1.Deployment{}
+	switch err := r.Get(ctx, key, deploy); {
 	case err == nil:
 		// The dev database already exists,
-		// return the connection string.
+		// If it is scaled down, scale it up.
+		if deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0 {
+			*deploy.Spec.Replicas = int32(1)
+			if err := r.Update(ctx, deploy); err != nil {
+				return "", transient(err)
+			}
+			r.recorder.Eventf(sc, corev1.EventTypeNormal, "ScaledUpDevDB", "Scaled up dev database deployment: %s", deploy.Name)
+			return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
+		}
+
 	case apierrors.IsNotFound(err):
 		// The dev database does not exist, create it.
 		deploy, err := deploymentDevDB(key, drv, isSchemaBound(drv, &targetURL))
