@@ -46,10 +46,8 @@ spec:
         securityContext:
           {{- toYaml .Values.containerSecurityContext | nindent 12 }}
         env:
-        {{- if .Values.prewarmDevDB }}
         - name: PREWARM_DEVDB
-          value: "true"
-        {{- end }}
+          value: "{{ .Values.prewarmDevDB }}"
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
