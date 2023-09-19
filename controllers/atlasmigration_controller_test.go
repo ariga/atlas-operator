@@ -381,7 +381,7 @@ func TestReconcile_reconcile(t *testing.T) {
 	defer func() {
 		require.NoError(t, wd.Close())
 	}()
-	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
+	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test", "")
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
 }
@@ -445,7 +445,41 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 	defer func() {
 		require.NoError(t, wd.Close())
 	}()
-	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
+	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test", "")
+	require.NoError(t, err)
+	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
+}
+
+func TestReconcile_reconcile_baselineVersion(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultMigrationDir()
+
+	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: v1alpha1.AtlasMigrationSpec{
+			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+			Dir: v1alpha1.Dir{
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	wd, err := atlasexec.NewWorkingDir(
+		atlasexec.WithAtlasHCL(md.render),
+		atlasexec.WithMigrations(md.Dir),
+	)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, wd.Close())
+	}()
+	_, err = tt.r.reconcile(context.Background(), wd.Path(), "test", "20230412003627")
+	require.Error(t, err, "not found")
+
+	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test", "20230412003626")
+	require.NoError(t, err)
+	require.EqualValues(t, "", status.LastAppliedVersion)
+
+	status, err = tt.r.reconcile(context.Background(), wd.Path(), "test", "")
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
 }

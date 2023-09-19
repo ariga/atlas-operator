@@ -55,6 +55,10 @@ spec:
           spec:
             description: AtlasMigrationSpec defines the desired state of AtlasMigration
             properties:
+              baselineVersion:
+                description: BaselineVersion defines the baseline version of the database
+                  on the first migration.
+                type: string
               cloud:
                 description: Cloud defines the Atlas Cloud configuration.
                 properties:

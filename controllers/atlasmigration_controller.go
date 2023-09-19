@@ -79,6 +79,7 @@ type (
 		Dir             fs.FS
 		Cloud           *cloud
 		RevisionsSchema string
+		BaselineVersion string
 	}
 	cloud struct {
 		URL       string
@@ -166,7 +167,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	defer wd.Close()
 	// Reconcile given resource
-	status, err := r.reconcile(ctx, wd.Path(), data.EnvName)
+	status, err := r.reconcile(ctx, wd.Path(), data.EnvName, data.BaselineVersion)
 	if err != nil {
 		res.SetNotReady("Migrating", strings.TrimSpace(err.Error()))
 		r.recordErrEvent(res, err)
@@ -216,7 +217,7 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 }
 
 // Reconcile the given AtlasMigration resource.
-func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
+func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName, baselineVersion string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
 	c, err := atlas.NewClientWithDir(dir, r.execPath)
 	if err != nil {
 		return nil, err
@@ -237,7 +238,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName s
 		}, nil
 	}
 	// Execute Atlas CLI migrate command
-	report, err := c.Apply(ctx, &atlas.ApplyParams{Env: envName})
+	report, err := c.Apply(ctx, &atlas.ApplyParams{Env: envName, BaselineVersion: baselineVersion})
 	if err != nil {
 		return nil, transient(err)
 	}
@@ -265,6 +266,9 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	)
 	if env := s.EnvName; env != "" {
 		data.EnvName = env
+	}
+	if baselineVersion := s.BaselineVersion; baselineVersion != "" {
+		data.BaselineVersion = baselineVersion
 	}
 	if data.URL, err = s.DatabaseURL(ctx, r, res.Namespace); err != nil {
 		return nil, transient(err)
