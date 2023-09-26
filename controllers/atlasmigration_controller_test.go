@@ -450,6 +450,45 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
 }
 
+func TestReconcile_reconcile_baseline(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultMigrationDir()
+	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
+	tt.addMigrationScript("20230412003628_create_baz.sql", "CREATE TABLE baz (id INT PRIMARY KEY);")
+
+	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: v1alpha1.AtlasMigrationSpec{
+			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+			Dir: v1alpha1.Dir{
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
+			},
+			Baseline: "20230412003627",
+		},
+	})
+	require.NoError(t, err)
+	wd, err := atlasexec.NewWorkingDir(
+		atlasexec.WithAtlasHCL(md.render),
+		atlasexec.WithMigrations(md.Dir),
+	)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, wd.Close())
+	}()
+	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
+	require.NoError(t, err)
+	require.EqualValues(t, "20230412003628", status.LastAppliedVersion)
+	cli, err := atlasexec.NewClientWithDir(wd.Path(), tt.r.execPath)
+	require.NoError(t, err)
+	report, err := cli.Status(context.Background(), &atlasexec.StatusParams{
+		Env: "test",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, len(report.Applied))
+	require.EqualValues(t, "20230412003627", report.Applied[0].Version)
+	require.EqualValues(t, "baseline", report.Applied[0].Type)
+}
+
 func TestReconcile_getSecretValue(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.k8s.put(
@@ -660,6 +699,25 @@ env {
   url = "sqlite://file2/?mode=memory"
   migration {
     dir = "file://migrations"
+  }
+}`, fileContent.String())
+}
+
+func TestBaselineTemplate(t *testing.T) {
+	migrate := &migrationData{
+		URL:      must(url.Parse("sqlite://file2/?mode=memory")),
+		Dir:      mapFS(map[string]string{}),
+		Baseline: "20230412003626",
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `
+env {
+  name = atlas.env
+  url = "sqlite://file2/?mode=memory"
+  migration {
+    dir = "file://migrations"
+    baseline = "20230412003626"
   }
 }`, fileContent.String())
 }

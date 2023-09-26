@@ -79,6 +79,7 @@ type (
 		Dir             fs.FS
 		Cloud           *cloud
 		RevisionsSchema string
+		Baseline        string
 	}
 	cloud struct {
 		URL       string
@@ -261,6 +262,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		data = &migrationData{
 			EnvName:         defaultEnvName,
 			RevisionsSchema: s.RevisionsSchema,
+			Baseline:        s.Baseline,
 		}
 	)
 	if env := s.EnvName; env != "" {

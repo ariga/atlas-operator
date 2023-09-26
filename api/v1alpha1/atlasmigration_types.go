@@ -68,6 +68,8 @@ type (
 		Dir Dir `json:"dir"`
 		// RevisionsSchema defines the schema that revisions table resides in
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
+		// BaselineVersion defines the baseline version of the database on the first migration.
+		Baseline string `json:"baseline,omitempty"`
 	}
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud struct {

@@ -33,5 +33,8 @@ env {
 {{- if .RevisionsSchema }}
     revisions_schema = "{{ .RevisionsSchema }}" 
 {{- end }}
+{{- if .Baseline }}
+    baseline = "{{ .Baseline }}" 
+{{- end }}
   }
 }
