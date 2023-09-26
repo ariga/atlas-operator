@@ -69,7 +69,7 @@ type (
 		// RevisionsSchema defines the schema that revisions table resides in
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
 		// BaselineVersion defines the baseline version of the database on the first migration.
-		BaselineVersion string `json:"baselineVersion,omitempty"`
+		Baseline string `json:"baseline,omitempty"`
 	}
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud struct {
