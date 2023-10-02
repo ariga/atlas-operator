@@ -451,7 +451,7 @@ func TestTemplate_Func_RemoveSpecialChars(t *testing.T) {
 	{{- removeSpecialChars .Text -}}
 `)
 	require.NoError(t, err)
-	var textWithSpecialChars = "\t\r\n"
+	var textWithSpecialChars = "a\tb\rc\n"
 	err = tmpl.ExecuteTemplate(&buf, `specialChars`, struct {
 		Text string
 		URL  *url.URL
@@ -460,7 +460,7 @@ func TestTemplate_Func_RemoveSpecialChars(t *testing.T) {
 		URL:  &url.URL{},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, "", buf.String())
+	require.EqualValues(t, "abc", buf.String())
 }
 
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
