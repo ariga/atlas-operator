@@ -23,7 +23,7 @@ data "remote_dir" "this" {
 {{- end }}
 env {
   name = atlas.env
-  url = "{{ .URL }}"
+  url = "{{ removeSpecialChars .URL }}"
   migration {
 {{- if .Cloud.HasRemoteDir }}
     dir = data.remote_dir.this.url
