@@ -447,8 +447,8 @@ env {
 func TestTemplate_Func_RemoveSpecialChars(t *testing.T) {
 	var buf bytes.Buffer
 	tmpl, err := tmpl.New("specialChars").Parse(`
-	{{- removeSpecialChars .URL -}}
 	{{- removeSpecialChars .Text -}}
+	{{- removeSpecialChars .URL -}}
 `)
 	require.NoError(t, err)
 	var textWithSpecialChars = "a\tb\rc\n"
@@ -461,6 +461,13 @@ func TestTemplate_Func_RemoveSpecialChars(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, "abc", buf.String())
+	// invalid data type
+	err = tmpl.ExecuteTemplate(&buf, `specialChars`, struct {
+		Text int
+	}{
+		Text: 0,
+	})
+	require.ErrorContains(t, err, "unsupported type int")
 }
 
 func conditionReconciling() *dbv1alpha1.AtlasSchema {

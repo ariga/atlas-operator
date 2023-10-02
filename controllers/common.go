@@ -59,15 +59,15 @@ var (
 				b.WriteRune(']')
 				return b.String()
 			},
-			"removeSpecialChars": func(s interface{}) string {
+			"removeSpecialChars": func(s interface{}) (string, error) {
 				r := regexp.MustCompile("[\t\r\n]")
 				switch s := s.(type) {
 				case string:
-					return r.ReplaceAllString(s, "")
+					return r.ReplaceAllString(s, ""), nil
 				case fmt.Stringer:
-					return r.ReplaceAllString(s.String(), "")
+					return r.ReplaceAllString(s.String(), ""), nil
 				default:
-					return ""
+					return "", fmt.Errorf("unsupported type %T", s)
 				}
 			},
 		}).

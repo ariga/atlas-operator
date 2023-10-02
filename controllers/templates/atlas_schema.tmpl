@@ -70,7 +70,7 @@ env {
   name = atlas.env
   src  = "{{ removeSpecialChars .Source }}"
   url  = "{{ removeSpecialChars .URL }}"
-  dev  = "{{ .DevURL }}"
+  dev  = "{{ removeSpecialChars .DevURL }}"
   schemas = {{ slides .Schemas }}
   exclude = {{ slides .Exclude }}
 }
