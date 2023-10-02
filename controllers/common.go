@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing/fstest"
 	"text/template"
@@ -57,6 +58,17 @@ var (
 				}
 				b.WriteRune(']')
 				return b.String()
+			},
+			"removeSpecialChars": func(s interface{}) string {
+				r := regexp.MustCompile("[\t\r\n]")
+				switch s := s.(type) {
+				case string:
+					return r.ReplaceAllString(s, "")
+				case fmt.Stringer:
+					return r.ReplaceAllString(s.String(), "")
+				default:
+					return ""
+				}
 			},
 		}).
 		ParseFS(tmpls, "templates/*.tmpl"),

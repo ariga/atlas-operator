@@ -444,6 +444,25 @@ env {
 	require.EqualValues(t, expected, buf.String())
 }
 
+func TestTemplate_Func_RemoveSpecialChars(t *testing.T) {
+	var buf bytes.Buffer
+	tmpl, err := tmpl.New("specialChars").Parse(`
+	{{- removeSpecialChars .URL -}}
+	{{- removeSpecialChars .Text -}}
+`)
+	require.NoError(t, err)
+	var textWithSpecialChars = "\t\r\n"
+	err = tmpl.ExecuteTemplate(&buf, `specialChars`, struct {
+		Text string
+		URL  *url.URL
+	}{
+		Text: textWithSpecialChars,
+		URL:  &url.URL{},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, "", buf.String())
+}
+
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
