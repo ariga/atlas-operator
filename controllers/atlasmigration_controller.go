@@ -218,12 +218,12 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 
 // Reconcile the given AtlasMigration resource.
 func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
-	c, err := atlas.NewClientWithDir(dir, r.execPath)
+	c, err := atlas.NewClient(dir, r.execPath)
 	if err != nil {
 		return nil, err
 	}
 	// Check if there are any pending migration files
-	status, err := c.Status(ctx, &atlas.StatusParams{Env: envName})
+	status, err := c.MigrateStatus(ctx, &atlas.MigrateStatusParams{Env: envName})
 	if err != nil {
 		return nil, transient(err)
 	}
@@ -238,7 +238,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName s
 		}, nil
 	}
 	// Execute Atlas CLI migrate command
-	report, err := c.Apply(ctx, &atlas.ApplyParams{Env: envName})
+	report, err := c.MigrateApply(ctx, &atlas.MigrateApplyParams{Env: envName})
 	if err != nil {
 		return nil, transient(err)
 	}

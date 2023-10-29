@@ -478,9 +478,9 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003628", status.LastAppliedVersion)
-	cli, err := atlasexec.NewClientWithDir(wd.Path(), tt.r.execPath)
+	cli, err := atlasexec.NewClient(wd.Path(), tt.r.execPath)
 	require.NoError(t, err)
-	report, err := cli.Status(context.Background(), &atlasexec.StatusParams{
+	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{
 		Env: "test",
 	})
 	require.NoError(t, err)
