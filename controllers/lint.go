@@ -35,7 +35,7 @@ const lintDirName = "lint-migrations"
 // - 2.sql: the pending changes.
 // Then it runs `atlas migrate lint` in the temporary directory.
 func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, envName string, vars atlas.Vars) error {
-	cli, err := atlas.NewClientWithDir(wd.Path(), r.execPath)
+	cli, err := atlas.NewClient(wd.Path(), r.execPath)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, 
 	if err != nil {
 		return err
 	}
-	lint, err := cli.Lint(ctx, &atlas.LintParams{
+	lint, err := cli.MigrateLint(ctx, &atlas.MigrateLintParams{
 		DirURL: fmt.Sprintf("file://./%s", lintDirName),
 		Env:    envName,
 		Latest: 1, // Only lint 2.sql, pending changes.
@@ -76,14 +76,14 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, 
 	if err != nil {
 		return err
 	}
-	if diags := destructive(lint.Files); len(diags) > 0 {
+	if diags := destructive(lint); len(diags) > 0 {
 		return &destructiveErr{diags: diags}
 	}
 	return nil
 }
 
-func destructive(files []*atlas.FileReport) (checks []sqlcheck.Diagnostic) {
-	for _, f := range files {
+func destructive(rep *atlas.SummaryReport) (checks []sqlcheck.Diagnostic) {
+	for _, f := range rep.Files {
 		for _, r := range f.Reports {
 			if f.Error == "" {
 				continue

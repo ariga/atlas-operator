@@ -264,7 +264,7 @@ func TestSchemaConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the schema was applied.
-	cli, err := atlasexec.NewClientWithDir("", tt.r.execPath)
+	cli, err := atlasexec.NewClient("", tt.r.execPath)
 	require.NoError(t, err)
 	inspect, err := cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -344,7 +344,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.Contains(t, ev, "FirstRunDestructive")
 	require.Contains(t, ev, "Warning")
 
-	cli, err := atlasexec.NewClientWithDir("", tt.r.execPath)
+	cli, err := atlasexec.NewClient("", tt.r.execPath)
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -385,7 +385,7 @@ func TestDiffPolicy(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	cli, err := atlasexec.NewClientWithDir("", tt.r.execPath)
+	cli, err := atlasexec.NewClient("", tt.r.execPath)
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -704,7 +704,7 @@ func (t *test) initDB(statement string) {
 	defer wd.Close()
 	_, err = wd.WriteFile("schema.sql", []byte(statement))
 	require.NoError(t, err)
-	cli, err := atlasexec.NewClientWithDir(wd.Path(), "atlas")
+	cli, err := atlasexec.NewClient(wd.Path(), "atlas")
 	require.NoError(t, err)
 	_, err = cli.SchemaApply(context.Background(), &atlas.SchemaApplyParams{
 		URL:    t.dburl,
