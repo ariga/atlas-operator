@@ -238,7 +238,13 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName s
 		}, nil
 	}
 	// Execute Atlas CLI migrate command
-	report, err := c.MigrateApply(ctx, &atlas.MigrateApplyParams{Env: envName})
+	report, err := c.MigrateApply(ctx, &atlas.MigrateApplyParams{
+		Env: envName,
+		Context: &atlas.DeployRunContext{
+			TriggerType:    atlas.TriggerTypeKubernetes,
+			TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
+		},
+	})
 	if err != nil {
 		return nil, transient(err)
 	}

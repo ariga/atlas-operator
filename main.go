@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -89,6 +90,9 @@ func main() {
 		LeaderElection:                enableLeaderElection,
 		LeaderElectionID:              "5220c287.atlasgo.io",
 		LeaderElectionReleaseOnCancel: true,
+		BaseContext: func() context.Context {
+			return dbv1alpha1.WithVersionContext(context.Background(), version)
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
