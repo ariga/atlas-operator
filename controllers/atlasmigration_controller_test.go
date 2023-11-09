@@ -17,11 +17,17 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -758,6 +764,59 @@ env {
 }`, fileContent.String())
 }
 
+func TestMigrationWithDeploymentContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		type (
+			RunContext struct {
+				TriggerType    string `json:"triggerType,omitempty"`
+				TriggerVersion string `json:"triggerVersion,omitempty"`
+			}
+			graphQLQuery struct {
+				Query              string          `json:"query"`
+				Variables          json.RawMessage `json:"variables"`
+				MigrateApplyReport struct {
+					Input struct {
+						Context *RunContext `json:"context,omitempty"`
+					} `json:"input"`
+				}
+			}
+		)
+		var m graphQLQuery
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&m))
+		switch {
+		case strings.Contains(m.Query, "query"):
+			memdir := &migrate.MemDir{}
+			memdir.WriteFile("30230412003626.sql", []byte(`CREATE TABLE foo (id INT PRIMARY KEY)`))
+			writeDir(t, memdir, w)
+		case strings.Contains(m.Query, "reportMigration"):
+			err := json.Unmarshal(m.Variables, &m.MigrateApplyReport)
+			require.NoError(t, err)
+			require.Equal(t, "my-version", m.MigrateApplyReport.Input.Context.TriggerVersion)
+			require.Equal(t, "KUBERNETES", m.MigrateApplyReport.Input.Context.TriggerType)
+		}
+	}))
+	defer srv.Close()
+	tt := migrationCliTest(t)
+	tt.initDefaultTokenSecret()
+	am := tt.getAtlasMigration()
+	am.Spec.Cloud.URL = srv.URL
+	am.Spec.Dir.Remote.Name = "my-remote-dir"
+	am.Spec.Cloud.Project = "my-project"
+	am.Spec.Cloud.TokenFrom = v1alpha1.TokenFrom{
+		SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: "my-secret",
+			},
+			Key: "token",
+		},
+	}
+	tt.k8s.put(am)
+	ctx := dbv1alpha1.WithVersionContext(context.Background(), "my-version")
+	result, err := tt.r.Reconcile(ctx, migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{}, result)
+}
+
 func migrationObjmeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:      "atlas-migration",
@@ -911,4 +970,18 @@ func (t *migrationTest) initDefaultTokenSecret() {
 
 func (t *migrationTest) events() []string {
 	return events(t.r.recorder)
+}
+
+func writeDir(t *testing.T, dir migrate.Dir, w io.Writer) {
+	// Checksum before archiving.
+	hf, err := dir.Checksum()
+	require.NoError(t, err)
+	ht, err := hf.MarshalText()
+	require.NoError(t, err)
+	require.NoError(t, dir.WriteFile(migrate.HashFileName, ht))
+	// Archive and send.
+	arc, err := migrate.ArchiveDir(dir)
+	require.NoError(t, err)
+	_, err = fmt.Fprintf(w, `{"data":{"dirState":{"content":%q}}}`, base64.StdEncoding.EncodeToString(arc))
+	require.NoError(t, err)
 }
