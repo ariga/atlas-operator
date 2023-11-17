@@ -113,6 +113,14 @@ func isSQLErr(err error) bool {
 	return strings.Contains(err.Error(), "sql/migrate: execute: executing statement")
 }
 
+// isChecksumErr returns true if the error is a checksum error.
+func isChecksumErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "checksum mismatch")
+}
+
 // transientError is an error that should be retried.
 type transientError struct {
 	err   error
