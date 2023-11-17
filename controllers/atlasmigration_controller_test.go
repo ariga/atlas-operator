@@ -365,6 +365,20 @@ func TestReconcile_Transient(t *testing.T) {
 	}, tt.events())
 }
 
+func TestReconcile_InvalidChecksum(t *testing.T) {
+	tt := migrationCliTest(t)
+	am := tt.getAtlasMigration()
+	am.Spec.Dir.Local = map[string]string{
+		"1.sql":     "foo",
+		"atlas.sum": `invalid checksum`,
+	}
+	tt.k8s.put(am)
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(t, err)
+	require.EqualValues(t, reconcile.Result{}, result)
+	require.Contains(t, am.Status.Conditions[0].Message, "checksum mismatch")
+}
+
 func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()

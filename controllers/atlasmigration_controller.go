@@ -225,6 +225,9 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName s
 	// Check if there are any pending migration files
 	status, err := c.MigrateStatus(ctx, &atlas.MigrateStatusParams{Env: envName})
 	if err != nil {
+		if isChecksumErr(err) {
+			return nil, err
+		}
 		return nil, transient(err)
 	}
 	if len(status.Pending) == 0 {
