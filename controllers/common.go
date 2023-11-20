@@ -47,6 +47,12 @@ var (
 	tmpls embed.FS
 	tmpl  = template.Must(template.New("operator").
 		Funcs(template.FuncMap{
+			"hclValue": func(s string) string {
+				if s == "" {
+					return s
+				}
+				return strings.ReplaceAll(strings.ToUpper(s), "-", "_")
+			},
 			"slides": func(s []string) string {
 				b := &strings.Builder{}
 				b.WriteRune('[')

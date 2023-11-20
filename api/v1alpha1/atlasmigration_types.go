@@ -70,6 +70,9 @@ type (
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
 		// BaselineVersion defines the baseline version of the database on the first migration.
 		Baseline string `json:"baseline,omitempty"`
+		// ExecOrder controls how Atlas computes and executes pending migration files to the database.
+		// +kubebuilder:default=linear
+		ExecOrder MigrateExecOrder `json:"execOrder,omitempty"`
 	}
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud struct {
@@ -97,6 +100,10 @@ type (
 		Tag  string `json:"tag,omitempty"`
 	}
 )
+
+// ExecOrder controls how Atlas computes and executes pending migration files to the database.
+// +kubebuilder:validation:Enum=linear;linear-skip;non-linear
+type MigrateExecOrder string
 
 const (
 	readyCond = "Ready"

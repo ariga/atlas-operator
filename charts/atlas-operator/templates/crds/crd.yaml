@@ -201,6 +201,15 @@ spec:
                 description: EnvName sets the environment name used for reporting
                   runs to Atlas Cloud.
                 type: string
+              execOrder:
+                default: linear
+                description: ExecOrder controls how Atlas computes and executes pending
+                  migration files to the database.
+                enum:
+                - linear
+                - linear-skip
+                - non-linear
+                type: string
               revisionsSchema:
                 description: RevisionsSchema defines the schema that revisions table
                   resides in
