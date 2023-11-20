@@ -80,6 +80,7 @@ type (
 		Cloud           *cloud
 		RevisionsSchema string
 		Baseline        string
+		ExecOrder       string
 	}
 	cloud struct {
 		URL       string
@@ -272,6 +273,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			EnvName:         defaultEnvName,
 			RevisionsSchema: s.RevisionsSchema,
 			Baseline:        s.Baseline,
+			ExecOrder:       string(s.ExecOrder),
 		}
 	)
 	if env := s.EnvName; env != "" {

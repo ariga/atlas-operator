@@ -30,11 +30,14 @@ env {
 {{- else }}
     dir = "file://migrations"
 {{- end }}
-{{- if .RevisionsSchema }}
-    revisions_schema = "{{ .RevisionsSchema }}" 
+{{- if .ExecOrder }}
+    exec_order = {{ hclValue .ExecOrder }}
 {{- end }}
 {{- if .Baseline }}
     baseline = "{{ .Baseline }}" 
+{{- end }}
+{{- if .RevisionsSchema }}
+    revisions_schema = "{{ .RevisionsSchema }}" 
 {{- end }}
   }
 }
