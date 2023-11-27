@@ -312,7 +312,11 @@ func TestReconcile_Lint(t *testing.T) {
 	tt := cliTest(t)
 	sc := conditionReconciling()
 	sc.Spec.URL = tt.dburl
-	sc.Spec.Policy.Lint.Destructive.Error = true
+	sc.Spec.Policy = &dbv1alpha1.Policy{
+		Lint: &dbv1alpha1.Lint{
+			Destructive: &dbv1alpha1.CheckConfig{Error: true},
+		},
+	}
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
 	tt.initDB("create table x (c int);")
@@ -360,7 +364,11 @@ func TestBadSQL(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.Schema.SQL = "bad sql;"
 	sc.Spec.URL = tt.dburl
-	sc.Spec.Policy.Lint.Destructive.Error = true
+	sc.Spec.Policy = &dbv1alpha1.Policy{
+		Lint: &dbv1alpha1.Lint{
+			Destructive: &dbv1alpha1.CheckConfig{Error: true},
+		},
+	}
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
 	resp, err := tt.r.Reconcile(context.Background(), req())
@@ -378,8 +386,12 @@ func TestDiffPolicy(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.URL = tt.dburl
 	sc.Spec.Schema.SQL = "create table y (c int);"
-	sc.Spec.Policy.Diff.Skip = dbv1alpha1.SkipChanges{
-		DropTable: true,
+	sc.Spec.Policy = &dbv1alpha1.Policy{
+		Diff: &dbv1alpha1.Diff{
+			Skip: &dbv1alpha1.SkipChanges{
+				DropTable: true,
+			},
+		},
 	}
 	sc.Status.LastApplied = 1
 	tt.k8s.put(sc)
@@ -402,12 +414,12 @@ func TestConfigTemplate(t *testing.T) {
 		EnvName: defaultEnvName,
 		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
 		DevURL:  "mysql://root:password@localhost:3306/dev",
-		Policy: dbv1alpha1.Policy{
-			Lint: dbv1alpha1.Lint{
-				Destructive: dbv1alpha1.CheckConfig{Error: true},
+		Policy: &dbv1alpha1.Policy{
+			Lint: &dbv1alpha1.Lint{
+				Destructive: &dbv1alpha1.CheckConfig{Error: true},
 			},
-			Diff: dbv1alpha1.Diff{
-				Skip: dbv1alpha1.SkipChanges{
+			Diff: &dbv1alpha1.Diff{
+				Skip: &dbv1alpha1.SkipChanges{
 					DropSchema: true,
 					DropTable:  true,
 				},
