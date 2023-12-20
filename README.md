@@ -57,6 +57,12 @@ The Atlas Kubernetes Operator is available as a Helm chart. To install the chart
 helm install atlas-operator oci://ghcr.io/ariga/charts/atlas-operator --create-namespace --namespace atlas-operator
 ```
 
+### Configuration
+
+To configure the operator, you can set the following values in the `values.yaml` file:
+
+- `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
+
 ### Getting started
 
 In this example, we will create a MySQL database and apply a schema to it. After installing the
