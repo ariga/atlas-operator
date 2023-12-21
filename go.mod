@@ -2,7 +2,7 @@ module github.com/ariga/atlas-operator
 
 go 1.21
 
-toolchain go1.21.2
+toolchain go1.21.5
 
 require (
 	ariga.io/atlas v0.15.1-0.20231119120023-a36a5859611e

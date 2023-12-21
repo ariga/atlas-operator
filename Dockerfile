@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Build the manager binary
-FROM golang:1.21-alpine as builder
+FROM golang:1.21.5-alpine as builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG OPERATOR_VERSION
