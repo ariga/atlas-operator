@@ -250,10 +250,6 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName s
 		},
 	})
 	if err != nil {
-		return nil, transient(err)
-	}
-	if report != nil && report.Error != "" {
-		err = errors.New(report.Error)
 		if !isSQLErr(err) {
 			err = transient(err)
 		}
