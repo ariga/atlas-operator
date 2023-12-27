@@ -49,5 +49,6 @@ COPY --from=builder /workspace/manager .
 COPY --from=atlas /atlas .
 RUN chmod +x /atlas
 ENV ATLAS_NO_UPDATE_NOTIFIER=1
+ENV ATLAS_KUBERNETES_OPERATOR=1
 USER 65532:65532
 ENTRYPOINT ["/manager"]
