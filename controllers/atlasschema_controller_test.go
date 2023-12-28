@@ -730,3 +730,13 @@ func events(r record.EventRecorder) []string {
 		}
 	}
 }
+
+// Versions after v0.17 of Atlas return a slightly more readable error message. This test
+// ensures we support both formats.
+func TestSQLErrRegression(t *testing.T) {
+	m := `executing statement "create table bar (id int)"`
+	e1 := fmt.Errorf(`sql/migrate: execute: %s`, m)
+	e2 := fmt.Errorf(`sql/migrate: %s`, m)
+	require.True(t, isSQLErr(e1))
+	require.True(t, isSQLErr(e2))
+}

@@ -79,6 +79,7 @@ var (
 		}).
 		ParseFS(tmpls, "templates/*.tmpl"),
 	)
+	sqlErrRegex = regexp.MustCompile(`sql/migrate: (execute: )?executing statement`)
 )
 
 func getConfigMap(ctx context.Context, r client.Reader, ns string, ref *corev1.LocalObjectReference) (*corev1.ConfigMap, error) {
@@ -116,7 +117,7 @@ func isSQLErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "sql/migrate: execute: executing statement")
+	return sqlErrRegex.MatchString(err.Error())
 }
 
 // isChecksumErr returns true if the error is a checksum error.
