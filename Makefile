@@ -181,10 +181,14 @@ $(LOCALBIN):
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+HELMIFY ?= $(LOCALBIN)/helmify
+YQ ?= $(LOCALBIN)/yq
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
 CONTROLLER_TOOLS_VERSION ?= v0.13.0
+HELMIFY_VERSION ?= v0.4.10
+YQ_VERSION ?= v4.40.3
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -268,5 +272,22 @@ license: ## Add license headers to all files.
 	@echo "Adding license headers to all files..."
 	go run -mod=mod github.com/google/addlicense@latest -ignore "**/*.sql" -ignore "charts/**/*" -l apache -c "The Atlas Operator Authors." .
 
+.PHONY: helmify
+helmify: $(HELMIFY) ## Download helmify locally if necessary. If wrong version is installed, it will be overwritten.
+$(HELMIFY): $(LOCALBIN)
+	test -s $(LOCALBIN)/helmify && $(LOCALBIN)/helmify --version | grep -q $(HELMIFY_VERSION) || \
+	GOBIN=$(LOCALBIN) go install -ldflags "-X main.version=$(HELMIFY_VERSION)" github.com/arttor/helmify/cmd/helmify@$(HELMIFY_VERSION)
+
+.PHONY: yq
+yq: $(YQ) ## Download yq locally if necessary. If wrong version is installed, it will be overwritten.
+$(YQ): $(LOCALBIN)
+	test -s $(LOCALBIN)/yq && $(LOCALBIN)/yq --version | grep -q $(YQ_VERSION) || \
+	GOBIN=$(LOCALBIN) go install -ldflags "-X cmd.Version=$(YQ_VERSION)" github.com/mikefarah/yq/v4@$(YQ_VERSION)
+
+.PHONY: helm
+helm: manifests kustomize license helmify yq
+	$(KUSTOMIZE) build config/helm | $(HELMIFY) -crd-dir -generate-defaults -image-pull-secrets charts/atlas-operator
+	$(YQ) -i '.controllerManager.manager.image.tag = ""' charts/atlas-operator/values.yaml
+
 .PHONY: cli-gen
-cli-gen: generate manifests chart-manifests license
+cli-gen: generate manifests helm license

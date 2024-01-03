@@ -1,8 +1,7 @@
-{{- if .Values.rbac.create -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "atlas-operator.managerRoleName" . }}
+  name: {{ include "atlas-operator.fullname" . }}-manager-role
   labels:
   {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
@@ -100,7 +99,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "atlas-operator.managerRoleName" . }}-binding
+  name: {{ include "atlas-operator.fullname" . }}-manager-rolebinding
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: atlas-operator
@@ -109,9 +108,8 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "atlas-operator.managerRoleName" . }}'
+  name: '{{ include "atlas-operator.fullname" . }}-manager-role'
 subjects:
 - kind: ServiceAccount
-  name: '{{ include "atlas-operator.serviceAccountName" . }}'
+  name: '{{ include "atlas-operator.fullname" . }}-controller-manager'
   namespace: '{{ .Release.Namespace }}'
-{{- end }}

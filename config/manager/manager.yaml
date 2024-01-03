@@ -85,6 +85,7 @@ spec:
         args:
         - --leader-elect
         image: controller:latest
+        imagePullPolicy: IfNotPresent
         name: manager
         securityContext:
           runAsUser: 1000
@@ -113,5 +114,8 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        env:
+        - name: PREWARM_DEVDB
+          value: "true"
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
