@@ -17,6 +17,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -34,7 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	kerr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -369,7 +370,7 @@ func TestBadSQL(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
 	require.EqualValues(t, "LintPolicyError", cont.Reason)
-	require.Contains(t, cont.Message, "sql/migrate: execute: executing statement")
+	require.Contains(t, cont.Message, "executing statement:")
 }
 
 func TestDiffPolicy(t *testing.T) {
@@ -579,7 +580,7 @@ func (m *mockClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 	// retrieve the object from the state map
 	o, ok := m.state[key]
 	if !ok {
-		return errors.NewNotFound(schema.GroupResource{
+		return kerr.NewNotFound(schema.GroupResource{
 			Group: obj.GetObjectKind().GroupVersionKind().Group,
 		}, key.Name)
 	}
@@ -657,7 +658,7 @@ func TestMock(t *testing.T) {
 	err := tt.k8s.Get(context.Background(), client.ObjectKey{
 		Name: "non-existent",
 	}, &d)
-	require.True(t, errors.IsNotFound(err))
+	require.True(t, kerr.IsNotFound(err))
 	// Retrieve an existing object
 	err = tt.k8s.Get(context.Background(), client.ObjectKey{
 		Name:      "test",
@@ -735,8 +736,7 @@ func events(r record.EventRecorder) []string {
 // ensures we support both formats.
 func TestSQLErrRegression(t *testing.T) {
 	m := `executing statement "create table bar (id int)"`
-	e1 := fmt.Errorf(`sql/migrate: execute: %s`, m)
-	e2 := fmt.Errorf(`sql/migrate: %s`, m)
-	require.True(t, isSQLErr(e1))
-	require.True(t, isSQLErr(e2))
+	require.True(t, isSQLErr(fmt.Errorf(`sql/migrate: execute: %s`, m)))
+	require.True(t, isSQLErr(fmt.Errorf(`sql/migrate: %s`, m)))
+	require.True(t, isSQLErr(errors.New(`Error: read state from "schema.sql": executing statement: "bad sql;": near "bad": syntax error`)))
 }
