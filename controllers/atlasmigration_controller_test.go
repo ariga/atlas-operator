@@ -145,7 +145,7 @@ func TestMigration_ConfigMap(t *testing.T) {
 		"Normal Applied Version 20230412003626 applied",
 		"Normal Applied Version 20230412003626 applied",
 		"Normal Applied Version 20230808132722 applied",
-		`Warning Error sql/migrate: execute: executing statement "SYNTAX ERROR" from version "20230808140359": near "SYNTAX": syntax error`,
+		`Warning Error sql/migrate: executing statement "SYNTAX ERROR" from version "20230808140359": near "SYNTAX": syntax error`,
 	}, h.events())
 }
 
@@ -227,7 +227,7 @@ func TestMigration_Local(t *testing.T) {
 		"Normal Applied Version 20230412003626 applied",
 		"Normal Applied Version 20230412003626 applied",
 		"Normal Applied Version 20230808132722 applied",
-		`Warning Error sql/migrate: execute: executing statement "SYNTAX ERROR" from version "20230808140359": near "SYNTAX": syntax error`,
+		`Warning Error sql/migrate: executing statement "SYNTAX ERROR" from version "20230808140359": near "SYNTAX": syntax error`,
 	}, h.events())
 }
 
@@ -293,7 +293,7 @@ func TestReconcile_BadSQL(t *testing.T) {
 
 	status = tt.status()
 	require.EqualValues(tt, metav1.ConditionFalse, status.Conditions[0].Status)
-	require.Contains(tt, status.Conditions[0].Message, "sql/migrate: execute: executing statement")
+	require.Contains(tt, status.Conditions[0].Message, "sql/migrate: executing statement")
 }
 
 func TestReconcile_LocalMigrationDir(t *testing.T) {
