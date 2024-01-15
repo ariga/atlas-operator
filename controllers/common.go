@@ -117,7 +117,8 @@ func isSQLErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return sqlErrRegex.MatchString(err.Error())
+	s := err.Error()
+	return strings.Contains(s, "executing statement:") || sqlErrRegex.MatchString(s)
 }
 
 // isChecksumErr returns true if the error is a checksum error.
