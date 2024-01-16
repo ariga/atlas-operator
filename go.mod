@@ -6,7 +6,7 @@ toolchain go1.21.5
 
 require (
 	ariga.io/atlas v0.18.1-0.20240114134328-21ed71fbcdc2
-	ariga.io/atlas-go-sdk v0.3.0
+	ariga.io/atlas-go-sdk v0.4.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/mod v0.14.0
