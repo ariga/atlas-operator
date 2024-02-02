@@ -44,3 +44,17 @@ affinity: {}
 # By default, the operator will recreate devdb pods after migration
 # Set this to true to keep the devdb pods around.
 prewarmDevDB: true
+
+# -- Additional environment variables to set
+extraEnvs: []
+# extraEnvs:
+#   - name: FOO
+#     valueFrom:
+#       secretKeyRef:
+#         key: FOO
+#         name: secret-resource
+#   - name: BAR
+#     valueFrom:
+#      configMapKeyRef:
+#        key: BAR
+#        name: config-map-resource
