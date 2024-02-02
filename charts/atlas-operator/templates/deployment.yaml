@@ -48,6 +48,8 @@ spec:
         env:
         - name: PREWARM_DEVDB
           value: "{{ .Values.prewarmDevDB }}"
+        - name: ATLAS_TOKEN
+          value: "{{ .Values.atlasToken }}"
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

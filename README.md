@@ -63,6 +63,8 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 - `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
 
+- `atlasToken`: Configure the token to access advanced features, such as MSSQL and ClickHouse support. If you don't have one, please follow the instructions [here](https://atlasgo.io/cloud/getting-started).
+
 ### Getting started
 
 In this example, we will create a MySQL database and apply a schema to it. After installing the
