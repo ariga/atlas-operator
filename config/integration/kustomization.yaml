@@ -19,4 +19,6 @@ resources:
   - schema/mysql_schema.yaml
   - schema/postgres_schema.yaml
   - schema/configmap.yaml
+  - env/configmap.yaml
+  - env/secret.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
