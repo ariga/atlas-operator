@@ -45,5 +45,22 @@ affinity: {}
 # Set this to true to keep the devdb pods around.
 prewarmDevDB: true
 
-# Authenticate atlas-cli with the token to use advanced features 
-atlasToken: ""
+# env is a list of environment variables to set in the operator's deployment
+# env:
+#   normal:
+#     PREWARM_DEVDB: "true"
+#     ...
+#   secret:
+#     ATLAS_TOKEN: ""
+#     DATABASE_URL: ""
+#     ...
+env: 
+  normal: ""
+  secret: ""
+
+# envSecretRef is a reference to a secret containing the operator's environment variables
+# used when you want to flexibly manage the operator's environment variables
+envSecretRef: ""
+# envConfigMapRef is a reference to a configmap containing the operator's environment variables
+# used when you want to flexibly manage the operator's environment variables
+envConfigMapRef: ""
