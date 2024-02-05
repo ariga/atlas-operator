@@ -1,0 +1,9 @@
+env:
+  normal:
+    "NORMAL_ENV": "value"
+  secret:
+    "SECRET_ENV": "value"
+
+envSecretRef: "operator-env-secret"
+
+envConfigMapRef: "operator-env-configmap"

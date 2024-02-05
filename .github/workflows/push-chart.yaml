@@ -47,23 +47,16 @@ jobs:
             kubectl describe deployments
             exit 1
           fi
-      - name: upgrade atlas-operator with env
+      - name: test env vars
         run: |
-          helm upgrade atlas-operator charts/atlas-operator --wait \
-          --set image.pullPolicy=Always \
-          --set env.normal.NORMAL_ENV="value" \
-          --set env.secret.SECRET_ENV="value" \
-          --set envSecretRef="operator-env-secret" \
-          --set envConfigMapRef="operator-env-configmap"
-      - name: check env
-        run: |
+          helm upgrade atlas-operator charts/atlas-operator -f ./config/integration/env/values.yaml --wait
           # Find the operator pod
-          OPERATOR=$(kubectl get pods -n atlas-operator-system -o jsonpath='{.items[0].metadata.name}')
+          OPERATOR=$(kubectl get pods -o jsonpath='{.items[0].metadata.name}')
           # Extract the env from the operator pod
-          kubectl exec -n atlas-operator-system $OPERATOR -- env | grep NORMAL_ENV
-          kubectl exec -n atlas-operator-system $OPERATOR -- env | grep SECRET_ENV
-          kubectl exec -n atlas-operator-system $OPERATOR -- env | grep CONFIGMAP_REF_ENV
-          kubectl exec -n atlas-operator-system $OPERATOR -- env | grep SECRET_REF_ENV
+          kubectl exec $OPERATOR -- env | grep NORMAL_ENV
+          kubectl exec $OPERATOR -- env | grep SECRET_ENV
+          kubectl exec $OPERATOR -- env | grep CONFIGMAP_REF_ENV
+          kubectl exec $OPERATOR -- env | grep SECRET_REF_ENV
   helm-push:
     name: Push to ghcr.io
     needs: [helm-test]
