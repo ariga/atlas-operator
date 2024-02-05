@@ -17,6 +17,9 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 jobs:
   helm-test:
@@ -44,6 +47,7 @@ jobs:
           fi
   helm-push:
     needs: [helm-test]
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     defaults:
       run:
