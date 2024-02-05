@@ -33,7 +33,7 @@ jobs:
       - uses: azure/setup-helm@v1
       - name: pre-apply test resources
         run: |
-          kubectl apply -k config/env
+          kubectl apply -k config/integration/env
       - name: install atlas-operator
         run: |
           helm install atlas-operator charts/atlas-operator --wait \
