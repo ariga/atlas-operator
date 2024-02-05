@@ -68,3 +68,7 @@ Create the name of the service account to use
 {{- define "atlas-operator.leaderElectionRole" -}}
 {{ include "atlas-operator.fullname" . }}-leader-election-role
 {{- end }}
+
+{{- define "atlas-operator.secret" -}}
+{{ include "atlas-operator.fullname" . }}-secret
+{{- end }}
