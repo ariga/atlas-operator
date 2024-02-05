@@ -34,11 +34,7 @@ jobs:
       - name: install atlas-operator
         run: |
           helm install atlas-operator charts/atlas-operator --wait \
-          --set image.pullPolicy=Always \
-          --set env.normal.NORMAL_ENV="value" \
-          --set env.secret.SECRET_ENV="value" \
-          --set envSecretRef="operator-env-secret" \
-          --set envConfigMapRef="operator-env-configmap"
+          --set image.pullPolicy=Always
       - name: apply test resources
         run: |
           kubectl apply -k config/integration
