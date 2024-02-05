@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Push Helm
+name: Helm
 on:
   push:
     branches:
@@ -23,6 +23,7 @@ on:
   workflow_dispatch:
 jobs:
   helm-test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -46,6 +47,7 @@ jobs:
             exit 1
           fi
   helm-push:
+    name: Push to ghcr.io
     needs: [helm-test]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
