@@ -55,8 +55,10 @@ prewarmDevDB: true
 #     DATABASE_URL: ""
 #     ...
 env: 
-  normal: ""
-  secret: ""
+  # non sensitive variables
+  normal:
+  # sensitive variables
+  secret:
 
 # envSecretRef is a reference to a secret containing the operator's environment variables
 # used when you want to flexibly manage the operator's environment variables

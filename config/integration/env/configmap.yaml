@@ -15,6 +15,6 @@
 kind: ConfigMap
 apiVersion: v1
 metadata:
-  name: "operato-env-configmap"
+  name: "operator-env-configmap"
 data:
-  CONFIGMAP_REF_TEST: "true"
+  CONFIGMAP_REF_ENV: "value"

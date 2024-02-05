@@ -46,23 +46,32 @@ spec:
         securityContext:
           {{- toYaml .Values.containerSecurityContext | nindent 12 }}
         envFrom:
+          {{- with .Values.envConfigMapRef }}
           - configMapRef:
-              name: "{{ .Values.envConfigMapRef }}"
+              name: "{{ . }}"
+          {{- end }}
+          {{- with .Values.envSecretRef }}
           - secretRef:
-              name: "{{ .Values.envSecretRef }}"
+              name: "{{ . }}"
+          {{- end }}
         env:
         - name: PREWARM_DEVDB
           value: "{{ .Values.prewarmDevDB }}"
-        {{- range $key, $val := .Values.env.secret }}
+        {{- $secretRef := include "atlas-operator.secret" . }}
+        {{- with .Values.env.secret}}
+        {{- range $key, $val := . }}
         - name: {{ $key }}
           valueFrom:
             secretKeyRef:
-              name: {{ include "atlas-operator.secret" . }}
+              name: {{ $secretRef }}
               key: {{ $key }}
         {{- end}}
-        {{- range $key, $val := .Values.env.normal }}
+        {{- end}}
+        {{- with .Values.env.normal}}
+        {{- range $key, $val := . }}
         - name: {{ $key }}
           value: {{ $val | quote }}
+        {{- end}}
         {{- end}}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
