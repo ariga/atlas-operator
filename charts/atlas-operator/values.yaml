@@ -33,6 +33,8 @@ securityContext:
     drop:
       - ALL
 
+extraEnvs: []
+
 resources: {}
 
 nodeSelector: {}
