@@ -49,7 +49,7 @@ jobs:
           fi
       - name: test env vars
         run: |
-          kubectl apply -f config/integration/env
+          kubectl apply -k config/integration/env
           helm upgrade atlas-operator charts/atlas-operator -f ./config/integration/env/values.yaml --wait
           # Find the operator pod
           OPERATOR=$(kubectl get pods -o jsonpath='{.items[0].metadata.name}')
