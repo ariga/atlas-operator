@@ -30,10 +30,11 @@ jobs:
       - name: start minikube
         id: minikube
         uses: medyagh/setup-minikube@master
-      - uses: azure/setup-helm@v1
+      - uses: azure/setup-helm@v3
       - name: install atlas-operator
         run: |
-          helm install atlas-operator charts/atlas-operator --wait --set image.pullPolicy=Always
+          helm install atlas-operator charts/atlas-operator --wait \
+          --set image.pullPolicy=Always
       - name: apply test resources
         run: |
           kubectl apply -k config/integration
@@ -46,6 +47,16 @@ jobs:
             kubectl describe deployments
             exit 1
           fi
+      - name: test env vars
+        run: |
+          kubectl apply -k config/integration/env
+          helm upgrade atlas-operator charts/atlas-operator -f ./config/integration/env/values.yaml --wait
+          # Find the operator pod
+          OPERATOR=$(kubectl get pods -o jsonpath='{.items[0].metadata.name}')
+          # Extract the env from the operator pod
+          kubectl exec $OPERATOR -- env | grep NORMAL_ENV
+          kubectl exec $OPERATOR -- env | grep CONFIGMAP_REF_ENV
+          kubectl exec $OPERATOR -- env | grep SECRET_REF_ENV
   helm-push:
     name: Push to ghcr.io
     needs: [helm-test]

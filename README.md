@@ -63,6 +63,26 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 - `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
 
+- `extraEnvs`: Used to set environment variables for the operator
+
+```yaml
+  extraEnvs: []
+  # extraEnvs:
+  #   - name: FOO
+  #     value: "foo"
+  #   - name: BAR
+  #     valueFrom:
+  #       secretKeyRef:
+  #         key: BAR
+  #         name: secret-resource
+  #   - name: BAZ
+  #     valueFrom:
+  #       configMapKeyRef:
+  #         key: BAZ
+  #         name: configmap-resource
+
+```
+
 ### Getting started
 
 In this example, we will create a MySQL database and apply a schema to it. After installing the
