@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Build the manager binary
-FROM golang:1.21.5-alpine as builder
+FROM golang:1.21.6-alpine3.19 as builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG OPERATOR_VERSION
@@ -37,16 +37,20 @@ COPY internal/ internal/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
-    -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
-     -a -o manager main.go
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
+    go build -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
+    -o manager -a main.go
 
-FROM arigaio/atlas:latest-alpine as atlas
+FROM alpine:3.19 as atlas
+RUN apk add --no-cache curl
+ARG ATLAS_VERSION=latest
+ENV ATLAS_VERSION=${ATLAS_VERSION}
+RUN curl -sSf https://atlasgo.sh | sh
 
-FROM alpine:3.19.0
+FROM alpine:3.19
 WORKDIR /
 COPY --from=builder /workspace/manager .
-COPY --from=atlas /atlas .
+COPY --from=atlas /usr/local/bin/atlas .
 RUN chmod +x /atlas
 ENV ATLAS_NO_UPDATE_NOTIFIER=1
 ENV ATLAS_KUBERNETES_OPERATOR=1

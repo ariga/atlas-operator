@@ -36,6 +36,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Fetch Atlas version
+        id: atlas
+        run: |
+          # All distributions are built from the same version
+          # so we only need to fetch it once.
+          echo "version=$(curl -s https://release.ariga.io/atlas/atlas-linux-amd64-latest.version)" >> $GITHUB_OUTPUT
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v4
@@ -46,6 +52,7 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
           labels: |
+            io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
             org.opencontainers.image.title=atlas-operator
             org.opencontainers.image.description=Atlas Operator
             org.opencontainers.image.url=https://atlasgo.io
@@ -56,6 +63,7 @@ jobs:
         with:
           context: .
           build-args: |
+            ATLAS_VERSION=${{ steps.atlas.outputs.version }}
             OPERATOR_VERSION=v${{ steps.meta.outputs.version }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
