@@ -25,6 +25,10 @@ spec:
         kubectl.kubernetes.io/default-container: manager
       {{- end }}
     spec:
+      {{- with .Values.extraVolumes }}
+      volumes:
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
       containers:
       - image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -49,6 +53,10 @@ spec:
         - name: PREWARM_DEVDB
           value: "{{ .Values.prewarmDevDB }}"
         {{- with .Values.extraEnvs }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.extraVolumeMounts }}
+        volumeMounts:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.imagePullSecrets }}
