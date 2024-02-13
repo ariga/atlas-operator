@@ -58,3 +58,16 @@ extraEnvs: []
 #      configMapKeyRef:
 #        key: BAR
 #        name: config-map-resource
+
+extraVolumes: []
+# extraVolumes:
+#   - name: extra-volume
+#     secret:
+#       secretName: extra-volume-secret
+
+extraVolumeMounts: []
+# extraVolumeMounts:
+#   - name: extra-volume
+#     mountPath: /extra-volume
+#     readOnly: true
+

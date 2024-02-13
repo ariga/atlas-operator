@@ -80,7 +80,30 @@ To configure the operator, you can set the following values in the `values.yaml`
   #       configMapKeyRef:
   #         key: BAZ
   #         name: configmap-resource
+```
 
+- `extraVolumes`: Used to mount additional volumes to the operator
+
+```yaml
+  extraVolumes: []
+  # extraVolumes:
+  #   - name: my-volume
+  #     secret:
+  #       secretName: my-secret
+  #   - name: my-volume
+  #     configMap:
+  #       name: my-configmap
+```
+
+- `extraVolumeMounts`: Used to mount additional volumes to the operator
+
+```yaml
+  extraVolumeMounts: []
+  # extraVolumeMounts:
+  #   - name: my-volume
+  #     mountPath: /path/to/mount
+  #   - name: my-volume
+  #     mountPath: /path/to/mount
 ```
 
 ### Getting started
