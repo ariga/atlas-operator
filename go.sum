@@ -1,7 +1,7 @@
-ariga.io/atlas v0.18.1-0.20240114134328-21ed71fbcdc2 h1:YNayTWgHEtBAqo+QZzhrJKK1ybX+oxtbouMPs2dS9uI=
-ariga.io/atlas v0.18.1-0.20240114134328-21ed71fbcdc2/go.mod h1:uj3pm+hUTVN/X5yfdBexHlZv+1Xu5u5ZbZx7+CDavNU=
-ariga.io/atlas-go-sdk v0.3.0 h1:19hxr3Fm/Jg/pNSLq3mpTQs1k1sPNhQXpLgVtIDQ0J8=
-ariga.io/atlas-go-sdk v0.3.0/go.mod h1:owkEEXw6jqne5KPVDfKsYB7cwMiMk3jtOiAAeKxS/yU=
+ariga.io/atlas v0.19.1-0.20240214103610-1a087ae06f34 h1:TfSSEbpoPfxB1o4X9NrLqjel+gTH8y1p3xOVnnq8HGA=
+ariga.io/atlas v0.19.1-0.20240214103610-1a087ae06f34/go.mod h1:uj3pm+hUTVN/X5yfdBexHlZv+1Xu5u5ZbZx7+CDavNU=
+ariga.io/atlas-go-sdk v0.5.0 h1:VCbfLpKMYwbAfXyKPYC4dzhnyTfSvqyNzqUyRLWvgD4=
+ariga.io/atlas-go-sdk v0.5.0/go.mod h1:MbFqaKJ21TGy+KZMH2bKk79BY1UeJq09h57skyatU9E=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.38.0/go.mod h1:990N+gfupTy94rShfmMCWGDn0LpTmnzTp2qbd1dvSRU=
