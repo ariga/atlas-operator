@@ -1,0 +1,29 @@
+{{- if .Values.rbac.aggregateClusterRoles }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "atlas-operator.fullname" . }}-view
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    {{- include "atlas-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["db.atlasgo.io"]
+    resources: ["atlasmigration", "atlasschemas"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "atlas-operator.fullname" . }}-edit
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    {{- include "atlas-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["db.atlasgo.io"]
+    resources: ["atlasmigration", "atlasschemas"]
+    verbs: ["create", "delete", "patch", "update"]
+{{- end }}

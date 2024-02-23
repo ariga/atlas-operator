@@ -11,6 +11,7 @@ image:
 
 rbac:
   create: true
+  aggregateClusterRoles: false
 
 imagePullSecrets: []
 nameOverride: ""
@@ -22,6 +23,8 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
+
+podLabels: {}
 
 podSecurityContext:
   runAsNonRoot: true
@@ -36,6 +39,8 @@ securityContext:
 resources: {}
 
 nodeSelector: {}
+
+priorityClassName: ""
 
 tolerations: []
 
