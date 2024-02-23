@@ -11,6 +11,7 @@ image:
 
 rbac:
   create: true
+  aggregateClusterRoles: false
 
 imagePullSecrets: []
 nameOverride: ""
@@ -39,6 +40,8 @@ containerSecurityContext:
 resources: {}
 
 nodeSelector: {}
+
+priorityClassName: ""
 
 tolerations: []
 
