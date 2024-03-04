@@ -1,15 +1,14 @@
 module github.com/ariga/atlas-operator
 
 go 1.21
-
-toolchain go1.21.5
+toolchain go1.22.0
 
 require (
-	ariga.io/atlas v0.18.1-0.20240114134328-21ed71fbcdc2
+	ariga.io/atlas v0.19.2
 	ariga.io/atlas-go-sdk v0.3.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
-	golang.org/x/mod v0.14.0
+	golang.org/x/mod v0.15.0
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
 	k8s.io/client-go v0.26.0
@@ -65,7 +64,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20220722155238-128564f6959c // indirect
 	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/term v0.13.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
