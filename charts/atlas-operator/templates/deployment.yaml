@@ -19,6 +19,9 @@ spec:
       labels:
         control-plane: controller-manager
       {{- include "atlas-operator.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podLabels }}
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -46,9 +49,9 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         resources:
-          {{- toYaml .Values.resources | nindent 12 }}
+          {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
-          {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- toYaml .Values.containerSecurityContext | nindent 10 }}
         env:
         - name: PREWARM_DEVDB
           value: "{{ .Values.prewarmDevDB }}"

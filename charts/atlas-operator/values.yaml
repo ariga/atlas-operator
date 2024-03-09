@@ -19,9 +19,12 @@ fullnameOverride: ""
 serviceAccount:
   create: true
   annotations: {}
+  labels: {}
   name: ""
 
 podAnnotations: {}
+
+podLabels: {}
 
 podSecurityContext:
   runAsNonRoot: true
