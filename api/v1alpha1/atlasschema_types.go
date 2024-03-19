@@ -74,8 +74,11 @@ type (
 		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
+		// TxMode defines the transaction mode to use when applying the schema.
+		// +kubebuilder:default=file
+		TxMode TransactionMode `json:"txMode,omitempty"`
 		// Policy defines the policies to apply when managing the schema change lifecycle.
-		Policy Policy `json:"policy,omitempty"`
+		Policy *Policy `json:"policy,omitempty"`
 		// The names of the schemas (named databases) on the target database to be managed.
 		Schemas []string `json:"schemas,omitempty"`
 	}
@@ -87,12 +90,12 @@ type (
 	}
 	// Policy defines the policies to apply when managing the schema change lifecycle.
 	Policy struct {
-		Lint Lint `json:"lint,omitempty"`
-		Diff Diff `json:"diff,omitempty"`
+		Lint *Lint `json:"lint,omitempty"`
+		Diff *Diff `json:"diff,omitempty"`
 	}
 	// Lint defines the linting policies to apply before applying the schema.
 	Lint struct {
-		Destructive CheckConfig `json:"destructive,omitempty"`
+		Destructive *CheckConfig `json:"destructive,omitempty"`
 	}
 	// CheckConfig defines the configuration of a linting check.
 	CheckConfig struct {
@@ -100,7 +103,8 @@ type (
 	}
 	// Diff defines the diff policies to apply when planning schema changes.
 	Diff struct {
-		Skip SkipChanges `json:"skip,omitempty"`
+		ConcurrentIndex *ConcurrentIndex `json:"concurrent_index,omitempty"`
+		Skip            *SkipChanges     `json:"skip,omitempty"`
 	}
 	// SkipChanges represents the skip changes policy.
 	SkipChanges struct {
@@ -135,6 +139,15 @@ type (
 		// +optional
 		ModifyForeignKey bool `json:"modify_foreign_key,omitempty"`
 	}
+	ConcurrentIndex struct {
+		// +optional
+		Create bool `json:"create,omitempty"`
+		// +optional
+		Drop bool `json:"drop,omitempty"`
+	}
+	// TransactionMode
+	// +kubebuilder:validation:Enum=file;all;none
+	TransactionMode string
 )
 
 func init() {

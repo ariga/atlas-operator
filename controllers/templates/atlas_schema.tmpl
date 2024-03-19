@@ -7,8 +7,20 @@ variable "lint_destructive" {
 {{- end }}
 }
 {{- with .Policy }}
-  {{- with .Diff.Skip }}
+  {{- with .Diff }}
+  {{- if or .ConcurrentIndex .Skip }}
 diff {
+  {{- with .ConcurrentIndex }}
+  concurrent_index {
+  {{- if .Create }}
+    create = true
+  {{- end }}
+  {{- if .Drop }}
+    drop = true
+  {{- end }}
+  }
+  {{- end }}
+  {{- with .Skip }}
   skip {
     {{- if .AddSchema }}
     add_schema = true
@@ -56,7 +68,9 @@ diff {
     modify_foreign_key = true
     {{- end }}
   }
+  {{- end }}
 }
+  {{- end }}
 {{- end }}
 {{- with .Lint }}
 lint {
