@@ -419,6 +419,10 @@ func TestConfigTemplate(t *testing.T) {
 				Destructive: &dbv1alpha1.CheckConfig{Error: true},
 			},
 			Diff: &dbv1alpha1.Diff{
+				ConcurrentIndex: &dbv1alpha1.ConcurrentIndex{
+					Create: true,
+					Drop:   true,
+				},
 				Skip: &dbv1alpha1.SkipChanges{
 					DropSchema: true,
 					DropTable:  true,
@@ -435,6 +439,10 @@ func TestConfigTemplate(t *testing.T) {
   default = true
 }
 diff {
+  concurrent_index {
+    create = true
+    drop = true
+  }
   skip {
     drop_schema = true
     drop_table = true
