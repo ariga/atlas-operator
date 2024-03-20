@@ -353,6 +353,43 @@ The operator will periodically check for new versions and security advisories re
 To disable version checks, set the `SKIP_VERCHECK` environment variable to `true` in the operator's
 deployment manifest.
 
+### Troubleshooting
+
+In successful reconciliation, the conditon status will look like this:
+
+```yaml
+Status:
+  Conditions:
+    Last Transition Time: 2024-03-20T09:59:56Z
+    Message: ""
+    Reason: Applied
+    Status: True
+    Type: Ready
+  Last Applied: 1710343398
+  Last Applied Version: 20240313121148
+  observed_hash: d5a1c1c08de2530d9397d4
+```
+
+In case of an error, the condition `status` will be set to false and `reason` field will contain the type of error that occurred (e.g. `Reconciling`, `ReadingMigrationData`, `Migrating`, etc.). To get more information about the error, you can check the `message` field.
+
+**For AtlasSchema resource:**
+| Reason | Description |
+| ------ | ----------- |
+| Reconciling | The operator is reconciling the desired state with the actual state of the database |
+| ReadSchema | There was an error about reading the schema from ConfigMap or database credentials |
+| GettingDevDB | failed to get the devdb resource, in case we are using the devdb for nomalization
+| VerifyingFirstRun | occurred when a first run of the operator that contain destructive changes |
+| LintPolicyError | occurred when the lint policy is violated |
+| ApplyingSchema | failed to apply to database |
+
+**For AtlasMigration resource:** 
+
+| Reason | Description |
+| ------ | ----------- |
+| Reconciling | The operator is reconciling the desired state with the actual state of the database |
+| ReadingMigrationData | failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
+| Migrating | failed to migrate to database |
+
 ### Support
 
 Need help? File issues on the [Atlas Issue Tracker](https://github.com/ariga/atlas/issues) or join
