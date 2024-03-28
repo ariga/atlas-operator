@@ -67,7 +67,8 @@ type (
 		DevURL  string
 		Schemas []string
 		Exclude []string
-		Policy  dbv1alpha1.Policy
+		Policy  *dbv1alpha1.Policy
+		TxMode  dbv1alpha1.TransactionMode
 
 		desired []byte
 		ext     string
@@ -199,7 +200,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
-	report, err := r.apply(ctx, wd.Path(), data.EnvName)
+	report, err := r.apply(ctx, wd.Path(), data.EnvName, string(data.TxMode))
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
@@ -255,13 +256,14 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName string) (*atlas.SchemaApply, error) {
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName, txMode string) (*atlas.SchemaApply, error) {
 	cli, err := atlas.NewClient(dir, r.execPath)
 	if err != nil {
 		return nil, err
 	}
 	return cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
-		Env: envName,
+		Env:    envName,
+		TxMode: txMode,
 	})
 }
 
@@ -275,6 +277,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 			Schemas: s.Schemas,
 			Exclude: s.Exclude,
 			Policy:  s.Policy,
+			TxMode:  s.TxMode,
 		}
 	)
 	data.URL, err = s.DatabaseURL(ctx, r, res.Namespace)
@@ -311,7 +314,11 @@ func (d *managedData) Source() string {
 
 // ShouldLint returns true if the linting policy is set to error.
 func (d *managedData) shouldLint() bool {
-	return d.Policy.Lint.Destructive.Error
+	p := d.Policy
+	if p == nil || p.Lint == nil || p.Lint.Destructive == nil {
+		return false
+	}
+	return p.Lint.Destructive.Error
 }
 
 // hash returns the sha256 hash of the desired.

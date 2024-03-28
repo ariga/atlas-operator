@@ -523,6 +523,13 @@ spec:
                     description: Diff defines the diff policies to apply when planning
                       schema changes.
                     properties:
+                      concurrent_index:
+                        properties:
+                          create:
+                            type: boolean
+                          drop:
+                            type: boolean
+                        type: object
                       skip:
                         description: SkipChanges represents the skip changes policy.
                         properties:
@@ -603,6 +610,15 @@ spec:
                 items:
                   type: string
                 type: array
+              txMode:
+                default: file
+                description: TxMode defines the transaction mode to use when applying
+                  the schema.
+                enum:
+                - file
+                - all
+                - none
+                type: string
               url:
                 description: URL of the target database schema.
                 type: string
