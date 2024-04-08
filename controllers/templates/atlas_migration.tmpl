@@ -10,26 +10,12 @@ atlas {
   {{- end }}
   }
 }
-{{- if .HasRemoteDir }}
-{{- with .RemoteDir }}
-data "remote_dir" "this" {
-  name = "{{ .Name }}"
-  {{- if .Tag }}
-  tag = "{{ .Tag }}"
-  {{- end }}
-}
-{{- end }}
-{{- end }}
 {{- end }}
 env {
   name = atlas.env
   url = "{{ removeSpecialChars .URL }}"
   migration {
-{{- if .Cloud.HasRemoteDir }}
-    dir = data.remote_dir.this.url
-{{- else }}
-    dir = "file://migrations"
-{{- end }}
+    dir = "{{ .DirURL }}"
 {{- if .ExecOrder }}
     exec_order = {{ hclValue .ExecOrder }}
 {{- end }}
