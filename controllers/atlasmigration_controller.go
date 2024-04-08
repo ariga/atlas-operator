@@ -34,6 +34,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/url"
@@ -329,7 +330,7 @@ func (d *migrationData) hash() (string, error) {
 		h.Write([]byte(c.Project))
 	}
 	switch {
-	case d.Cloud.HasRemoteDir():
+	case d.Cloud.hasRemoteDir():
 		// Hash cloud directory
 		h.Write([]byte(d.Cloud.RemoteDir.Name))
 		h.Write([]byte(d.Cloud.RemoteDir.Tag))
@@ -346,6 +347,13 @@ func (d *migrationData) hash() (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+func (d *migrationData) DirURL() string {
+	if d.Cloud.hasRemoteDir() {
+		return fmt.Sprintf("atlas://%s?tag=%s", d.Cloud.RemoteDir.Name, d.Cloud.RemoteDir.Tag)
+	}
+	return "file://migrations"
+}
+
 // render renders the atlas.hcl template.
 //
 // The template is used by the Atlas CLI to apply the migrations directory.
@@ -355,7 +363,7 @@ func (d *migrationData) render(w io.Writer) error {
 		return errors.New("database URL is empty")
 	}
 	switch {
-	case d.Cloud.HasRemoteDir():
+	case d.Cloud.hasRemoteDir():
 		if d.Dir != nil {
 			return errors.New("cannot use both remote and local directory")
 		}
@@ -369,8 +377,8 @@ func (d *migrationData) render(w io.Writer) error {
 	return tmpl.ExecuteTemplate(w, "atlas_migration.tmpl", d)
 }
 
-// HasRemoteDir returns true if the given migration data has a remote directory
-func (c *cloud) HasRemoteDir() bool {
+// hasRemoteDir returns true if the given migration data has a remote directory
+func (c *cloud) hasRemoteDir() bool {
 	if c == nil {
 		return false
 	}

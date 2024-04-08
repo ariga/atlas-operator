@@ -765,15 +765,11 @@ atlas {
     project = "my-project"
   }
 }
-data "remote_dir" "this" {
-  name = "my-remote-dir"
-  tag = "my-remote-tag"
-}
 env {
   name = atlas.env
   url = "sqlite://file2/?mode=memory"
   migration {
-    dir = data.remote_dir.this.url
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
   }
 }`, fileContent.String())
 }
