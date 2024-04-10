@@ -75,6 +75,8 @@ type (
 	}
 )
 
+const sqlLimitSize = 1024
+
 func NewAtlasSchemaReconciler(mgr Manager, execPath string, prewarmDevDB bool) *AtlasSchemaReconciler {
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
@@ -210,11 +212,13 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	status := dbv1alpha1.AtlasSchemaStatus{
+	// Truncate the applied and pending changes to 1024 bytes.
+	report.Changes.Applied = truncateSQL(report.Changes.Applied, sqlLimitSize)
+	report.Changes.Pending = truncateSQL(report.Changes.Pending, sqlLimitSize)
+	res.SetReady(dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
 		ObservedHash: hash,
-	}
-	res.SetReady(status, report)
+	}, report)
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
@@ -346,4 +350,24 @@ func (d *managedData) render(w io.Writer) error {
 		return errors.New("schema extension is not set")
 	}
 	return tmpl.ExecuteTemplate(w, "atlas_schema.tmpl", d)
+}
+
+func truncateSQL(s []string, size int) []string {
+	total := 0
+	for _, v := range s {
+		total += len(v)
+	}
+	if total > size {
+		switch idx, len := strings.IndexRune(s[0], '\n'), len(s[0]); {
+		case len <= size:
+			total -= len
+			return []string{s[0], fmt.Sprintf("-- truncated %d bytes...", total)}
+		case idx != -1 && idx <= size:
+			total -= (idx + 1)
+			return []string{fmt.Sprintf("%s\n-- truncated %d bytes...", s[0][:idx], total)}
+		default:
+			return []string{fmt.Sprintf("-- truncated %d bytes...", total)}
+		}
+	}
+	return s
 }

@@ -760,3 +760,31 @@ func TestSQLErrRegression(t *testing.T) {
 	require.True(t, isSQLErr(fmt.Errorf(`sql/migrate: %s`, m)))
 	require.True(t, isSQLErr(errors.New(`Error: read state from "schema.sql": executing statement: "bad sql;": near "bad": syntax error`)))
 }
+
+func Test_truncateSQL(t *testing.T) {
+	// The first line is over the limit but no newline is added.
+	require.Equal(t, []string{
+		"-- truncated 37 bytes...",
+	}, truncateSQL([]string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY);",
+	}, 10))
+
+	require.Equal(t, []string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY);\n-- truncated 37 bytes...",
+	}, truncateSQL([]string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY);\nCREATE TABLE BAR(id INT PRIMARY KEY);",
+	}, 37))
+	require.Equal(t, []string{
+		"-- truncated 108 bytes...",
+	}, truncateSQL([]string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY); --the first statement is so long\nCREATE TABLE BAR(id INT PRIMARY KEY);",
+	}, 37))
+
+	require.Equal(t, []string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY);",
+		"-- truncated 37 bytes...",
+	}, truncateSQL([]string{
+		"CREATE TABLE FOO(id INT PRIMARY KEY);",
+		"CREATE TABLE BAR(id INT PRIMARY KEY);",
+	}, 37))
+}
