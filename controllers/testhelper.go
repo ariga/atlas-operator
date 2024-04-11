@@ -46,7 +46,7 @@ type (
 )
 
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
-func newRunner[T reconcile.Reconciler](fn func(Manager, string) T, modify func(*fake.ClientBuilder)) (*helper, runner) {
+func newRunner[T reconcile.Reconciler](fn func(Manager, string, bool) T, modify func(*fake.ClientBuilder)) (*helper, runner) {
 	execPath, err := exec.LookPath("atlas")
 	if err != nil {
 		panic(err)
@@ -64,7 +64,7 @@ func newRunner[T reconcile.Reconciler](fn func(Manager, string) T, modify func(*
 		client:   c,
 		recorder: r,
 		scheme:   scheme,
-	}, execPath)
+	}, execPath, true)
 	h := &helper{client: c, recorder: r}
 	return h, func(obj client.Object, fn check) {
 		fn(a.Reconcile(context.Background(), request(obj)))

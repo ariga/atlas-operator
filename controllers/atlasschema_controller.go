@@ -58,7 +58,7 @@ type (
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
-		prewarmDevDB     bool
+		devDB            *devDBReconciler
 	}
 	// managedData contains information about the managed database and its desired state.
 	managedData struct {
@@ -78,14 +78,15 @@ type (
 const sqlLimitSize = 1024
 
 func NewAtlasSchemaReconciler(mgr Manager, execPath string, prewarmDevDB bool) *AtlasSchemaReconciler {
+	r := mgr.GetEventRecorderFor("atlasschema-controller")
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
 		execPath:         execPath,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
-		recorder:         mgr.GetEventRecorderFor("atlasschema-controller"),
-		prewarmDevDB:     prewarmDevDB,
+		recorder:         r,
+		devDB:            newDevDB(mgr, r, prewarmDevDB),
 	}
 }
 
@@ -111,7 +112,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.watchRefs(res)
 		// Clean up any resources created by the controller after the reconciler is successful.
 		if res.IsReady() {
-			r.cleanUp(ctx, res)
+			r.devDB.cleanUp(ctx, res)
 		}
 	}()
 	// When the resource is first created, create the "Ready" condition.
@@ -145,7 +146,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if data.DevURL == "" {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
-		data.DevURL, err = r.devURL(ctx, res, *data.URL)
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
 			res.SetNotReady("GettingDevDB", err.Error())
 			return result(err)

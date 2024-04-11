@@ -91,7 +91,7 @@ type (
 	}
 )
 
-func NewAtlasMigrationReconciler(mgr Manager, execPath string) *AtlasMigrationReconciler {
+func NewAtlasMigrationReconciler(mgr Manager, execPath string, _ bool) *AtlasMigrationReconciler {
 	return &AtlasMigrationReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
@@ -219,8 +219,8 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 }
 
 // Reconcile the given AtlasMigration resource.
-func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, dir, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
-	c, err := atlas.NewClient(dir, r.execPath)
+func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, wd, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
+	c, err := atlas.NewClient(wd, r.execPath)
 	if err != nil {
 		return nil, err
 	}

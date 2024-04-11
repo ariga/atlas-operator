@@ -46,7 +46,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -111,9 +110,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 		ObjectMeta: meta,
 		Spec:       dbv1alpha1.AtlasSchemaSpec{},
 	}
-	h, reconcile := newRunner(func(mgr Manager, name string) reconcile.Reconciler {
-		return NewAtlasSchemaReconciler(mgr, name, true)
-	}, func(cb *fake.ClientBuilder) {
+	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
 		cb.WithObjects(obj)
 	})
 	assert := func(except ctrl.Result, ready bool, reason, msg string) {
@@ -567,6 +564,7 @@ func newTest(t *testing.T) *test {
 	}
 	execPath, err := exec.LookPath("atlas")
 	require.NoError(t, err)
+	r := record.NewFakeRecorder(100)
 	return &test{
 		T:   t,
 		k8s: m,
@@ -576,7 +574,12 @@ func newTest(t *testing.T) *test {
 			execPath:         execPath,
 			configMapWatcher: watch.New(),
 			secretWatcher:    watch.New(),
-			recorder:         record.NewFakeRecorder(100),
+			recorder:         r,
+			devDB: &devDBReconciler{
+				Client:   m,
+				scheme:   scheme,
+				recorder: r,
+			},
 		},
 	}
 }
