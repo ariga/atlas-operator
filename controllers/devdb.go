@@ -29,12 +29,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 )
 
 const (
@@ -44,12 +45,40 @@ const (
 	hostReplace   = "REPLACE_HOST"
 )
 
+type (
+	// TODO: Refactor this to a separate controller
+	devDBReconciler struct {
+		client.Client
+		scheme   *runtime.Scheme
+		recorder record.EventRecorder
+		prewarm  bool
+	}
+	resourceOwner interface {
+		metav1.Object
+		runtime.Object
+	}
+)
+
+func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconciler {
+	if r == nil {
+		// Only create a new recorder if it is not provided.
+		// This keep the controller from creating multiple recorders.
+		r = mgr.GetEventRecorderFor("devdb")
+	}
+	return &devDBReconciler{
+		Client:   mgr.GetClient(),
+		scheme:   mgr.GetScheme(),
+		recorder: r,
+		prewarm:  prewarm,
+	}
+}
+
 // cleanUp clean up any resources created by the controller
-func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.AtlasSchema) {
+func (r *devDBReconciler) cleanUp(ctx context.Context, sc resourceOwner) {
 	// If prewarmDevDB is false, scale down the deployment to 0
-	if !r.prewarmDevDB {
+	if !r.prewarm {
 		deploy := &appsv1.Deployment{}
-		key := nameDevDB(sc.ObjectMeta)
+		key := nameDevDB(sc)
 		err := r.Get(ctx, key, deploy)
 		if err != nil {
 			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
@@ -61,11 +90,10 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 		}
 		return
 	}
-
 	// delete pods to clean up
 	pods := &corev1.PodList{}
 	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-		labelInstance: nameDevDB(sc.ObjectMeta).Name,
+		labelInstance: nameDevDB(sc).Name,
 	}))
 	if err != nil {
 		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
@@ -79,27 +107,26 @@ func (r *AtlasSchemaReconciler) cleanUp(ctx context.Context, sc *dbv1alpha1.Atla
 
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
-func (r *AtlasSchemaReconciler) devURL(ctx context.Context, sc *dbv1alpha1.AtlasSchema, targetURL url.URL) (string, error) {
+func (r *devDBReconciler) devURL(ctx context.Context, sc resourceOwner, targetURL url.URL) (string, error) {
 	drv := driver(targetURL.Scheme)
 	if drv == "sqlite" {
 		return "sqlite://db?mode=memory", nil
 	}
 	// make sure we have a dev db running
-	key := nameDevDB(sc.ObjectMeta)
+	key := nameDevDB(sc)
 	deploy := &appsv1.Deployment{}
 	switch err := r.Get(ctx, key, deploy); {
 	case err == nil:
 		// The dev database already exists,
 		// If it is scaled down, scale it up.
 		if deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0 {
-			*deploy.Spec.Replicas = int32(1)
+			deploy.Spec.Replicas = pointer.Int32(1)
 			if err := r.Update(ctx, deploy); err != nil {
 				return "", transient(err)
 			}
 			r.recorder.Eventf(sc, corev1.EventTypeNormal, "ScaledUpDevDB", "Scaled up dev database deployment: %s", deploy.Name)
 			return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
 		}
-
 	case apierrors.IsNotFound(err):
 		// The dev database does not exist, create it.
 		deploy, err := deploymentDevDB(key, drv, isSchemaBound(drv, &targetURL))
@@ -114,7 +141,6 @@ func (r *AtlasSchemaReconciler) devURL(ctx context.Context, sc *dbv1alpha1.Atlas
 		return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
 	default:
 		// An error occurred while getting the dev database,
-		sc.SetNotReady("GettingDevDB", err.Error())
 		return "", err
 	}
 	pods := &corev1.PodList{}
@@ -205,10 +231,10 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 }
 
 // nameDevDB returns the namespaced name of the dev database.
-func nameDevDB(owner metav1.ObjectMeta) types.NamespacedName {
+func nameDevDB(owner metav1.Object) types.NamespacedName {
 	return types.NamespacedName{
-		Name:      fmt.Sprintf("%s-atlas-dev-db", owner.Name),
-		Namespace: owner.Namespace,
+		Name:      fmt.Sprintf("%s-atlas-dev-db", owner.GetName()),
+		Namespace: owner.GetNamespace(),
 	}
 }
 
