@@ -53,7 +53,7 @@ func TestReconcile_Notfound(t *testing.T) {
 	obj := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 	}
-	_, run := newRunner(NewAtlasMigrationReconciler, nil)
+	_, run := newRunner(NewAtlasMigrationReconciler, nil, nil)
 	// Nope when the object is not found
 	run(obj, func(result ctrl.Result, err error) {
 		require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestMigration_ConfigMap(t *testing.T) {
 				20230412003626_create_foo.sql h1:8C7Hz48VGKB0trI2BsK5FWpizG6ttcm9ep+tX32y0Tw=`,
 			},
 		})
-	})
+	}, nil)
 	assert := func(except ctrl.Result, ready bool, reason, msg, version string) {
 		t.Helper()
 		reconcile(obj, func(result ctrl.Result, err error) {
@@ -169,7 +169,7 @@ func TestMigration_Local(t *testing.T) {
 	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
 		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj)
-	})
+	}, nil)
 	assert := func(except ctrl.Result, ready bool, reason, msg, version string) {
 		t.Helper()
 		reconcile(obj, func(result ctrl.Result, err error) {
@@ -256,6 +256,247 @@ func TestMigration_Local(t *testing.T) {
 		"Normal Applied Version 20230412003626 applied",
 		"Normal Applied Version 20230808132722 applied",
 		`Warning Error sql/migrate: executing statement "SYNTAX ERROR" from version "20230808140359": near "SYNTAX": syntax error`,
+	}, h.events())
+}
+
+func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
+	var (
+		meta = migrationObjmeta()
+		obj  = &dbv1alpha1.AtlasMigration{
+			ObjectMeta: meta,
+			Spec: dbv1alpha1.AtlasMigrationSpec{
+				TargetSpec: v1alpha1.TargetSpec{
+					URL: "sqlite://file?mode=memory",
+				},
+				Cloud: v1alpha1.Cloud{
+					TokenFrom: v1alpha1.TokenFrom{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							Key: "token",
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "my-secret",
+							},
+						},
+					},
+				},
+				Dir: v1alpha1.Dir{
+					Remote: v1alpha1.Remote{
+						Name: "my-dir",
+						Tag:  "v1",
+					},
+				},
+			},
+			Status: v1alpha1.AtlasMigrationStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Ready", Status: metav1.ConditionFalse},
+				},
+			},
+		}
+	)
+	mockExec := &mockAtlasExec{}
+	mockExec.status.res = &atlasexec.MigrateStatus{
+		Current: "2",
+		Applied: []*atlasexec.Revision{
+			{Version: "1"},
+			{Version: "2"},
+		},
+		Available: []atlasexec.File{
+			// Only the first migration is available.
+			// This happens when the migration is downgraded.
+			{Version: "1", Name: "1.sql"},
+		},
+	}
+	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
+		cb.WithObjects(
+			obj, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-secret",
+					Namespace: "default",
+				},
+				Data: map[string][]byte{
+					`token`: []byte(`my-token`),
+				},
+			})
+	}, mockExec)
+	assert := func(except ctrl.Result, ready bool, reason, msg, version, approvalURL, deploymentURL string) {
+		t.Helper()
+		reconcile(obj, func(result ctrl.Result, err error) {
+			require.NoError(t, err)
+			require.EqualValues(t, except, result)
+			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
+			h.get(t, res)
+			require.Len(t, res.Status.Conditions, 1)
+			require.Equal(t, ready, res.IsReady())
+			require.Equal(t, reason, res.Status.Conditions[0].Reason)
+			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, version, res.Status.LastAppliedVersion)
+			require.Equal(t, approvalURL, res.Status.ApprovalURL)
+			require.Equal(t, deploymentURL, res.Status.LastDeploymentURL)
+		})
+	}
+	// No changes because the migration down is not allowed
+	assert(ctrl.Result{}, false, "Migrating", "Migrate down is not allowed", "", "", "")
+
+	obj = &dbv1alpha1.AtlasMigration{
+		ObjectMeta: meta,
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			ProtectedFlows: &dbv1alpha1.ProtectFlows{
+				MigrateDown: &dbv1alpha1.DeploymentFlow{
+					Allow:       true,
+					AutoApprove: true,
+				},
+			},
+		},
+	}
+	h.patch(t, obj)
+	// Unable to migrate down with auto-approve
+	assert(ctrl.Result{}, false, "ReadingMigrationData", "cannot auto-approve migrate-down for remote directory", "", "", "")
+
+	// Refresh the object, and disable auto-approve
+	h.client.Get(context.Background(), client.ObjectKeyFromObject(obj), obj)
+	obj.Spec.ProtectedFlows.MigrateDown.AutoApprove = false
+	h.client.Update(context.Background(), obj)
+
+	mockExec.down.res = &atlasexec.MigrateDown{
+		Current: "2",
+		Target:  "1",
+		Status:  StatePending,
+		URL:     "THIS_IS_DEPLOYMENT_URL",
+	}
+	// Reconcile again
+	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "Deployment is waiting for approval", "", "THIS_IS_DEPLOYMENT_URL", "")
+	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "Deployment is waiting for approval", "", "THIS_IS_DEPLOYMENT_URL", "")
+
+	mockExec.down.res = &atlasexec.MigrateDown{
+		Current: "2",
+		Target:  "1",
+		Status:  StateApproved,
+		URL:     "THIS_IS_DEPLOYMENT_URL",
+	}
+	// The plan is approved, and the migration should be applied
+	assert(ctrl.Result{}, true, "Applied", "", "1", "THIS_IS_DEPLOYMENT_URL", "THIS_IS_DEPLOYMENT_URL")
+
+	// Check the events generated by the controller
+	require.Equal(t, []string{
+		"Warning Error migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
+		"Warning Error cannot auto-approve migrate-down for remote directory",
+		"Warning TransientErr plan approval pending, review here: THIS_IS_DEPLOYMENT_URL",
+		"Warning TransientErr plan approval pending, review here: THIS_IS_DEPLOYMENT_URL",
+		"Normal Applied Version 1 applied",
+	}, h.events())
+}
+
+func TestMigration_MigrateDown_Local(t *testing.T) {
+	var (
+		meta = migrationObjmeta()
+		obj  = &dbv1alpha1.AtlasMigration{
+			ObjectMeta: meta,
+			Spec: dbv1alpha1.AtlasMigrationSpec{
+				TargetSpec: v1alpha1.TargetSpec{
+					URL: "sqlite://file?mode=memory",
+				},
+				Dir: v1alpha1.Dir{
+					Local: map[string]string{
+						"1.sql": "CREATE TABLE t1 (id INT);",
+						"atlas.sum": `h1:NIfJIuMahN58AEbN26mlFN1UfIH5YYAPLVish2vrYA0=
+1.sql h1:0qg7r5sBBfy1rYGVxtli7zUY58RKN5V9gk8tBlLQVDU=
+`,
+					},
+				},
+			},
+			Status: v1alpha1.AtlasMigrationStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Ready", Status: metav1.ConditionFalse},
+				},
+			},
+		}
+	)
+	latestDir := must(memDir(map[string]string{
+		"1.sql": "CREATE TABLE t1 (id INT);",
+		"2.sql": "CREATE TABLE t2 (id INT);",
+		"atlas.sum": `h1:8Ehl3NpkxXEFgRtAWgLEM/zYnb4XFCptf24UF4ceFAE=
+1.sql h1:0qg7r5sBBfy1rYGVxtli7zUY58RKN5V9gk8tBlLQVDU=
+2.sql h1:PXVCtjN2/kqx0z4CPUGz6Oz+1FHbN7TAXi+j+nimLho=
+`,
+	}))
+	mockExec := &mockAtlasExec{}
+	mockExec.status.res = &atlasexec.MigrateStatus{
+		Current: "2",
+		Applied: []*atlasexec.Revision{
+			{Version: "1"},
+			{Version: "2"},
+		},
+		Available: []atlasexec.File{
+			// Only the first migration is available.
+			// This happens when the migration is downgraded.
+			{Version: "1", Name: "1.sql"},
+		},
+	}
+	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
+		cb.WithObjects(
+			obj,
+			must(newSecretObject(obj, latestDir, nil)),
+		)
+	}, mockExec)
+	assert := func(except ctrl.Result, ready bool, reason, msg, version, approvalURL, deploymentURL string) {
+		t.Helper()
+		reconcile(obj, func(result ctrl.Result, err error) {
+			require.NoError(t, err)
+			require.EqualValues(t, except, result)
+			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
+			h.get(t, res)
+			require.Len(t, res.Status.Conditions, 1)
+			require.Equal(t, ready, res.IsReady())
+			require.Equal(t, reason, res.Status.Conditions[0].Reason)
+			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, version, res.Status.LastAppliedVersion)
+			require.Equal(t, approvalURL, res.Status.ApprovalURL)
+			require.Equal(t, deploymentURL, res.Status.LastDeploymentURL)
+		})
+	}
+
+	mockExec.down.res = &atlasexec.MigrateDown{
+		Current: "2",
+		Target:  "1",
+		Status:  StateApplied,
+		URL:     "",
+	}
+	// No changes because the migration down is not allowed
+	assert(ctrl.Result{}, false, "Migrating", "Migrate down is not allowed", "", "", "")
+
+	h.patch(t, &dbv1alpha1.AtlasMigration{
+		ObjectMeta: meta,
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			ProtectedFlows: &dbv1alpha1.ProtectFlows{
+				MigrateDown: &dbv1alpha1.DeploymentFlow{
+					Allow: true,
+				},
+			},
+		},
+	})
+	// Unable to migrate down without auto-approve
+	assert(ctrl.Result{}, false, "ReadingMigrationData", "cannot allow migrate-down without auto-approve", "", "", "")
+
+	h.patch(t, &dbv1alpha1.AtlasMigration{
+		ObjectMeta: meta,
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			ProtectedFlows: &dbv1alpha1.ProtectFlows{
+				MigrateDown: &dbv1alpha1.DeploymentFlow{
+					Allow:       true,
+					AutoApprove: true,
+				},
+			},
+		},
+	})
+	// Migrate down should be successful
+	assert(ctrl.Result{}, true, "Applied", "", "1", "", "")
+
+	// Check the events generated by the controller
+	require.Equal(t, []string{
+		"Warning Error migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
+		"Warning Error cannot allow migrate-down without auto-approve",
+		"Normal Applied Version 1 applied",
 	}, h.events())
 }
 
@@ -436,7 +677,7 @@ func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+	res := &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
@@ -444,19 +685,12 @@ func TestReconcile_reconcile(t *testing.T) {
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
-	})
+	}
+	md, err := tt.r.extractData(context.Background(), res)
 	require.NoError(t, err)
-	wd, err := atlasexec.NewWorkingDir(
-		atlasexec.WithAtlasHCL(md.render),
-		atlasexec.WithMigrations(md.Dir),
-	)
+	err = tt.r.reconcile(context.Background(), md, res)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, wd.Close())
-	}()
-	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
-	require.NoError(t, err)
-	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
+	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
 
 func TestReconcile_reconciling(t *testing.T) {
@@ -473,6 +707,7 @@ func TestReconcile_reconciling(t *testing.T) {
 		},
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    "test",
 			Dir: v1alpha1.Dir{
 				Local: map[string]string{
 					"1.sql": "bar",
@@ -494,33 +729,27 @@ func TestReconcile_reconciling(t *testing.T) {
 func TestReconcile_reconcile_upToDate(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
-	tt.k8s.put(&dbv1alpha1.AtlasMigration{
+	res := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Status: dbv1alpha1.AtlasMigrationStatus{
 			LastAppliedVersion: "20230412003626",
 		},
-	})
+	}
+	tt.k8s.put(res)
 	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    "test",
 			Dir: v1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
 	})
 	require.NoError(t, err)
-	wd, err := atlasexec.NewWorkingDir(
-		atlasexec.WithAtlasHCL(md.render),
-		atlasexec.WithMigrations(md.Dir),
-	)
+	err = tt.r.reconcile(context.Background(), md, res)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, wd.Close())
-	}()
-	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
-	require.NoError(t, err)
-	require.EqualValues(t, "20230412003626", status.LastAppliedVersion)
+	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
 
 func TestReconcile_reconcile_baseline(t *testing.T) {
@@ -529,28 +758,31 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
 	tt.addMigrationScript("20230412003628_create_baz.sql", "CREATE TABLE baz (id INT PRIMARY KEY);")
 
-	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+	res := &v1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    "test",
 			Dir: v1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 			Baseline: "20230412003627",
 		},
-	})
+	}
+	md, err := tt.r.extractData(context.Background(), res)
 	require.NoError(t, err)
+	err = tt.r.reconcile(context.Background(), md, res)
+	require.NoError(t, err)
+	require.EqualValues(t, "20230412003628", res.Status.LastAppliedVersion)
+
 	wd, err := atlasexec.NewWorkingDir(
 		atlasexec.WithAtlasHCL(md.render),
 		atlasexec.WithMigrations(md.Dir),
 	)
 	require.NoError(t, err)
-	defer func() {
+	t.Cleanup(func() {
 		require.NoError(t, wd.Close())
-	}()
-	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
-	require.NoError(t, err)
-	require.EqualValues(t, "20230412003628", status.LastAppliedVersion)
+	})
 	cli, err := tt.r.atlasClient(wd.Path())
 	require.NoError(t, err)
 	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{

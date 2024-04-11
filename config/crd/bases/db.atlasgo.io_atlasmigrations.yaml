@@ -273,6 +273,23 @@ spec:
                 - linear-skip
                 - non-linear
                 type: string
+              protectedFlows:
+                description: ProtectedFlows defines the protected flows of a deployment.
+                properties:
+                  migrateDown:
+                    description: DeploymentFlow defines the flow of a deployment.
+                    properties:
+                      allow:
+                        default: false
+                        description: Allow allows the flow to be executed.
+                        type: boolean
+                      autoApprove:
+                        default: false
+                        description: AutoApprove allows the flow to be automatically
+                          approved.
+                        type: boolean
+                    type: object
+                type: object
               revisionsSchema:
                 description: RevisionsSchema defines the schema that revisions table
                   resides in
@@ -312,6 +329,9 @@ spec:
           status:
             description: AtlasMigrationStatus defines the observed state of AtlasMigration
             properties:
+              approvalUrl:
+                description: ApprovalURL is the URL to approve the migration.
+                type: string
               conditions:
                 description: Conditions represent the latest available observations
                   of an object's state.

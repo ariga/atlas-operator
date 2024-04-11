@@ -45,6 +45,7 @@ type (
 	// AtlasExec is the interface for the Atlas SDK.
 	AtlasExec interface {
 		MigrateApply(ctx context.Context, params *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error)
+		MigrateDown(ctx context.Context, params *atlasexec.MigrateDownParams) (*atlasexec.MigrateDown, error)
 		MigrateLint(ctx context.Context, params *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error)
 		MigrateStatus(ctx context.Context, params *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
 
