@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
@@ -229,8 +228,8 @@ func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasSchema{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasSchema{}).
-		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, r.configMapWatcher).
-		Watches(&source.Kind{Type: &corev1.Secret{}}, r.secretWatcher).
+		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
+		Watches(&corev1.Secret{}, r.secretWatcher).
 		Complete(r)
 }
 

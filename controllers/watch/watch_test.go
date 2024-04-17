@@ -15,6 +15,7 @@
 package watch
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,9 +52,9 @@ func TestWatcher(t *testing.T) {
 	}
 	t.Run("Non-watched object", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 
-		watcher.Create(event.CreateEvent{
+		watcher.Create(context.Background(), event.CreateEvent{
 			Object: obj,
 		}, queue)
 
@@ -63,11 +64,11 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Multiple objects to reconcile", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 		watcher.Watch(objNsName, mdb2.NamespacedName())
 
-		watcher.Create(event.CreateEvent{
+		watcher.Create(context.Background(), event.CreateEvent{
 			Object: obj,
 		}, queue)
 
@@ -77,10 +78,10 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Create event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
-		watcher.Create(event.CreateEvent{
+		watcher.Create(context.Background(), event.CreateEvent{
 			Object: obj,
 		}, queue)
 
@@ -89,10 +90,10 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Update event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
-		watcher.Update(event.UpdateEvent{
+		watcher.Update(context.Background(), event.UpdateEvent{
 			ObjectOld: obj,
 			ObjectNew: obj,
 		}, queue)
@@ -102,10 +103,10 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Delete event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
-		watcher.Delete(event.DeleteEvent{
+		watcher.Delete(context.Background(), event.DeleteEvent{
 			Object: obj,
 		}, queue)
 
@@ -114,10 +115,10 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Generic event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := &controllertest.Queue{Interface: workqueue.New()}
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
-		watcher.Generic(event.GenericEvent{
+		watcher.Generic(context.Background(), event.GenericEvent{
 			Object: obj,
 		}, queue)
 

@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -120,7 +120,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc resourceOwner, targetUR
 		// The dev database already exists,
 		// If it is scaled down, scale it up.
 		if deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0 {
-			deploy.Spec.Replicas = pointer.Int32(1)
+			deploy.Spec.Replicas = ptr.To[int32](1)
 			if err := r.Update(ctx, deploy); err != nil {
 				return "", transient(err)
 			}
