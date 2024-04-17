@@ -33,9 +33,6 @@ import (
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
-	"github.com/ariga/atlas-operator/api/v1alpha1"
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,6 +43,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/ariga/atlas-operator/api/v1alpha1"
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
 )
 
 func TestReconcile_Notfound(t *testing.T) {
@@ -72,6 +73,7 @@ func TestMigration_ConfigMap(t *testing.T) {
 		},
 	}
 	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "migrations-dir",
@@ -165,6 +167,7 @@ func TestMigration_Local(t *testing.T) {
 		},
 	}
 	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj)
 	})
 	assert := func(except ctrl.Result, ready bool, reason, msg, version string) {

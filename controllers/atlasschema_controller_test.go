@@ -29,9 +29,6 @@ import (
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
-	"github.com/ariga/atlas-operator/api/v1alpha1"
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/controllers/watch"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -42,10 +39,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/ariga/atlas-operator/api/v1alpha1"
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/controllers/watch"
 )
 
 const (
@@ -111,6 +112,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 		Spec:       dbv1alpha1.AtlasSchemaSpec{},
 	}
 	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj)
 	})
 	assert := func(except ctrl.Result, ready bool, reason, msg string) {
@@ -673,7 +675,7 @@ func TestMock(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: pointer.Int32(1),
+			Replicas: ptr.To[int32](1),
 		},
 	})
 	var d appsv1.Deployment
@@ -688,7 +690,7 @@ func TestMock(t *testing.T) {
 		Namespace: "default",
 	}, &d)
 	require.NoError(t, err)
-	require.EqualValues(t, d.Spec.Replicas, pointer.Int32(1))
+	require.EqualValues(t, d.Spec.Replicas, ptr.To[int32](1))
 }
 
 func (m *mockClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {

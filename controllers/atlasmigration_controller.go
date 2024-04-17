@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
@@ -186,8 +185,8 @@ func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbv1alpha1.AtlasMigration{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasMigration{}).
-		Watches(&source.Kind{Type: &corev1.Secret{}}, r.secretWatcher).
-		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, r.configMapWatcher).
+		Watches(&corev1.Secret{}, r.secretWatcher).
+		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
 		Complete(r)
 }
 
