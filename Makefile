@@ -87,6 +87,11 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: kind-image
+KIND_CLUSTER ?= kind
+kind-image:
+	kind load docker-image ${IMG} --name $(KIND_CLUSTER)
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
