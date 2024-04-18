@@ -29,7 +29,7 @@ podLabels: {}
 podSecurityContext:
   runAsNonRoot: true
 
-securityContext:
+containerSecurityContext:
   runAsUser: 1000
   allowPrivilegeEscalation: false
   capabilities:
