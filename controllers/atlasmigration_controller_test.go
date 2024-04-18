@@ -710,9 +710,9 @@ func TestWatcher_enabled(t *testing.T) {
 func TestDefaultTemplate(t *testing.T) {
 	migrate := &migrationData{
 		URL: must(url.Parse("sqlite://file2/?mode=memory")),
-		Dir: mapFS(map[string]string{
+		Dir: must(memDir(map[string]string{
 			"1.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
-		}),
+		})),
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
@@ -729,7 +729,7 @@ env {
 func TestBaselineTemplate(t *testing.T) {
 	migrate := &migrationData{
 		URL:      must(url.Parse("sqlite://file2/?mode=memory")),
-		Dir:      mapFS(map[string]string{}),
+		Dir:      must(memDir(map[string]string{})),
 		Baseline: "20230412003626",
 	}
 	var fileContent bytes.Buffer
@@ -903,7 +903,7 @@ func (t *migrationTest) addMigrationScript(name, content string) {
 	cm.Data[name] = content
 	t.k8s.put(&cm)
 
-	sum, err := checkSumDir(mapFS(cm.Data))
+	sum, err := must(memDir(cm.Data)).Checksum()
 	require.NoError(t, err)
 	atlasSum, err := sum.MarshalText()
 	require.NoError(t, err)

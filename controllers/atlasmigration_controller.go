@@ -36,7 +36,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/url"
 	"strings"
 
@@ -76,7 +75,7 @@ type (
 	migrationData struct {
 		EnvName         string
 		URL             *url.URL
-		Dir             fs.FS
+		Dir             migrate.Dir
 		Cloud           *cloud
 		RevisionsSchema string
 		Baseline        string
@@ -302,9 +301,15 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if err != nil {
 			return nil, err
 		}
-		data.Dir = mapFS(cfgMap.Data)
+		data.Dir, err = memDir(cfgMap.Data)
+		if err != nil {
+			return nil, err
+		}
 	case d.Local != nil:
-		data.Dir = mapFS(d.Local)
+		data.Dir, err = memDir(d.Local)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New("no directory specified")
 	}
@@ -335,7 +340,7 @@ func (d *migrationData) hash() (string, error) {
 		h.Write([]byte(d.Cloud.RemoteDir.Tag))
 	case d.Dir != nil:
 		// Hash local directory
-		hf, err := checkSumDir(d.Dir)
+		hf, err := d.Dir.Checksum()
 		if err != nil {
 			return "", err
 		}
@@ -382,22 +387,4 @@ func (c *cloud) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
-}
-
-func checkSumDir(src fs.FS) (migrate.HashFile, error) {
-	names, err := fs.Glob(src, "*.sql")
-	if err != nil {
-		return nil, err
-	}
-	dir := &migrate.MemDir{}
-	for _, name := range names {
-		data, err := fs.ReadFile(src, name)
-		if err != nil {
-			return nil, err
-		}
-		if err = dir.WriteFile(name, data); err != nil {
-			return nil, err
-		}
-	}
-	return dir.Checksum()
 }
