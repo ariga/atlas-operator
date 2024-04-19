@@ -40,8 +40,8 @@ import (
 	"github.com/ariga/atlas-operator/controllers/watch"
 )
 
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete;get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=create;get;list;watch
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=create;delete;get;list;watch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasschemas,verbs=get;list;watch;create;update;patch;delete

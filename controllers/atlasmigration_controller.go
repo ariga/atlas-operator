@@ -40,6 +40,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -54,7 +55,7 @@ import (
 	"github.com/ariga/atlas-operator/controllers/watch"
 )
 
-//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=create;update;delete;get;list;watch
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/finalizers,verbs=update
@@ -173,10 +174,45 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
+	if data.Dir != nil {
+		// Compress the migration directory then store it in the secret
+		// for later use when atlas runs the migration down.
+		if err := r.storeMigrations(ctx, res, data.Dir); err != nil {
+			res.SetNotReady("StoringMigrationDir", err.Error())
+			r.recordErrEvent(res, err)
+			return result(err)
+		}
+	}
 	status.ObservedHash = hash
 	res.SetReady(*status)
 	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
 	return ctrl.Result{}, nil
+}
+
+func (r *AtlasMigrationReconciler) storeMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
+	var labels = map[string]string{}
+	for k, v := range res.Labels {
+		labels[k] = v
+	}
+	files, err := dir.Files()
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return errors.New("no migration files found")
+	}
+	latest := files[len(files)-1]
+	labels["name"] = res.Name
+	secret, err := newSecretObject(makeKey(res.Name, latest.Version()), dir, labels)
+	if err != nil {
+		return err
+	}
+	// Set the namespace of the secret to the same as the resource
+	secret.Namespace = res.Namespace
+	if err := r.Create(ctx, secret); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -387,4 +423,36 @@ func (c *cloud) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+func makeKey(resName, version string) string {
+	// Inspired by the helm chart key format
+	// TODO: Choose a better key format
+	const storageKey = "io.atlasgo.migration.v1"
+	return fmt.Sprintf("%s.%s.v%s", storageKey, resName, version)
+}
+
+func newSecretObject(key string, dir migrate.Dir, labels map[string]string) (*corev1.Secret, error) {
+	const owner = "atlasgo.io"
+	tar, err := migrate.ArchiveDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels["owner"] = owner
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   key,
+			Labels: labels,
+		},
+		// TODO: Choose a better type for the secret
+		Type: "atlasgo.io/migration.v1",
+		Data: map[string][]byte{
+			// k8s already encodes the tarball in base64
+			// so we don't need to encode it again.
+			"migrations.tar": tar,
+		},
+	}, nil
 }
