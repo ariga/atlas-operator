@@ -60,10 +60,14 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, 
 				"unable to remove temporary directory", "dir", dir)
 		}
 	}()
-	err = wd.CopyFS(lintDirName, mapFS(map[string]string{
+	dir, err := memDir(map[string]string{
 		"1.sql": current,
 		"2.sql": strings.Join(plan.Changes.Pending, ";\n"),
-	}))
+	})
+	if err != nil {
+		return err
+	}
+	err = wd.CopyFS(lintDirName, dir)
 	if err != nil {
 		return err
 	}

@@ -19,13 +19,12 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io/fs"
 	"regexp"
 	"strings"
-	"testing/fstest"
 	"text/template"
 	"time"
 
+	"ariga.io/atlas/sql/migrate"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -104,12 +103,15 @@ func getSecretValue(ctx context.Context, r client.Reader, ns string, selector *c
 	return string(secret.Data[selector.Key]), nil
 }
 
-func mapFS(m map[string]string) fs.FS {
-	f := fstest.MapFS{}
+// memDir creates a memory directory from the given map.
+func memDir(m map[string]string) (migrate.Dir, error) {
+	f := &migrate.MemDir{}
 	for key, value := range m {
-		f[key] = &fstest.MapFile{Data: []byte(value)}
+		if err := f.WriteFile(key, []byte(value)); err != nil {
+			return nil, err
+		}
 	}
-	return f
+	return f, nil
 }
 
 // isSQLErr returns true if the error is a SQL error.
