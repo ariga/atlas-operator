@@ -737,7 +737,7 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, c)
 	ev := tt.events()
-	require.Len(t, ev, 1)
+	require.Len(t, ev, 2)
 	require.Equal(t, "Normal Applied Version 20230412003626 applied", ev[0])
 }
 
@@ -759,7 +759,8 @@ func TestWatcher_enabled(t *testing.T) {
 
 func TestDefaultTemplate(t *testing.T) {
 	migrate := &migrationData{
-		URL: must(url.Parse("sqlite://file2/?mode=memory")),
+		URL:    must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL: "sqlite://dev/?mode=memory",
 		Dir: must(memDir(map[string]string{
 			"1.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
 		})),
@@ -769,7 +770,8 @@ func TestDefaultTemplate(t *testing.T) {
 	require.EqualValues(t, `
 env {
   name = atlas.env
-  url = "sqlite://file2/?mode=memory"
+  url  = "sqlite://file2/?mode=memory"
+  dev  = "sqlite://dev/?mode=memory"
   migration {
     dir = "file://migrations"
   }
@@ -779,6 +781,7 @@ env {
 func TestBaselineTemplate(t *testing.T) {
 	migrate := &migrationData{
 		URL:      must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:   "sqlite://dev/?mode=memory",
 		Dir:      must(memDir(map[string]string{})),
 		Baseline: "20230412003626",
 	}
@@ -787,7 +790,8 @@ func TestBaselineTemplate(t *testing.T) {
 	require.EqualValues(t, `
 env {
   name = atlas.env
-  url = "sqlite://file2/?mode=memory"
+  url  = "sqlite://file2/?mode=memory"
+  dev  = "sqlite://dev/?mode=memory"
   migration {
     dir = "file://migrations"
     baseline = "20230412003626"
@@ -797,7 +801,8 @@ env {
 
 func TestCloudTemplate(t *testing.T) {
 	migrate := &migrationData{
-		URL: must(url.Parse("sqlite://file2/?mode=memory")),
+		URL:    must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL: "sqlite://dev/?mode=memory",
 		Cloud: &cloud{
 			URL:     "https://atlasgo.io/",
 			Project: "my-project",
@@ -820,7 +825,8 @@ atlas {
 }
 env {
   name = atlas.env
-  url = "sqlite://file2/?mode=memory"
+  url  = "sqlite://file2/?mode=memory"
+  dev  = "sqlite://dev/?mode=memory"
   migration {
     dir = "atlas://my-remote-dir?tag=my-remote-tag"
   }
@@ -922,6 +928,7 @@ func newMigrationTest(t *testing.T) *migrationTest {
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
+	r := record.NewFakeRecorder(100)
 	return &migrationTest{
 		T:   t,
 		k8s: m,
@@ -930,7 +937,12 @@ func newMigrationTest(t *testing.T) *migrationTest {
 			scheme:           scheme,
 			secretWatcher:    watch.New(),
 			configMapWatcher: watch.New(),
-			recorder:         record.NewFakeRecorder(100),
+			recorder:         r,
+			devDB: &devDBReconciler{
+				Client:   m,
+				scheme:   scheme,
+				recorder: r,
+			},
 		},
 	}
 }

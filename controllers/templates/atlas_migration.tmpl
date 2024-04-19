@@ -13,7 +13,8 @@ atlas {
 {{- end }}
 env {
   name = atlas.env
-  url = "{{ removeSpecialChars .URL }}"
+  url  = "{{ removeSpecialChars .URL }}"
+  dev  = "{{ removeSpecialChars .DevURL }}"
   migration {
     dir = "{{ .DirURL }}"
 {{- if .ExecOrder }}
