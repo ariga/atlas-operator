@@ -49,6 +49,7 @@ jobs:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
           tags: |
             type=schedule
+            type=sha
             type=ref,event=branch
             type=semver,pattern={{version}}
           labels: |
