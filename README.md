@@ -108,7 +108,7 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 ### Authentication
 
-If you want use use any feature that requires logging in (Trigger, Functions, Procedure, and Sequence support or SQL Server, ClickHouse, Redshift drivers), you need to provide the operator with an  Atlas token. You can do this by creating a secret with the token:
+If you want use use any feature that requires logging in (triggers, functions, procedures, sequence support or SQL Server, ClickHouse, and Redshift drivers), you need to provide the operator with an  Atlas token. You can do this by creating a secret with the token:
 
 ```shell
 kubectl create secret generic atlas-token-secret \
