@@ -70,11 +70,11 @@ To configure the operator, you can set the following values in the `values.yaml`
   # extraEnvs:
   #   - name: FOO
   #     value: "foo"
-  #   - name: BAR
+  #   - name: ATLAS_TOKEN
   #     valueFrom:
   #       secretKeyRef:
-  #         key: BAR
-  #         name: secret-resource
+  #         key: ATLAS_TOKEN
+  #         name: atlas-token-secret
   #   - name: BAZ
   #     valueFrom:
   #       configMapKeyRef:
