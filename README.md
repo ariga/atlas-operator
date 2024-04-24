@@ -106,6 +106,27 @@ To configure the operator, you can set the following values in the `values.yaml`
   #     mountPath: /path/to/mount
 ```
 
+### Authentication
+
+If you want use use any feature that requires logging in (triggers, functions, procedures, sequence support or SQL Server, ClickHouse, and Redshift drivers), you need to provide the operator with an  Atlas token. You can do this by creating a secret with the token:
+
+```shell
+kubectl create secret generic atlas-token-secret \
+  --from-literal=ATLAS_TOKEN='aci_xxxxxxx'
+```
+
+Then set the `ATLAS_TOKEN` environment variable in the operator's deployment manifest:
+
+```yaml
+values:
+  extraEnvs:
+    - name: ATLAS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          key: ATLAS_TOKEN
+          name: atlas-token-secret
+```
+
 ### Getting started
 
 In this example, we will create a MySQL database and apply a schema to it. After installing the
