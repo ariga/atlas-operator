@@ -30,6 +30,8 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -195,6 +197,19 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	res.SetReady(*status)
 	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
 	return ctrl.Result{}, nil
+}
+
+func (r *AtlasMigrationReconciler) readMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration) (migrate.Dir, error) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      makeKeyLatest(res.Name),
+			Namespace: res.Namespace,
+		},
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
+		return nil, err
+	}
+	return extractDirFromSecret(secret)
 }
 
 func (r *AtlasMigrationReconciler) storeMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
@@ -448,14 +463,19 @@ func makeKeyLatest(resName string) string {
 
 func newSecretObject(key string, dir migrate.Dir, labels map[string]string) (*corev1.Secret, error) {
 	const owner = "atlasgo.io"
-	tar, err := migrate.ArchiveDir(dir)
-	if err != nil {
-		return nil, err
-	}
 	if labels == nil {
 		labels = map[string]string{}
 	}
 	labels["owner"] = owner
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if err := migrate.ArchiveDirTo(w, dir); err != nil {
+		return nil, err
+	}
+	// Close the gzip writer to flush the buffer
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   key,
@@ -465,7 +485,22 @@ func newSecretObject(key string, dir migrate.Dir, labels map[string]string) (*co
 		Data: map[string][]byte{
 			// k8s already encodes the tarball in base64
 			// so we don't need to encode it again.
-			"migrations.tar": tar,
+			"migrations.tar.gz": buf.Bytes(),
 		},
 	}, nil
+}
+
+func extractDirFromSecret(sec *corev1.Secret) (migrate.Dir, error) {
+	if sec.Type != "atlasgo.io/db.v1" {
+		return nil, fmt.Errorf("invalid secret type, got %q", sec.Type)
+	}
+	tarball, ok := sec.Data["migrations.tar.gz"]
+	if !ok {
+		return nil, errors.New("migrations.tar.gz not found")
+	}
+	r, err := gzip.NewReader(bytes.NewReader(tarball))
+	if err != nil {
+		return nil, err
+	}
+	return migrate.UnarchiveDirFrom(r)
 }
