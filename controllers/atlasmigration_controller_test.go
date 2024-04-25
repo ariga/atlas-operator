@@ -352,7 +352,7 @@ func TestReconcile_LocalMigrationDir(t *testing.T) {
 	require.NotNil(t, fsDir)
 
 	// Check the content of the tarball
-	dir, err := tt.r.readMigrations(context.Background(), am)
+	dir, err := tt.r.readDirState(context.Background(), am)
 	require.NoError(t, err)
 	require.NotNil(t, dir)
 	// It should contain the same files as the local directory

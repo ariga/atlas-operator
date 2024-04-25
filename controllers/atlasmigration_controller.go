@@ -114,7 +114,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
 		if apierrors.IsNotFound(err) {
 			// The resource has been deleted, clean up its migration directory.
-			if err := r.deleteMigrations(ctx, res); err != nil {
+			if err := r.deleteDirState(ctx, res); err != nil {
 				log.Error(err, "failed to delete migration directory")
 			}
 			return ctrl.Result{}, nil
@@ -187,8 +187,8 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if data.Dir != nil {
 		// Compress the migration directory then store it in the secret
 		// for later use when atlas runs the migration down.
-		if err := r.storeMigrations(ctx, res, data.Dir); err != nil {
-			res.SetNotReady("StoringMigrationDir", err.Error())
+		if err := r.storeDirState(ctx, res, data.Dir); err != nil {
+			res.SetNotReady("StoringDirState", err.Error())
 			r.recordErrEvent(res, err)
 			return result(err)
 		}
@@ -199,7 +199,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *AtlasMigrationReconciler) readMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration) (migrate.Dir, error) {
+func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration) (migrate.Dir, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      makeKeyLatest(res.Name),
@@ -212,7 +212,7 @@ func (r *AtlasMigrationReconciler) readMigrations(ctx context.Context, res *dbv1
 	return extractDirFromSecret(secret)
 }
 
-func (r *AtlasMigrationReconciler) storeMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
+func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
 	var labels = map[string]string{}
 	for k, v := range res.Labels {
 		labels[k] = v
@@ -235,7 +235,7 @@ func (r *AtlasMigrationReconciler) storeMigrations(ctx context.Context, res *dbv
 	}
 }
 
-func (r *AtlasMigrationReconciler) deleteMigrations(ctx context.Context, res *dbv1alpha1.AtlasMigration) error {
+func (r *AtlasMigrationReconciler) deleteDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      makeKeyLatest(res.Name),
