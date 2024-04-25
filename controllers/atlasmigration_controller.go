@@ -199,11 +199,11 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration) (migrate.Dir, error) {
+func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      makeKeyLatest(res.Name),
-			Namespace: res.Namespace,
+			Name:      makeKeyLatest(obj.GetName()),
+			Namespace: obj.GetNamespace(),
 		},
 	}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
@@ -212,18 +212,18 @@ func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, res *dbv1al
 	return extractDirFromSecret(secret)
 }
 
-func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
-	var labels = make(map[string]string, len(res.Labels)+1)
-	for k, v := range res.Labels {
+func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client.Object, dir migrate.Dir) error {
+	var labels = make(map[string]string, len(obj.GetLabels())+1)
+	for k, v := range obj.GetLabels() {
 		labels[k] = v
 	}
-	labels["name"] = res.Name
-	secret, err := newSecretObject(makeKeyLatest(res.Name), dir, labels)
+	labels["name"] = obj.GetName()
+	secret, err := newSecretObject(makeKeyLatest(obj.GetName()), dir, labels)
 	if err != nil {
 		return err
 	}
 	// Set the namespace of the secret to the same as the resource
-	secret.Namespace = res.Namespace
+	secret.Namespace = obj.GetNamespace()
 	switch err := r.Create(ctx, secret); {
 	case err == nil:
 		return nil
@@ -235,11 +235,11 @@ func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, res *dbv1a
 	}
 }
 
-func (r *AtlasMigrationReconciler) deleteDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration) error {
+func (r *AtlasMigrationReconciler) deleteDirState(ctx context.Context, obj client.Object) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      makeKeyLatest(res.Name),
-			Namespace: res.Namespace,
+			Name:      makeKeyLatest(obj.GetName()),
+			Namespace: obj.GetNamespace(),
 		},
 	}
 	return client.IgnoreNotFound(r.Delete(ctx, secret))
