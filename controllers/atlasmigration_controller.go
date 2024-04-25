@@ -112,14 +112,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		res = &dbv1alpha1.AtlasMigration{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
-		if apierrors.IsNotFound(err) {
-			// The resource has been deleted, clean up its migration directory.
-			if err := r.deleteDirState(ctx, res); err != nil {
-				log.Error(err, "failed to delete migration directory")
-			}
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() {
 		// At the end of reconcile, update the status of the resource base on the error
@@ -218,7 +211,7 @@ func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client
 		labels[k] = v
 	}
 	labels["name"] = obj.GetName()
-	secret, err := newSecretObject(makeKeyLatest(obj.GetName()), dir, labels)
+	secret, err := newSecretObject(obj, dir, labels)
 	if err != nil {
 		return err
 	}
@@ -233,16 +226,6 @@ func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client
 	default:
 		return err
 	}
-}
-
-func (r *AtlasMigrationReconciler) deleteDirState(ctx context.Context, obj client.Object) error {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      makeKeyLatest(obj.GetName()),
-			Namespace: obj.GetNamespace(),
-		},
-	}
-	return client.IgnoreNotFound(r.Delete(ctx, secret))
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -461,7 +444,7 @@ func makeKeyLatest(resName string) string {
 	return fmt.Sprintf("%s.%s.latest", storageKey, resName)
 }
 
-func newSecretObject(key string, dir migrate.Dir, labels map[string]string) (*corev1.Secret, error) {
+func newSecretObject(obj client.Object, dir migrate.Dir, labels map[string]string) (*corev1.Secret, error) {
 	const owner = "atlasgo.io"
 	if labels == nil {
 		labels = map[string]string{}
@@ -478,8 +461,13 @@ func newSecretObject(key string, dir migrate.Dir, labels map[string]string) (*co
 	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   key,
+			Name:   makeKeyLatest(obj.GetName()),
 			Labels: labels,
+			OwnerReferences: []metav1.OwnerReference{
+				// Set the owner reference to the given object
+				// This will ensure that the secret is deleted when the owner is deleted.
+				*metav1.NewControllerRef(obj, obj.GetObjectKind().GroupVersionKind()),
+			},
 		},
 		Type: "atlasgo.io/db.v1",
 		Data: map[string][]byte{

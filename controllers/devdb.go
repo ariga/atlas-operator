@@ -133,7 +133,11 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc resourceOwner, targetUR
 		if err != nil {
 			return "", err
 		}
-		ctrl.SetControllerReference(sc, deploy, r.scheme)
+		// Set the owner reference to the given object
+		// This will ensure that the deployment is deleted when the owner is deleted.
+		if err := ctrl.SetControllerReference(sc, deploy, r.scheme); err != nil {
+			return "", err
+		}
 		if err := r.Create(ctx, deploy); err != nil {
 			return "", transient(err)
 		}
