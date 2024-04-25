@@ -213,7 +213,7 @@ func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, res *dbv1al
 }
 
 func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, res *dbv1alpha1.AtlasMigration, dir migrate.Dir) error {
-	var labels = map[string]string{}
+	var labels = make(map[string]string, len(res.Labels)+1)
 	for k, v := range res.Labels {
 		labels[k] = v
 	}
