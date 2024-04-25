@@ -24,8 +24,11 @@ rules:
   - configmaps
   - secrets
   verbs:
+  - create
+  - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - ""

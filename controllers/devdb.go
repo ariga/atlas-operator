@@ -53,10 +53,6 @@ type (
 		recorder record.EventRecorder
 		prewarm  bool
 	}
-	resourceOwner interface {
-		metav1.Object
-		runtime.Object
-	}
 )
 
 func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconciler {
@@ -74,7 +70,7 @@ func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconcile
 }
 
 // cleanUp clean up any resources created by the controller
-func (r *devDBReconciler) cleanUp(ctx context.Context, sc resourceOwner) {
+func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 	// If prewarmDevDB is false, scale down the deployment to 0
 	if !r.prewarm {
 		deploy := &appsv1.Deployment{}
@@ -107,7 +103,7 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc resourceOwner) {
 
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
-func (r *devDBReconciler) devURL(ctx context.Context, sc resourceOwner, targetURL url.URL) (string, error) {
+func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL) (string, error) {
 	drv := driver(targetURL.Scheme)
 	if drv == "sqlite" {
 		return "sqlite://db?mode=memory", nil
@@ -133,7 +129,11 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc resourceOwner, targetUR
 		if err != nil {
 			return "", err
 		}
-		ctrl.SetControllerReference(sc, deploy, r.scheme)
+		// Set the owner reference to the given object
+		// This will ensure that the deployment is deleted when the owner is deleted.
+		if err := ctrl.SetControllerReference(sc, deploy, r.scheme); err != nil {
+			return "", err
+		}
 		if err := r.Create(ctx, deploy); err != nil {
 			return "", transient(err)
 		}

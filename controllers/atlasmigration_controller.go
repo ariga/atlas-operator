@@ -30,6 +30,8 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -40,6 +42,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -54,7 +58,7 @@ import (
 	"github.com/ariga/atlas-operator/controllers/watch"
 )
 
-//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=create;update;delete;get;list;watch
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=db.atlasgo.io,resources=atlasmigrations/finalizers,verbs=update
@@ -173,10 +177,55 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
+	if data.Dir != nil {
+		// Compress the migration directory then store it in the secret
+		// for later use when atlas runs the migration down.
+		if err := r.storeDirState(ctx, res, data.Dir); err != nil {
+			res.SetNotReady("StoringDirState", err.Error())
+			r.recordErrEvent(res, err)
+			return result(err)
+		}
+	}
 	status.ObservedHash = hash
 	res.SetReady(*status)
 	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
 	return ctrl.Result{}, nil
+}
+
+func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      makeKeyLatest(obj.GetName()),
+			Namespace: obj.GetNamespace(),
+		},
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
+		return nil, err
+	}
+	return extractDirFromSecret(secret)
+}
+
+func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client.Object, dir migrate.Dir) error {
+	var labels = make(map[string]string, len(obj.GetLabels())+1)
+	for k, v := range obj.GetLabels() {
+		labels[k] = v
+	}
+	labels["name"] = obj.GetName()
+	secret, err := newSecretObject(obj, dir, labels)
+	if err != nil {
+		return err
+	}
+	// Set the namespace of the secret to the same as the resource
+	secret.Namespace = obj.GetNamespace()
+	switch err := r.Create(ctx, secret); {
+	case err == nil:
+		return nil
+	case apierrors.IsAlreadyExists(err):
+		// Update the secret if it already exists
+		return r.Update(ctx, secret)
+	default:
+		return err
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -387,4 +436,59 @@ func (c *cloud) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+func makeKeyLatest(resName string) string {
+	// Inspired by the helm chart key format
+	const storageKey = "io.atlasgo.db.v1"
+	return fmt.Sprintf("%s.%s.latest", storageKey, resName)
+}
+
+func newSecretObject(obj client.Object, dir migrate.Dir, labels map[string]string) (*corev1.Secret, error) {
+	const owner = "atlasgo.io"
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels["owner"] = owner
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if err := migrate.ArchiveDirTo(w, dir); err != nil {
+		return nil, err
+	}
+	// Close the gzip writer to flush the buffer
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   makeKeyLatest(obj.GetName()),
+			Labels: labels,
+			OwnerReferences: []metav1.OwnerReference{
+				// Set the owner reference to the given object
+				// This will ensure that the secret is deleted when the owner is deleted.
+				*metav1.NewControllerRef(obj, obj.GetObjectKind().GroupVersionKind()),
+			},
+		},
+		Type: "atlasgo.io/db.v1",
+		Data: map[string][]byte{
+			// k8s already encodes the tarball in base64
+			// so we don't need to encode it again.
+			"migrations.tar.gz": buf.Bytes(),
+		},
+	}, nil
+}
+
+func extractDirFromSecret(sec *corev1.Secret) (migrate.Dir, error) {
+	if sec.Type != "atlasgo.io/db.v1" {
+		return nil, fmt.Errorf("invalid secret type, got %q", sec.Type)
+	}
+	tarball, ok := sec.Data["migrations.tar.gz"]
+	if !ok {
+		return nil, errors.New("migrations.tar.gz not found")
+	}
+	r, err := gzip.NewReader(bytes.NewReader(tarball))
+	if err != nil {
+		return nil, err
+	}
+	return migrate.UnarchiveDirFrom(r)
 }
