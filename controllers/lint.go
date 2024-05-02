@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	atlas "ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/sqlcheck"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -34,19 +34,19 @@ const lintDirName = "lint-migrations"
 // - 1.sql: the current schema.
 // - 2.sql: the pending changes.
 // Then it runs `atlas migrate lint` in the temporary directory.
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, envName string, vars atlas.Vars) error {
-	cli, err := atlas.NewClient(wd.Path(), r.execPath)
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, envName string, vars atlasexec.Vars) error {
+	cli, err := r.atlasClient(wd.Path())
 	if err != nil {
 		return err
 	}
-	current, err := cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+	current, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		Env:    envName,
 		Format: "sql",
 	})
 	if err != nil {
 		return err
 	}
-	plan, err := cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	plan, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 		DryRun: true, // Dry run to get pending changes.
 		Env:    envName,
 	})
@@ -71,7 +71,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, 
 	if err != nil {
 		return err
 	}
-	lint, err := cli.MigrateLint(ctx, &atlas.MigrateLintParams{
+	lint, err := cli.MigrateLint(ctx, &atlasexec.MigrateLintParams{
 		DirURL: fmt.Sprintf("file://./%s", lintDirName),
 		Env:    envName,
 		Latest: 1, // Only lint 2.sql, pending changes.
@@ -86,7 +86,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlas.WorkingDir, 
 	return nil
 }
 
-func destructive(rep *atlas.SummaryReport) (checks []sqlcheck.Diagnostic) {
+func destructive(rep *atlasexec.SummaryReport) (checks []sqlcheck.Diagnostic) {
 	for _, f := range rep.Files {
 		for _, r := range f.Reports {
 			if f.Error == "" {

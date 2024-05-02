@@ -21,14 +21,12 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
-	atlas "ariga.io/atlas-go-sdk/atlasexec"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -264,9 +262,9 @@ func TestSchemaConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the schema was applied.
-	cli, err := atlasexec.NewClient("", tt.r.execPath)
+	cli, err := tt.r.atlasClient("")
 	require.NoError(t, err)
-	inspect, err := cli.SchemaInspect(ctx, &atlas.SchemaInspectParams{
+	inspect, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
 		DevURL: "sqlite://mem?mode=memory",
 		Format: "sql",
@@ -348,9 +346,9 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.Contains(t, ev, "FirstRunDestructive")
 	require.Contains(t, ev, "Warning")
 
-	cli, err := atlasexec.NewClient("", tt.r.execPath)
+	cli, err := tt.r.atlasClient("")
 	require.NoError(t, err)
-	ins, err := cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
 		Format: "sql",
 	})
@@ -397,9 +395,9 @@ func TestDiffPolicy(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	cli, err := atlasexec.NewClient("", tt.r.execPath)
+	cli, err := tt.r.atlasClient("")
 	require.NoError(t, err)
-	ins, err := cli.SchemaInspect(context.Background(), &atlas.SchemaInspectParams{
+	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
 		Format: "sql",
 	})
@@ -549,7 +547,7 @@ type test struct {
 func cliTest(t *testing.T) *test {
 	tt := newTest(t)
 	var err error
-	tt.r.execPath, err = exec.LookPath("atlas")
+	tt.r.atlasClient = globalAtlasMock
 	require.NoError(t, err)
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
@@ -564,8 +562,6 @@ func newTest(t *testing.T) *test {
 	m := &mockClient{
 		state: map[client.ObjectKey]client.Object{},
 	}
-	execPath, err := exec.LookPath("atlas")
-	require.NoError(t, err)
 	r := record.NewFakeRecorder(100)
 	return &test{
 		T:   t,
@@ -573,7 +569,7 @@ func newTest(t *testing.T) *test {
 		r: &AtlasSchemaReconciler{
 			Client:           m,
 			scheme:           scheme,
-			execPath:         execPath,
+			atlasClient:      globalAtlasMock,
 			configMapWatcher: watch.New(),
 			secretWatcher:    watch.New(),
 			recorder:         r,
@@ -732,7 +728,7 @@ func (t *test) initDB(statement string) {
 	require.NoError(t, err)
 	cli, err := atlasexec.NewClient(wd.Path(), "atlas")
 	require.NoError(t, err)
-	_, err = cli.SchemaApply(context.Background(), &atlas.SchemaApplyParams{
+	_, err = cli.SchemaApply(context.Background(), &atlasexec.SchemaApplyParams{
 		URL:    t.dburl,
 		DevURL: "sqlite://file2/?mode=memory",
 		To:     "file://./schema.sql",
