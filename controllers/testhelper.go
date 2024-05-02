@@ -16,9 +16,9 @@ package controllers
 
 import (
 	"context"
-	"os/exec"
 	"testing"
 
+	"ariga.io/atlas-go-sdk/atlasexec"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -45,12 +45,12 @@ type (
 	}
 )
 
+var globalAtlasMock = func(dir string) (AtlasExec, error) {
+	return atlasexec.NewClient(dir, "atlas")
+}
+
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
-func newRunner[T reconcile.Reconciler](fn func(Manager, string, bool) T, modify func(*fake.ClientBuilder)) (*helper, runner) {
-	execPath, err := exec.LookPath("atlas")
-	if err != nil {
-		panic(err)
-	}
+func newRunner[T reconcile.Reconciler](fn func(Manager, AtlasExecFn, bool) T, modify func(*fake.ClientBuilder)) (*helper, runner) {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
 	dbv1alpha1.AddToScheme(scheme)
@@ -64,7 +64,7 @@ func newRunner[T reconcile.Reconciler](fn func(Manager, string, bool) T, modify 
 		client:   c,
 		recorder: r,
 		scheme:   scheme,
-	}, execPath, true)
+	}, globalAtlasMock, true)
 	h := &helper{client: c, recorder: r}
 	return h, func(obj client.Object, fn check) {
 		fn(a.Reconcile(context.Background(), request(obj)))

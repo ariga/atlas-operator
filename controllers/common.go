@@ -24,6 +24,7 @@ import (
 	"text/template"
 	"time"
 
+	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,11 +36,25 @@ import (
 
 const defaultEnvName = "kubernetes"
 
-type Manager interface {
-	GetClient() client.Client
-	GetScheme() *runtime.Scheme
-	GetEventRecorderFor(name string) record.EventRecorder
-}
+type (
+	Manager interface {
+		GetClient() client.Client
+		GetScheme() *runtime.Scheme
+		GetEventRecorderFor(name string) record.EventRecorder
+	}
+	// AtlasExec is the interface for the Atlas SDK.
+	AtlasExec interface {
+		MigrateApply(ctx context.Context, params *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error)
+		MigrateLint(ctx context.Context, params *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error)
+		MigrateStatus(ctx context.Context, params *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
+
+		SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
+		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
+	}
+	// AtlasExecFn is a function that returns an AtlasExec
+	// with the working directory.
+	AtlasExecFn func(string) (AtlasExec, error)
+)
 
 var (
 	//go:embed templates

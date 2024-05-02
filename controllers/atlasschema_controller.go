@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	atlas "ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
 )
@@ -52,7 +52,7 @@ type (
 	// AtlasSchemaReconciler reconciles a AtlasSchema object
 	AtlasSchemaReconciler struct {
 		client.Client
-		execPath         string
+		atlasClient      AtlasExecFn
 		scheme           *runtime.Scheme
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
@@ -76,12 +76,12 @@ type (
 
 const sqlLimitSize = 1024
 
-func NewAtlasSchemaReconciler(mgr Manager, execPath string, prewarmDevDB bool) *AtlasSchemaReconciler {
+func NewAtlasSchemaReconciler(mgr Manager, atlas AtlasExecFn, prewarmDevDB bool) *AtlasSchemaReconciler {
 	r := mgr.GetEventRecorderFor("atlasschema-controller")
 	return &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		execPath:         execPath,
+		atlasClient:      atlas,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         r,
@@ -153,7 +153,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
-	wd, err := atlas.NewWorkingDir(atlas.WithAtlasHCL(data.render))
+	wd, err := atlasexec.NewWorkingDir(atlasexec.WithAtlasHCL(data.render))
 	if err != nil {
 		res.SetNotReady("CreatingWorkingDir", err.Error())
 		r.recordErrEvent(res, err)
@@ -170,7 +170,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	switch {
 	case res.Status.LastApplied == 0:
 		// Verify the first run doesn't contain destructive changes.
-		err = r.lint(ctx, wd, data.EnvName, atlas.Vars{"lint_destructive": "true"})
+		err = r.lint(ctx, wd, data.EnvName, atlasexec.Vars{"lint_destructive": "true"})
 		switch d := (&destructiveErr{}); {
 		case err == nil:
 		case errors.As(err, &d):
@@ -260,12 +260,12 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName, txMode string) (*atlas.SchemaApply, error) {
-	cli, err := atlas.NewClient(dir, r.execPath)
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName, txMode string) (*atlasexec.SchemaApply, error) {
+	cli, err := r.atlasClient(dir)
 	if err != nil {
 		return nil, err
 	}
-	return cli.SchemaApply(ctx, &atlas.SchemaApplyParams{
+	return cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 		Env:    envName,
 		TxMode: txMode,
 	})

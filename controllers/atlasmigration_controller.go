@@ -52,7 +52,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	atlas "ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/controllers/watch"
@@ -69,7 +69,7 @@ type (
 	AtlasMigrationReconciler struct {
 		client.Client
 		scheme           *runtime.Scheme
-		execPath         string
+		atlasClient      AtlasExecFn
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
@@ -93,11 +93,11 @@ type (
 	}
 )
 
-func NewAtlasMigrationReconciler(mgr Manager, execPath string, _ bool) *AtlasMigrationReconciler {
+func NewAtlasMigrationReconciler(mgr Manager, atlas AtlasExecFn, _ bool) *AtlasMigrationReconciler {
 	return &AtlasMigrationReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		execPath:         execPath,
+		atlasClient:      atlas,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         mgr.GetEventRecorderFor("atlasmigration-controller"),
@@ -160,9 +160,9 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config
 	// and the migrations directory (if any)
-	wd, err := atlas.NewWorkingDir(
-		atlas.WithAtlasHCL(data.render),
-		atlas.WithMigrations(data.Dir),
+	wd, err := atlasexec.NewWorkingDir(
+		atlasexec.WithAtlasHCL(data.render),
+		atlasexec.WithMigrations(data.Dir),
 	)
 	if err != nil {
 		res.SetNotReady("ReadingMigrationData", err.Error())
@@ -267,12 +267,12 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 
 // Reconcile the given AtlasMigration resource.
 func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, wd, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
-	c, err := atlas.NewClient(wd, r.execPath)
+	c, err := r.atlasClient(wd)
 	if err != nil {
 		return nil, err
 	}
 	// Check if there are any pending migration files
-	status, err := c.MigrateStatus(ctx, &atlas.MigrateStatusParams{Env: envName})
+	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: envName})
 	if err != nil {
 		if isChecksumErr(err) {
 			return nil, err
@@ -290,10 +290,10 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, wd, envName st
 		}, nil
 	}
 	// Execute Atlas CLI migrate command
-	report, err := c.MigrateApply(ctx, &atlas.MigrateApplyParams{
+	report, err := c.MigrateApply(ctx, &atlasexec.MigrateApplyParams{
 		Env: envName,
-		Context: &atlas.DeployRunContext{
-			TriggerType:    atlas.TriggerTypeKubernetes,
+		Context: &atlasexec.DeployRunContext{
+			TriggerType:    atlasexec.TriggerTypeKubernetes,
 			TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
 		},
 	})

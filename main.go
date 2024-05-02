@@ -27,6 +27,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"ariga.io/atlas-go-sdk/atlasexec"
 	"golang.org/x/mod/semver"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -56,7 +57,6 @@ const (
 	// envNoUpdate when enabled it cancels checking for update
 	envNoUpdate = "SKIP_VERCHECK"
 	vercheckURL = "https://vercheck.ariga.io"
-	execPath    = "/atlas"
 	// prewarmDevDB when disabled it deletes the devDB pods after the schema is created
 	prewarmDevDB = "PREWARM_DEVDB"
 )
@@ -142,12 +142,15 @@ func main() {
 		os.Exit(1)
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
-	if err = controllers.NewAtlasSchemaReconciler(mgr, execPath, prewarmDevDB).
+	atlas := func(s string) (controllers.AtlasExec, error) {
+		return atlasexec.NewClient(s, "/atlas")
+	}
+	if err = controllers.NewAtlasSchemaReconciler(mgr, atlas, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
-	if err = controllers.NewAtlasMigrationReconciler(mgr, execPath, prewarmDevDB).
+	if err = controllers.NewAtlasMigrationReconciler(mgr, atlas, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 		os.Exit(1)

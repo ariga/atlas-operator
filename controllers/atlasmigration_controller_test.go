@@ -26,7 +26,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -552,7 +551,7 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	status, err := tt.r.reconcile(context.Background(), wd.Path(), "test")
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003628", status.LastAppliedVersion)
-	cli, err := atlasexec.NewClient(wd.Path(), tt.r.execPath)
+	cli, err := tt.r.atlasClient(wd.Path())
 	require.NoError(t, err)
 	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{
 		Env: "test",
@@ -901,7 +900,7 @@ func migrationReq() ctrl.Request {
 func migrationCliTest(t *testing.T) *migrationTest {
 	tt := newMigrationTest(t)
 	var err error
-	tt.r.execPath, err = exec.LookPath("atlas")
+	tt.r.atlasClient = globalAtlasMock
 	require.NoError(t, err)
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
