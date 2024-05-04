@@ -199,6 +199,38 @@ spec:
                         x-kubernetes-map-type: atomic
                     type: object
                 type: object
+              devURL:
+                description: |-
+                  DevURL is the URL of the database to use for normalization and calculations.
+                  If not specified, the operator will spin up a temporary database container to use for these operations.
+                type: string
+              devURLFrom:
+                description: DevURLFrom is a reference to a secret containing the
+                  URL of the database to use for normalization and calculations.
+                properties:
+                  secretKeyRef:
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               dir:
                 description: Dir defines the directory to use for migrations as a
                   configmap key reference.

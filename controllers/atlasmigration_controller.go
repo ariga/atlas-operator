@@ -73,12 +73,14 @@ type (
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
+		devDB            *devDBReconciler
 	}
 	// migrationData is the data used to render the HCL template
 	// that will be used for Atlas CLI
 	migrationData struct {
 		EnvName         string
 		URL             *url.URL
+		DevURL          string
 		Dir             migrate.Dir
 		Cloud           *cloud
 		RevisionsSchema string
@@ -93,14 +95,16 @@ type (
 	}
 )
 
-func NewAtlasMigrationReconciler(mgr Manager, atlas AtlasExecFn, _ bool) *AtlasMigrationReconciler {
+func NewAtlasMigrationReconciler(mgr Manager, atlas AtlasExecFn, prewarmDevDB bool) *AtlasMigrationReconciler {
+	r := mgr.GetEventRecorderFor("atlasmigration-controller")
 	return &AtlasMigrationReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
 		atlasClient:      atlas,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
-		recorder:         mgr.GetEventRecorderFor("atlasmigration-controller"),
+		recorder:         r,
+		devDB:            newDevDB(mgr, r, prewarmDevDB),
 	}
 }
 
@@ -124,6 +128,10 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		// After updating the status, watch the dependent resources
 		r.watchRefs(res)
+		// Clean up any resources created by the controller after the reconciler is successful.
+		if res.IsReady() {
+			r.devDB.cleanUp(ctx, res)
+		}
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
@@ -315,6 +323,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		s    = res.Spec
 		data = &migrationData{
 			EnvName:         defaultEnvName,
+			DevURL:          s.DevURL,
 			RevisionsSchema: s.RevisionsSchema,
 			Baseline:        s.Baseline,
 			ExecOrder:       string(s.ExecOrder),
@@ -361,6 +370,14 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		}
 	default:
 		return nil, errors.New("no directory specified")
+	}
+	if s := s.DevURLFrom.SecretKeyRef; s != nil {
+		// SecretKeyRef is set, get the secret value
+		// then override the dev url.
+		data.DevURL, err = getSecretValue(ctx, r, res.Namespace, s)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return data, nil
 }
