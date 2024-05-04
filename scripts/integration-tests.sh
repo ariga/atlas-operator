@@ -92,6 +92,7 @@ echo ""
 echo "Expect the devdb deployment is scaled to 0"
 kubectl get deployment atlasschema-mysql-atlas-dev-db \
   -o=jsonpath='{.spec.replicas}' | grep -q '0'
+kubectl delete -f ./schema
 
 cd ./migration
 
@@ -111,3 +112,32 @@ echo ""
 echo "Expected the new column to be present"
 mysql_exec "SHOW COLUMNS FROM myapp.posts LIKE 'created_at';" | grep -q 'created_at'
 echo ""
+
+mysql_reset "Test migrate down"
+k8s_dircfg ./mysql-migrations migration-dir
+kubectl delete -f ./mysql_migration.yaml
+kubectl apply -f ./mysql_migration.yaml
+kubectl wait --timeout=120s --for=condition=ready \
+  AtlasMigration/atlasmigration-sample
+if ! mysql_exec "SHOW COLUMNS FROM myapp.posts LIKE 'created_at';" | grep -q 'created_at'; then
+  echo "The column created_at should be present at this point"
+  exit 1
+fi
+atlas migrate rm --dir=file://./mysql-migrations
+echo "Removed the last migration, which have the column created_at"
+k8s_dircfg ./mysql-migrations migration-dir
+# Expect migration is failured
+kubectl wait --timeout=120s \
+  --for=jsonpath='{.status.conditions[*].message}'="Migrate down is not allowed" \
+  AtlasMigration/atlasmigration-sample
+# Patch the migration to allow down migration
+kubectl patch AtlasMigration/atlasmigration-sample \
+  --type merge --patch-file ./mysql_migrate_down.yaml
+kubectl wait --timeout=120s --for=condition=ready \
+  AtlasMigration/atlasmigration-sample
+if mysql_exec "SHOW COLUMNS FROM myapp.posts LIKE 'created_at';" | grep -q 'created_at'; then
+  echo "The column created_at should not be present at this point"
+  exit 1
+else
+  echo "The column created_at is not present"
+fi
