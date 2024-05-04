@@ -22,10 +22,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Create SSH dir in Runner's home
-        run: |
-          # Fixed a BC change that rolling out in GitHub-hosted runners
-          mkdir -p ~/.ssh/
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
@@ -34,8 +30,8 @@ jobs:
         run: |
           curl -sSf https://atlasgo.sh | ATLAS_DEBUG=true sh
       - name: Generate
-        run: make cli-gen
-        shell: bash
+        run: |
+          make cli-gen
       - name: Run Go mod tidy
         run: go mod tidy
       - name: Verify generated files are checked in properly
@@ -46,10 +42,9 @@ jobs:
             echo "$status"
             exit 1
           fi
-        shell: bash
       - name: Run tests
-        run: go test ./... -race
-        shell: bash
+        run: |
+          make test
       - uses: azure/setup-kubectl@v3
       - name: Start minikube
         id: minikube
@@ -58,83 +53,6 @@ jobs:
         run: |
           curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
           sudo install skaffold /usr/local/bin/
-      - name: Start environment
+      - name: Run integration tests
         run: |
-          make install # Install CRDs into the cluster
-          kubectl apply -f config/integration/databases
-          skaffold run --wait-for-connection=true
-      - name: Integration test
-        run: |
-          # Wait for mysql ready
-          kubectl wait --for condition=ready pods -l app=mysql --timeout=60s
-          POD_MYSQL=$(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}')
-
-          # Create a table not described in the desired schema but excluded from it.
-          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "create table myapp.ignore_me (c int);"
-
-          # Apply the desired schema and wait for it to be ready.
-          kubectl apply -f config/integration/schema
-          kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
-
-          # Expect the excluded table to be present.
-          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "describe myapp.ignore_me"
-
-          # Update sql schema configmap
-          kubectl create configmap mysql-schema --from-file=./config/integration/schema/mysql \
-          --dry-run=client -o yaml | kubectl apply -f -
-
-          sleep 1s # Wait for the migration to be applied.
-          kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
-
-          # Expect the new column to be present.
-          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "SHOW COLUMNS FROM myapp.users LIKE 'phone';"
-
-          # Expect the devdb deployment is scaled to 1.
-          kubectl get deployment atlasschema-mysql-atlas-dev-db -o=jsonpath='{.spec.replicas}' | grep -q '1'
-
-          # SET PREWARM_DEVDB to true
-          kubectl set env -n atlas-operator-system deployment/atlas-operator-controller-manager PREWARM_DEVDB=false
-
-          # Reset database resources
-          kubectl delete pods -l app=mysql
-          kubectl wait --for condition=ready pods -l app=mysql --timeout=60s
-
-          # Apply the desired schema and wait for it to be ready.
-          kubectl delete -f config/integration/schema
-          kubectl apply -f config/integration/schema
-          kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
-
-          # Expect the devdb deployment is scaled to 0.
-          kubectl get deployment atlasschema-mysql-atlas-dev-db -o=jsonpath='{.spec.replicas}' | grep -q '0'
-
-      - name: Reset database resources
-        run: |
-          kubectl delete pods -l app=mysql
-          kubectl delete pods -l app=postgres
-      - name: Integration test (versioned migration)
-        run: |
-          # Wait for mysql ready
-          kubectl wait --for condition=ready pods -l app=mysql --timeout=60s
-          POD_MYSQL=$(kubectl get pods -l app=mysql -o jsonpath='{.items[0].metadata.name}')
-
-          # Create migration directory configmap
-          kubectl create configmap migration-dir --from-file=./config/integration/migration/mysql-migrations
-
-          # Create migration directory resources and wait for it to be ready.
-          kubectl apply -f ./config/integration/migration/mysql_migration.yaml
-          kubectl wait --for=condition=ready --timeout=120s atlasmigrations --all
-
-          # Expect existed atlas_schema_revisions table
-          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "describe myapp.atlas_schema_revisions"
-
-          # Add a new column to the table
-          EDITOR="echo 'ALTER TABLE posts ADD COLUMN created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP;' >" \
-          atlas migrate new --dir=file://./config/integration/mysql-migrations --edit
-
-          # Update migration directory configmap, and expect the new migration to be applied.
-          kubectl create configmap migration-dir --from-file=./config/integration/migration/mysql-migrations \
-          --dry-run=client -o yaml | kubectl apply -f -
-          kubectl wait --for=condition=ready --timeout=120s atlasmigrations --all
-
-          # Expect the new column to be present.
-          kubectl exec $POD_MYSQL -- mysql -uroot -h 127.0.0.1 -ppass -e "SHOW COLUMNS FROM myapp.posts LIKE 'created_at';"
+          make integration-tests
