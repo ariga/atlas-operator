@@ -50,8 +50,10 @@ type (
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 		// LastAppliedVersion is the version of the most recent successful versioned migration.
 		LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
-		//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
+		// LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
 		LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
+		// ApprovalURL is the URL to approve the migration.
+		ApprovalURL string `json:"approvalUrl,omitempty"`
 		// ObservedHash is the hash of the most recent successful versioned migration.
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful versioned migration.
@@ -80,6 +82,8 @@ type (
 		// ExecOrder controls how Atlas computes and executes pending migration files to the database.
 		// +kubebuilder:default=linear
 		ExecOrder MigrateExecOrder `json:"execOrder,omitempty"`
+		// ProtectedFlows defines the protected flows of a deployment.
+		ProtectedFlows *ProtectFlows `json:"protectedFlows,omitempty"`
 	}
 	// Cloud defines the Atlas Cloud configuration.
 	Cloud struct {
@@ -105,6 +109,19 @@ type (
 	Remote struct {
 		Name string `json:"name,omitempty"`
 		Tag  string `json:"tag,omitempty"`
+	}
+	// ProtectedFlows defines the protected flows of a deployment.
+	ProtectFlows struct {
+		MigrateDown *DeploymentFlow `json:"migrateDown,omitempty"`
+	}
+	// DeploymentFlow defines the flow of a deployment.
+	DeploymentFlow struct {
+		// Allow allows the flow to be executed.
+		// +kubebuilder:default=false
+		Allow bool `json:"allow,omitempty"`
+		// AutoApprove allows the flow to be automatically approved.
+		// +kubebuilder:default=false
+		AutoApprove bool `json:"autoApprove,omitempty"`
 	}
 )
 

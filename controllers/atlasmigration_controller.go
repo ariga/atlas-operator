@@ -12,21 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controllers
 
 import (
@@ -82,10 +67,13 @@ type (
 		URL             *url.URL
 		DevURL          string
 		Dir             migrate.Dir
+		DirLatest       migrate.Dir
 		Cloud           *cloud
 		RevisionsSchema string
 		Baseline        string
 		ExecOrder       string
+		MigrateDown     bool
+		ObservedHash    string
 	}
 	cloud struct {
 		URL       string
@@ -144,16 +132,10 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	hash, err := data.hash()
-	if err != nil {
-		res.SetNotReady("CalculatingHash", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
-	}
 	// We need to update the ready condition immediately before doing
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
-	if res.IsReady() && res.IsHashModified(hash) {
+	if res.IsReady() && res.IsHashModified(data.ObservedHash) {
 		res.SetNotReady("Reconciling", "Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -165,39 +147,21 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// TODO(giautm): Create DevDB and run linter for new migration
 	// files before applying it to the target database.
 
-	// Create a working directory for the Atlas CLI
-	// The working directory contains the atlas.hcl config
-	// and the migrations directory (if any)
-	wd, err := atlasexec.NewWorkingDir(
-		atlasexec.WithAtlasHCL(data.render),
-		atlasexec.WithMigrations(data.Dir),
-	)
-	if err != nil {
-		res.SetNotReady("ReadingMigrationData", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
-	}
-	defer wd.Close()
-	// Reconcile given resource
-	status, err := r.reconcile(ctx, wd.Path(), data.EnvName)
-	if err != nil {
-		res.SetNotReady("Migrating", strings.TrimSpace(err.Error()))
-		r.recordErrEvent(res, err)
-		return result(err)
-	}
-	if data.Dir != nil {
-		// Compress the migration directory then store it in the secret
-		// for later use when atlas runs the migration down.
-		if err := r.storeDirState(ctx, res, data.Dir); err != nil {
-			res.SetNotReady("StoringDirState", err.Error())
-			r.recordErrEvent(res, err)
+	if data.DevURL == "" {
+		// The user has not specified an URL for dev-db,
+		// spin up a dev-db and get the connection string.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
+		if err != nil {
+			res.SetNotReady("GettingDevDB", err.Error())
 			return result(err)
 		}
 	}
-	status.ObservedHash = hash
-	res.SetReady(*status)
-	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", status.LastAppliedVersion)
-	return ctrl.Result{}, nil
+	// Reconcile given resource
+	err = r.reconcile(ctx, data, res)
+	if err != nil {
+		r.recordErrEvent(res, err)
+	}
+	return result(err)
 }
 
 func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {
@@ -208,7 +172,7 @@ func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.
 		},
 	}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
-		return nil, err
+		return nil, client.IgnoreNotFound(err)
 	}
 	return extractDirFromSecret(secret)
 }
@@ -223,8 +187,6 @@ func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client
 	if err != nil {
 		return err
 	}
-	// Set the namespace of the secret to the same as the resource
-	secret.Namespace = obj.GetNamespace()
 	switch err := r.Create(ctx, secret); {
 	case err == nil:
 		return nil
@@ -273,48 +235,152 @@ func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
 	}
 }
 
+const (
+	StatePending  = "PENDING_USER"
+	StateApproved = "APPROVED"
+	StateAborted  = "ABORTED"
+	StateApplied  = "APPLIED"
+)
+
 // Reconcile the given AtlasMigration resource.
-func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, wd, envName string) (_ *dbv1alpha1.AtlasMigrationStatus, _ error) {
-	c, err := r.atlasClient(wd)
+func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migrationData, res *dbv1alpha1.AtlasMigration) error {
+	log := ctrl.Log.WithName("atlas_migration.reconcile")
+	// Create a working directory for the Atlas CLI
+	// The working directory contains the atlas.hcl config
+	// and the migrations directory (if any)
+	wd, err := atlasexec.NewWorkingDir(
+		atlasexec.WithAtlasHCL(data.render),
+		atlasexec.WithMigrations(data.Dir),
+	)
 	if err != nil {
-		return nil, err
+		res.SetNotReady("ReadingMigrationData", err.Error())
+		return err
 	}
+	defer wd.Close()
+	c, err := r.atlasClient(wd.Path())
+	if err != nil {
+		return err
+	}
+	log.Info("reconciling migration", "env", data.EnvName)
 	// Check if there are any pending migration files
-	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: envName})
+	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: data.EnvName})
 	if err != nil {
+		res.SetNotReady("Migrating", err.Error())
 		if isChecksumErr(err) {
-			return nil, err
+			return err
 		}
-		return nil, transient(err)
+		return transient(err)
 	}
-	if len(status.Pending) == 0 {
+	switch {
+	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
+		if !data.MigrateDown {
+			res.SetNotReady("Migrating", "Migrate down is not allowed")
+			return fmt.Errorf("migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade")
+		}
+		// The downgrade is allowed, apply the last migration version
+		last := status.Available[len(status.Available)-1]
+		log.Info("downgrading to the last available version", "version", last.Version)
+		params := &atlasexec.MigrateDownParams{
+			Env:       data.EnvName,
+			ToVersion: last.Version,
+			Context: &atlasexec.DeployRunContext{
+				TriggerType:    atlasexec.TriggerTypeKubernetes,
+				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
+			},
+		}
+		// Atlas needs all versions to be present in the directory
+		// to downgrade to a specific version.
+		switch {
+		case data.Cloud != nil && data.Cloud.RemoteDir != nil:
+			// Use the `latest` tag of the remote directory to fetch all versions.
+			params.DirURL = fmt.Sprintf("atlas://%s", data.Cloud.RemoteDir.Name)
+		case data.DirLatest != nil:
+			// Copy the dir-state from latest deployment to the different location
+			// (to avoid the conflict with the current migration directory)
+			// then use it to downgrade.
+			current := fmt.Sprintf("migrations-%s", status.Current)
+			if err = wd.CopyFS(current, data.DirLatest); err != nil {
+				return err
+			}
+			params.DirURL = fmt.Sprintf("file://%s", current)
+		default:
+			return fmt.Errorf("unable to downgrade, no dir-state found")
+		}
+		run, err := c.MigrateDown(ctx, params)
+		if err != nil {
+			res.SetNotReady("Migrating", err.Error())
+			if !isSQLErr(err) {
+				err = transient(err)
+			}
+			return err
+		}
+		switch run.Status {
+		case StatePending:
+			res.SetNotReady("ApprovalPending", "Deployment is waiting for approval")
+			res.Status.ApprovalURL = run.URL
+			return transient(fmt.Errorf("plan approval pending, review here: %s", run.URL))
+		case StateAborted:
+			res.SetNotReady("PlanRejected", "Deployment is aborted")
+			res.Status.ApprovalURL = run.URL
+			// Migration is aborted, no need to reapply
+			return fmt.Errorf("plan rejected, review here: %s", run.URL)
+		case StateApplied, StateApproved:
+			res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+				ObservedHash:       data.ObservedHash,
+				ApprovalURL:        run.URL,
+				LastApplied:        run.Start.Unix(),
+				LastAppliedVersion: run.Target,
+				LastDeploymentURL:  run.URL,
+			})
+			r.recordApplied(res, run.Target)
+		}
+	case len(status.Pending) == 0:
+		log.Info("no pending migrations")
+		// No pending migrations
 		var lastApplied int64
 		if len(status.Applied) > 0 {
 			lastApplied = status.Applied[len(status.Applied)-1].ExecutedAt.Unix()
 		}
-		return &dbv1alpha1.AtlasMigrationStatus{
+		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+			ObservedHash:       data.ObservedHash,
 			LastApplied:        lastApplied,
 			LastAppliedVersion: status.Current,
-		}, nil
-	}
-	// Execute Atlas CLI migrate command
-	report, err := c.MigrateApply(ctx, &atlasexec.MigrateApplyParams{
-		Env: envName,
-		Context: &atlasexec.DeployRunContext{
-			TriggerType:    atlasexec.TriggerTypeKubernetes,
-			TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
-		},
-	})
-	if err != nil {
-		if !isSQLErr(err) {
-			err = transient(err)
+		})
+		r.recordApplied(res, status.Current)
+	default:
+		log.Info("applying pending migrations", "count", len(status.Pending))
+		// There are pending migrations
+		// Execute Atlas CLI migrate command
+		report, err := c.MigrateApply(ctx, &atlasexec.MigrateApplyParams{
+			Env: data.EnvName,
+			Context: &atlasexec.DeployRunContext{
+				TriggerType:    atlasexec.TriggerTypeKubernetes,
+				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
+			},
+		})
+		if err != nil {
+			res.SetNotReady("Migrating", err.Error())
+			if !isSQLErr(err) {
+				err = transient(err)
+			}
+			return err
 		}
-		return nil, err
+		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+			ObservedHash:       data.ObservedHash,
+			LastApplied:        report.End.Unix(),
+			LastAppliedVersion: report.Target,
+		})
+		r.recordApplied(res, report.Target)
 	}
-	return &dbv1alpha1.AtlasMigrationStatus{
-		LastApplied:        report.End.Unix(),
-		LastAppliedVersion: report.Target,
-	}, nil
+	if data.Dir != nil {
+		// Compress the migration directory then store it in the secret
+		// for later use when atlas runs the migration down.
+		if err = r.storeDirState(ctx, res, data.Dir); err != nil {
+			res.SetNotReady("StoringDirState", err.Error())
+			return err
+		}
+	}
+	return nil
 }
 
 // Extract migration data from the given resource
@@ -327,6 +393,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			RevisionsSchema: s.RevisionsSchema,
 			Baseline:        s.Baseline,
 			ExecOrder:       string(s.ExecOrder),
+			MigrateDown:     false,
 		}
 	)
 	if env := s.EnvName; env != "" {
@@ -341,6 +408,14 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if c.TokenFrom.SecretKeyRef == nil {
 			return nil, errors.New("cannot use remote directory without Atlas Cloud token")
 		}
+		if f := s.ProtectedFlows; f != nil {
+			if d := f.MigrateDown; d != nil {
+				if d.Allow && d.AutoApprove {
+					return nil, errors.New("cannot auto-approve migrate-down for remote directory")
+				}
+				data.MigrateDown = d.Allow
+			}
+		}
 		token, err := getSecretValue(ctx, r, res.Namespace, c.TokenFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
@@ -351,20 +426,32 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			URL:       c.URL,
 			RemoteDir: &d.Remote,
 		}
-	case d.ConfigMapRef != nil:
-		if d.Local != nil {
+	case d.Local != nil || d.ConfigMapRef != nil:
+		if d.Local != nil && d.ConfigMapRef != nil {
 			return nil, errors.New("cannot use both configmaps and local directory")
 		}
-		cfgMap, err := getConfigMap(ctx, r, res.Namespace, d.ConfigMapRef)
+		if f := s.ProtectedFlows; f != nil {
+			if d := f.MigrateDown; d != nil {
+				if d.Allow && !d.AutoApprove {
+					return nil, errors.New("cannot allow migrate-down without auto-approve")
+				}
+				// Allow migrate-down only if the flow is allowed and auto-approved
+				data.MigrateDown = d.Allow && d.AutoApprove
+			}
+		}
+		files := d.Local
+		if files == nil {
+			cfgMap, err := getConfigMap(ctx, r, res.Namespace, d.ConfigMapRef)
+			if err != nil {
+				return nil, err
+			}
+			files = cfgMap.Data
+		}
+		data.Dir, err = memDir(files)
 		if err != nil {
 			return nil, err
 		}
-		data.Dir, err = memDir(cfgMap.Data)
-		if err != nil {
-			return nil, err
-		}
-	case d.Local != nil:
-		data.Dir, err = memDir(d.Local)
+		data.DirLatest, err = r.readDirState(ctx, res)
 		if err != nil {
 			return nil, err
 		}
@@ -379,7 +466,15 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			return nil, err
 		}
 	}
+	data.ObservedHash, err = hashMigrationData(data)
+	if err != nil {
+		return nil, err
+	}
 	return data, nil
+}
+
+func (r *AtlasMigrationReconciler) recordApplied(res *dbv1alpha1.AtlasMigration, ver string) {
+	r.recorder.Eventf(res, corev1.EventTypeNormal, "Applied", "Version %s applied", ver)
 }
 
 func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, err error) {
@@ -391,7 +486,7 @@ func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration
 }
 
 // Calculate the hash of the given data
-func (d *migrationData) hash() (string, error) {
+func hashMigrationData(d *migrationData) (string, error) {
 	h := sha256.New()
 	h.Write([]byte(d.URL.String()))
 	if c := d.Cloud; c != nil {
@@ -478,8 +573,9 @@ func newSecretObject(obj client.Object, dir migrate.Dir, labels map[string]strin
 	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   makeKeyLatest(obj.GetName()),
-			Labels: labels,
+			Name:      makeKeyLatest(obj.GetName()),
+			Namespace: obj.GetNamespace(),
+			Labels:    labels,
 			OwnerReferences: []metav1.OwnerReference{
 				// Set the owner reference to the given object
 				// This will ensure that the secret is deleted when the owner is deleted.

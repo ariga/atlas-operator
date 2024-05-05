@@ -112,7 +112,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
 		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj)
-	})
+	}, nil)
 	assert := func(except ctrl.Result, ready bool, reason, msg string) {
 		t.Helper()
 		reconcile(obj, func(result ctrl.Result, err error) {
