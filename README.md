@@ -398,7 +398,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | ------ | ----------- |
 | Reconciling | The operator is reconciling the desired state with the actual state of the database |
 | ReadSchema | There was an error about reading the schema from ConfigMap or database credentials |
-| GettingDevDB | failed to get the devdb resource, in case we are using the devdb for nomalization |
+| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database) in case we are using the devdb for nomalization |
 | VerifyingFirstRun | occurred when a first run of the operator that contain destructive changes |
 | LintPolicyError | occurred when the lint policy is violated |
 | ApplyingSchema | failed to apply to database |
