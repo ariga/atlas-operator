@@ -408,7 +408,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | Reason | Description |
 | ------ | ----------- |
 | Reconciling | The operator is reconciling the desired state with the actual state of the database |
-| GettingDevDB | failed to get the devdb resource, in case we are using the devdb for compute plan for migration |
+| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database) which is required to compute a migration plan |
 | ReadingMigrationData | failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
 | ProtectedFlowError | occurred when the migration is protected and the operator is not able to apply it |
 | ApprovalPending | Applying the migration requires manual approval on Atlas Cloud |
