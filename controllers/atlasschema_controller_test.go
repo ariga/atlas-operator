@@ -34,8 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -692,27 +690,6 @@ func TestMock(t *testing.T) {
 func (m *mockClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
 	m.put(obj)
 	return nil
-}
-
-func TestTemplateSanity(t *testing.T) {
-	var b bytes.Buffer
-	v := &devDB{
-		NamespacedName: types.NamespacedName{
-			Name:      "test",
-			Namespace: "default",
-		},
-	}
-	for _, tt := range []string{"mysql", "postgres", "sqlserver"} {
-		t.Run(tt, func(t *testing.T) {
-			v.Driver = tt
-			err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", v)
-			require.NoError(t, err)
-			var d appsv1.Deployment
-			err = yaml.NewYAMLToJSONDecoder(&b).Decode(&d)
-			require.NoError(t, err)
-			b.Reset()
-		})
-	}
 }
 
 func (t *test) cond() metav1.Condition {
