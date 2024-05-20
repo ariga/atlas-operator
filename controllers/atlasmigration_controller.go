@@ -128,7 +128,11 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	data, err := r.extractData(ctx, res)
 	if err != nil {
-		res.SetNotReady("ReadingMigrationData", err.Error())
+		var reason = "ReadingMigrationData"
+		if e, ok := err.(interface{ Reason() string }); ok {
+			reason = e.Reason()
+		}
+		res.SetNotReady(reason, err.Error())
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
@@ -274,8 +278,11 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	switch {
 	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
 		if !data.MigrateDown {
-			res.SetNotReady("Migrating", "Migrate down is not allowed")
-			return fmt.Errorf("migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade")
+			res.SetNotReady("ProtectedFlowError", "Migrate down is not allowed")
+			return &ProtectedFlowError{
+				reason: "ProtectedFlowError",
+				msg:    "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
+			}
 		}
 		// The downgrade is allowed, apply the last migration version
 		last := status.Available[len(status.Available)-1]
@@ -318,7 +325,10 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		case StatePending:
 			res.SetNotReady("ApprovalPending", "Deployment is waiting for approval")
 			res.Status.ApprovalURL = run.URL
-			return transient(fmt.Errorf("plan approval pending, review here: %s", run.URL))
+			return transient(&ProtectedFlowError{
+				reason: "ApprovalPending",
+				msg:    fmt.Sprintf("plan approval pending, review here: %s", run.URL),
+			})
 		case StateAborted:
 			res.SetNotReady("PlanRejected", "Deployment is aborted")
 			res.Status.ApprovalURL = run.URL
@@ -383,6 +393,21 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	return nil
 }
 
+type ProtectedFlowError struct {
+	reason string
+	msg    string
+}
+
+// Error implements the error interface
+func (e *ProtectedFlowError) Error() string {
+	return e.msg
+}
+
+// Reason returns the reason of the error
+func (e *ProtectedFlowError) Reason() string {
+	return e.reason
+}
+
 // Extract migration data from the given resource
 func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasMigration) (_ *migrationData, err error) {
 	var (
@@ -411,7 +436,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if f := s.ProtectedFlows; f != nil {
 			if d := f.MigrateDown; d != nil {
 				if d.Allow && d.AutoApprove {
-					return nil, errors.New("cannot auto-approve migrate-down for remote directory")
+					return nil, &ProtectedFlowError{"ProtectedFlowError", "autoApprove is not allowed for a remote directory"}
 				}
 				data.MigrateDown = d.Allow
 			}
@@ -433,7 +458,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if f := s.ProtectedFlows; f != nil {
 			if d := f.MigrateDown; d != nil {
 				if d.Allow && !d.AutoApprove {
-					return nil, errors.New("cannot allow migrate-down without auto-approve")
+					return nil, &ProtectedFlowError{"ProtectedFlowError", "allow cannot be true without autoApprove for local migration directory"}
 				}
 				// Allow migrate-down only if the flow is allowed and auto-approved
 				data.MigrateDown = d.Allow && d.AutoApprove
@@ -479,7 +504,10 @@ func (r *AtlasMigrationReconciler) recordApplied(res *dbv1alpha1.AtlasMigration,
 
 func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, err error) {
 	reason := "Error"
-	if isTransient(err) {
+	switch e := (&ProtectedFlowError{}); {
+	case errors.As(err, &e):
+		reason = e.Reason()
+	case isTransient(err):
 		reason = "TransientErr"
 	}
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, strings.TrimSpace(err.Error()))
