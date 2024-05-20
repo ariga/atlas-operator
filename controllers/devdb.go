@@ -36,6 +36,8 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 )
 
 const (
@@ -103,7 +105,7 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
 func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL) (string, error) {
-	drv := driver(targetURL.Scheme)
+	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	if drv == "sqlite" {
 		return "sqlite://db?mode=memory", nil
 	}
@@ -263,27 +265,6 @@ func nameDevDB(owner metav1.Object) types.NamespacedName {
 	}
 }
 
-// driver returns the driver from the given schema.
-// it remove the schema modifier if present.
-// e.g. mysql+unix -> mysql
-// it also handles aliases.
-// e.g. mariadb -> mysql
-func driver(schema string) string {
-	p := strings.SplitN(schema, "+", 2)
-	switch drv := strings.ToLower(p[0]); drv {
-	case "libsql":
-		return "sqlite"
-	case "maria", "mariadb":
-		return "mysql"
-	case "postgresql":
-		return "postgres"
-	case "sqlserver", "azuresql", "mssql":
-		return "sqlserver"
-	default:
-		return drv
-	}
-}
-
 // isSchemaBound returns true if the given target URL is schema bound.
 // e.g. sqlite, postgres with search_path, mysql with path
 func isSchemaBound(drv string, u *url.URL) bool {
@@ -296,7 +277,7 @@ func isSchemaBound(drv string, u *url.URL) bool {
 		return u.Path != ""
 	case "sqlserver":
 		m := u.Query().Get("mode")
-		return m != "" || strings.ToLower(m) == "schema"
+		return m == "" || strings.ToLower(m) == "schema"
 	}
 	return false
 }

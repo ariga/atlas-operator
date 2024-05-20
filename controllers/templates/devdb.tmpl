@@ -23,16 +23,20 @@ spec:
       annotations:
         "atlasgo.io/conntmpl": "{{ .ConnTmpl }}"
     spec:
+      {{- if ne .Driver "sqlserver" }}
       securityContext:
         runAsNonRoot: true
         runAsUser: {{ .UID }}
+      {{- end }}
       containers:
         - name: {{ .Driver }}
+          {{- if ne .Driver "sqlserver" }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
+          {{- end }}
           {{- if eq .Driver "mysql" }}
           image: mysql:8
           env:

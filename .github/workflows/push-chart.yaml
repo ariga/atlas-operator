@@ -37,6 +37,7 @@ jobs:
           --set image.pullPolicy=Always
       - name: apply test resources
         run: |
+          echo "ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }}" > ./config/atlas-token/.env.secret
           kubectl apply -k config/integration
       - name: wait for test resources
         run: |
@@ -49,6 +50,7 @@ jobs:
           fi
       - name: test env vars
         run: |
+          echo "ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }}" > ./config/atlas-token/.env.secret
           kubectl apply -k config/integration/env
           helm upgrade atlas-operator charts/atlas-operator -f ./config/integration/env/values.yaml --wait
           # Find the operator pod

@@ -273,7 +273,7 @@ cli-gen: generate manifests chart-manifests license
 
 .PHONY: integration-tests
 integration-tests:
-	skaffold run --wait-for-connection=true
+	skaffold run --wait-for-connection=true -p integration
 	$(MAKE) install
 	./scripts/integration-tests.sh
 	$(MAKE) undeploy ignore-not-found=true

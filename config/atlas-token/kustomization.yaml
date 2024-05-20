@@ -12,24 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: skaffold/v3
-kind: Config
-metadata:
-  name: atlas-operator
-build:
-  artifacts:
-  - image: controller
-    docker:
-      dockerfile: Dockerfile
-      buildArgs:
-        OPERATOR_VERSION: v0.0.1-local-k8s
-manifests:
-  kustomize:
-    paths:
-    - config/default
-profiles:
-- name: integration
-  manifests:
-    kustomize:
-      paths:
-        - config/atlas-token
+namespace: atlas-operator-system
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../default
+secretGenerator:
+- name: atlas-token-secret
+  envs:
+  - .env.secret
+patches:
+- patch: |-
+    - op: add
+      path: "/spec/template/spec/containers/0/env/-"
+      value:
+        name: ATLAS_TOKEN
+        valueFrom:
+          secretKeyRef:
+            key: ATLAS_TOKEN
+            name: atlas-token-secret
+  target:
+    kind: Deployment
+    namespace: system
+    name: controller-manager

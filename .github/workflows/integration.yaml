@@ -55,4 +55,5 @@ jobs:
           sudo install skaffold /usr/local/bin/
       - name: Run integration tests
         run: |
+          echo "ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }}" > ./config/atlas-token/.env.secret
           make integration-tests
