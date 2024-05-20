@@ -42,7 +42,6 @@ const (
 	annoConnTmpl  = "atlasgo.io/conntmpl"
 	labelEngine   = "atlasgo.io/engine"
 	labelInstance = "app.kubernetes.io/instance"
-	hostReplace   = "REPLACE_HOST"
 )
 
 type (
@@ -162,7 +161,16 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	}
 	pod := pods.Items[idx]
 	if conn, ok := pod.Annotations[annoConnTmpl]; ok {
-		return strings.ReplaceAll(conn, hostReplace, pod.Status.PodIP), nil
+		u, err := url.Parse(conn)
+		if err != nil {
+			return "", fmt.Errorf("invalid connection template: %w", err)
+		}
+		if p := u.Port(); p != "" {
+			u.Host = fmt.Sprintf("%s:%s", pod.Status.PodIP, p)
+		} else {
+			u.Host = pod.Status.PodIP
+		}
+		return u.String(), nil
 	}
 	// If the connection template is not found, there is an issue with
 	// the pod spec and the error is not transient.
@@ -173,6 +181,8 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 type devDB struct {
 	types.NamespacedName
 	Driver      string
+	User        string
+	Pass        string
 	Port        int
 	UID         int
 	DB          string
@@ -183,14 +193,22 @@ type devDB struct {
 func (d *devDB) ConnTmpl() string {
 	u := url.URL{
 		Scheme: d.Driver,
-		User:   url.UserPassword("root", "pass"),
-		Host:   fmt.Sprintf("%s:%d", hostReplace, d.Port),
+		User:   url.UserPassword(d.User, d.Pass),
+		Host:   fmt.Sprintf("localhost:%d", d.Port),
 		Path:   d.DB,
 	}
-	if q := u.Query(); d.Driver == "postgres" {
+	q := u.Query()
+	switch {
+	case d.Driver == "postgres":
 		q.Set("sslmode", "disable")
-		u.RawQuery = q.Encode()
+	case d.Driver == "sqlserver":
+		q.Set("database", d.DB)
+		if !d.SchemaBound {
+			q.Set("mode", "DATABASE")
+		}
 	}
+	u.RawQuery = q.Encode()
+
 	return u.String()
 }
 
@@ -203,6 +221,8 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 	v := &devDB{
 		Driver:         drv,
 		NamespacedName: name,
+		User:           "root",
+		Pass:           "pass",
 		SchemaBound:    schemaBound,
 	}
 	switch drv {
@@ -216,6 +236,11 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 		}
 		v.Port = 3306
 		v.UID = 1000
+	case "sqlserver":
+		v.User = "sa"
+		v.Pass = "P@ssw0rd0995"
+		v.DB = "master"
+		v.Port = 1433
 	default:
 		return nil, fmt.Errorf("unsupported driver %q", v.Driver)
 	}
@@ -252,6 +277,8 @@ func driver(schema string) string {
 		return "mysql"
 	case "postgresql":
 		return "postgres"
+	case "sqlserver", "azuresql", "mssql":
+		return "sqlserver"
 	default:
 		return drv
 	}
@@ -267,6 +294,9 @@ func isSchemaBound(drv string, u *url.URL) bool {
 		return u.Query().Get("search_path") != ""
 	case "mysql":
 		return u.Path != ""
+	case "sqlserver":
+		m := u.Query().Get("mode")
+		return m != "" || strings.ToLower(m) == "schema"
 	}
 	return false
 }

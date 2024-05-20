@@ -51,6 +51,15 @@ spec:
               value: pass
             - name: POSTGRES_USER
               value: root
+          {{- else if eq .Driver "sqlserver" }}
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_PID
+              value: "Developer"
+            - name: MSSQL_SA_PASSWORD
+              value: {{ .Pass }}
           {{- end }}
           ports:
           - containerPort: {{ .Port }}

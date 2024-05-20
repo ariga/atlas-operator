@@ -702,7 +702,7 @@ func TestTemplateSanity(t *testing.T) {
 			Namespace: "default",
 		},
 	}
-	for _, tt := range []string{"mysql", "postgres"} {
+	for _, tt := range []string{"mysql", "postgres", "sqlserver"} {
 		t.Run(tt, func(t *testing.T) {
 			v.Driver = tt
 			err := tmpl.ExecuteTemplate(&b, "devdb.tmpl", v)
