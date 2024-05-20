@@ -398,7 +398,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | ------ | ----------- |
 | Reconciling | The operator is reconciling the desired state with the actual state of the database |
 | ReadSchema | There was an error about reading the schema from ConfigMap or database credentials |
-| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database) in case we are using the devdb for nomalization |
+| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database), which used for normalization the schema |
 | VerifyingFirstRun | occurred when a first run of the operator that contain destructive changes |
 | LintPolicyError | occurred when the lint policy is violated |
 | ApplyingSchema | failed to apply to database |
@@ -411,7 +411,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database) which is required to compute a migration plan |
 | ReadingMigrationData | failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
 | ProtectedFlowError | occurred when the migration is protected and the operator is not able to apply it |
-| ApprovalPending | Applying the migration requires manual approval on Atlas Cloud |
+| ApprovalPending | Applying the migration requires manual approval on Atlas Cloud. The URL used for approval is provided in the `approvalUrl` field of the `status` object |
 | Migrating | failed to migrate to database |
 
 ### Support
