@@ -411,7 +411,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | GettingDevDB | failed to get the devdb resource, in case we are using the devdb for compute plan for migration |
 | ReadingMigrationData | failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
 | ProtectedFlowError | occurred when the migration is protected and the operator is not able to apply it |
-| ApprovalPending | The migration is protected and waiting for approval on Atlas Cloud |
+| ApprovalPending | Applying the migration requires manual approval on Atlas Cloud |
 | Migrating | failed to migrate to database |
 
 ### Support
