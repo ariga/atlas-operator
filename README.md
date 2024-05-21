@@ -84,7 +84,7 @@ To configure the operator, you can set the following values in the `values.yaml`
   #         name: configmap-resource
 ```
 
-> Note: The SQL Server driver requires the `MSSQL_ACCEPT_EULA` and `MSSQL_PID` environment variables to be set for acceptance of the Microsoft EULA and the product ID, respectively.
+> Note: The SQL Server driver requires the `MSSQL_ACCEPT_EULA` and `MSSQL_PID` environment variables to be set for acceptance of the [Microsoft EULA](https://go.microsoft.com/fwlink/?linkid=857698) and the product ID, respectively.
 
 - `extraVolumes`: Used to mount additional volumes to the operator
 
