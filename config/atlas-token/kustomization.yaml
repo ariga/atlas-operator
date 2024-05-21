@@ -31,6 +31,11 @@ patches:
           secretKeyRef:
             key: ATLAS_TOKEN
             name: atlas-token-secret
+    - op: add
+      path: "/spec/template/spec/containers/0/env/-"
+      value:
+        name: MSSQL_ACCEPT_EULA
+        value: "Y"
   target:
     kind: Deployment
     namespace: system

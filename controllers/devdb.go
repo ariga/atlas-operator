@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -253,6 +254,21 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 	d := &appsv1.Deployment{}
 	if err := yaml.NewYAMLToJSONDecoder(b).Decode(d); err != nil {
 		return nil, err
+	}
+	if drv == "sqlserver" {
+		c := &d.Spec.Template.Spec.Containers[0]
+		if v := os.Getenv("MSSQL_ACCEPT_EULA"); v != "" {
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name:  "ACCEPT_EULA",
+				Value: v,
+			})
+		}
+		if v := os.Getenv("MSSQL_PID"); v != "" {
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name:  "MSSQL_PID",
+				Value: v,
+			})
+		}
 	}
 	return d, nil
 }

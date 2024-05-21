@@ -68,8 +68,10 @@ To configure the operator, you can set the following values in the `values.yaml`
 ```yaml
   extraEnvs: []
   # extraEnvs:
-  #   - name: FOO
-  #     value: "foo"
+  #   - name: MSSQL_ACCEPT_EULA
+  #     value: "Y"
+  #   - name: MSSQL_PID
+  #     value: "Developer"
   #   - name: ATLAS_TOKEN
   #     valueFrom:
   #       secretKeyRef:
@@ -81,6 +83,8 @@ To configure the operator, you can set the following values in the `values.yaml`
   #         key: BAZ
   #         name: configmap-resource
 ```
+
+> Note: The SQL Server driver requires the `MSSQL_ACCEPT_EULA` and `MSSQL_PID` environment variables to be set for acceptance of the Microsoft EULA and the product ID, respectively.
 
 - `extraVolumes`: Used to mount additional volumes to the operator
 
