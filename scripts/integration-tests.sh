@@ -63,7 +63,7 @@ mysql_reset "Test the atlas schema controller"
 mysql_exec "create table myapp.ignore_me (c int);"
 # Apply the desired schema and wait for it to be ready.
 kubectl apply -f ./schema
-kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
+kubectl wait --for=condition=ready --timeout=360s atlasschemas --all
 # Expect the excluded table to be present.
 mysql_exec "describe myapp.ignore_me"
 # Update sql schema configmap

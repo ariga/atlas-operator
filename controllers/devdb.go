@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -36,13 +37,14 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 )
 
 const (
 	annoConnTmpl  = "atlasgo.io/conntmpl"
 	labelEngine   = "atlasgo.io/engine"
 	labelInstance = "app.kubernetes.io/instance"
-	hostReplace   = "REPLACE_HOST"
 )
 
 type (
@@ -104,7 +106,7 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
 func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL) (string, error) {
-	drv := driver(targetURL.Scheme)
+	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	if drv == "sqlite" {
 		return "sqlite://db?mode=memory", nil
 	}
@@ -162,7 +164,16 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	}
 	pod := pods.Items[idx]
 	if conn, ok := pod.Annotations[annoConnTmpl]; ok {
-		return strings.ReplaceAll(conn, hostReplace, pod.Status.PodIP), nil
+		u, err := url.Parse(conn)
+		if err != nil {
+			return "", fmt.Errorf("invalid connection template: %w", err)
+		}
+		if p := u.Port(); p != "" {
+			u.Host = fmt.Sprintf("%s:%s", pod.Status.PodIP, p)
+		} else {
+			u.Host = pod.Status.PodIP
+		}
+		return u.String(), nil
 	}
 	// If the connection template is not found, there is an issue with
 	// the pod spec and the error is not transient.
@@ -173,6 +184,8 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 type devDB struct {
 	types.NamespacedName
 	Driver      string
+	User        string
+	Pass        string
 	Port        int
 	UID         int
 	DB          string
@@ -183,14 +196,22 @@ type devDB struct {
 func (d *devDB) ConnTmpl() string {
 	u := url.URL{
 		Scheme: d.Driver,
-		User:   url.UserPassword("root", "pass"),
-		Host:   fmt.Sprintf("%s:%d", hostReplace, d.Port),
+		User:   url.UserPassword(d.User, d.Pass),
+		Host:   fmt.Sprintf("localhost:%d", d.Port),
 		Path:   d.DB,
 	}
-	if q := u.Query(); d.Driver == "postgres" {
+	q := u.Query()
+	switch {
+	case d.Driver == "postgres":
 		q.Set("sslmode", "disable")
-		u.RawQuery = q.Encode()
+	case d.Driver == "sqlserver":
+		q.Set("database", d.DB)
+		if !d.SchemaBound {
+			q.Set("mode", "DATABASE")
+		}
 	}
+	u.RawQuery = q.Encode()
+
 	return u.String()
 }
 
@@ -203,6 +224,8 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 	v := &devDB{
 		Driver:         drv,
 		NamespacedName: name,
+		User:           "root",
+		Pass:           "pass",
 		SchemaBound:    schemaBound,
 	}
 	switch drv {
@@ -216,6 +239,11 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 		}
 		v.Port = 3306
 		v.UID = 1000
+	case "sqlserver":
+		v.User = "sa"
+		v.Pass = "P@ssw0rd0995"
+		v.DB = "master"
+		v.Port = 1433
 	default:
 		return nil, fmt.Errorf("unsupported driver %q", v.Driver)
 	}
@@ -227,6 +255,21 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 	if err := yaml.NewYAMLToJSONDecoder(b).Decode(d); err != nil {
 		return nil, err
 	}
+	if drv == "sqlserver" {
+		c := &d.Spec.Template.Spec.Containers[0]
+		if v := os.Getenv("MSSQL_ACCEPT_EULA"); v != "" {
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name:  "ACCEPT_EULA",
+				Value: v,
+			})
+		}
+		if v := os.Getenv("MSSQL_PID"); v != "" {
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name:  "MSSQL_PID",
+				Value: v,
+			})
+		}
+	}
 	return d, nil
 }
 
@@ -235,25 +278,6 @@ func nameDevDB(owner metav1.Object) types.NamespacedName {
 	return types.NamespacedName{
 		Name:      fmt.Sprintf("%s-atlas-dev-db", owner.GetName()),
 		Namespace: owner.GetNamespace(),
-	}
-}
-
-// driver returns the driver from the given schema.
-// it remove the schema modifier if present.
-// e.g. mysql+unix -> mysql
-// it also handles aliases.
-// e.g. mariadb -> mysql
-func driver(schema string) string {
-	p := strings.SplitN(schema, "+", 2)
-	switch drv := strings.ToLower(p[0]); drv {
-	case "libsql":
-		return "sqlite"
-	case "maria", "mariadb":
-		return "mysql"
-	case "postgresql":
-		return "postgres"
-	default:
-		return drv
 	}
 }
 
@@ -267,6 +291,9 @@ func isSchemaBound(drv string, u *url.URL) bool {
 		return u.Query().Get("search_path") != ""
 	case "mysql":
 		return u.Path != ""
+	case "sqlserver":
+		m := u.Query().Get("mode")
+		return m == "" || strings.ToLower(m) == "schema"
 	}
 	return false
 }

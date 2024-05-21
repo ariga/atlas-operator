@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -100,6 +101,13 @@ func (c *Credentials) URL() *url.URL {
 		Scheme: c.Scheme,
 		Path:   c.Database,
 	}
+	if DriverBySchema(c.Scheme) == "sqlserver" && c.Database != "" {
+		u.Path = ""
+		if c.Parameters == nil {
+			c.Parameters = map[string]string{}
+		}
+		c.Parameters["database"] = c.Database
+	}
 	if c.User != "" || c.Password != "" {
 		u.User = url.UserPassword(c.User, c.Password)
 	}
@@ -130,4 +138,25 @@ func getSecrectValue(
 		return "", err
 	}
 	return string(val.Data[ref.Key]), nil
+}
+
+// DriverBySchema returns the driver from the given schema.
+// it remove the schema modifier if present.
+// e.g. mysql+unix -> mysql
+// it also handles aliases.
+// e.g. mariadb -> mysql
+func DriverBySchema(schema string) string {
+	p := strings.SplitN(schema, "+", 2)
+	switch drv := strings.ToLower(p[0]); drv {
+	case "libsql":
+		return "sqlite"
+	case "maria", "mariadb":
+		return "mysql"
+	case "postgresql":
+		return "postgres"
+	case "sqlserver", "azuresql", "mssql":
+		return "sqlserver"
+	default:
+		return drv
+	}
 }

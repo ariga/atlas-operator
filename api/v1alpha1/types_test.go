@@ -218,6 +218,17 @@ func TestCredentials_URL(t *testing.T) {
 			},
 			exp: "mysql://user:pass@:3306/db",
 		},
+		{
+			c: v1alpha1.Credentials{
+				Scheme:   "sqlserver",
+				User:     "sa",
+				Password: "P@ssw0rd0995",
+				Host:     "",
+				Port:     1433,
+				Database: "master",
+			},
+			exp: "sqlserver://sa:P%40ssw0rd0995@:1433?database=master",
+		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {
 			require.Equal(t, tt.exp, tt.c.URL().String())

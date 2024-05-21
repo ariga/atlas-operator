@@ -32,5 +32,4 @@ profiles:
   manifests:
     kustomize:
       paths:
-        - config/default
-        - config/integration
+        - config/atlas-token
