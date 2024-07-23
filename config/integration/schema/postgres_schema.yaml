@@ -34,6 +34,7 @@ spec:
     database: postgres
     port: 5432
     parameters:
+      search_path: public
       sslmode: disable
   schema:
     sql: |
