@@ -204,6 +204,10 @@ func (d *devDB) ConnTmpl() string {
 	switch {
 	case d.Driver == "postgres":
 		q.Set("sslmode", "disable")
+		if d.SchemaBound {
+			// Use the default schema for the schema connection.
+			q.Set("search_path", "public")
+		}
 	case d.Driver == "sqlserver":
 		q.Set("database", d.DB)
 		if !d.SchemaBound {
