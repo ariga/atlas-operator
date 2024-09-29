@@ -706,9 +706,10 @@ func (t *test) initDB(statement string) {
 	cli, err := atlasexec.NewClient(wd.Path(), "atlas")
 	require.NoError(t, err)
 	_, err = cli.SchemaApply(context.Background(), &atlasexec.SchemaApplyParams{
-		URL:    t.dburl,
-		DevURL: "sqlite://file2/?mode=memory",
-		To:     "file://./schema.sql",
+		URL:         t.dburl,
+		DevURL:      "sqlite://file2/?mode=memory",
+		To:          "file://./schema.sql",
+		AutoApprove: true,
 	})
 	require.NoError(t, err)
 }

@@ -266,8 +266,9 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName, txMode 
 		return nil, err
 	}
 	return cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
-		Env:    envName,
-		TxMode: txMode,
+		Env:         envName,
+		TxMode:      txMode,
+		AutoApprove: true,
 	})
 }
 
