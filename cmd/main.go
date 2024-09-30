@@ -41,7 +41,7 @@ import (
 	//+kubebuilder:scaffold:imports
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/controllers"
+	"github.com/ariga/atlas-operator/internal/controller"
 	"github.com/ariga/atlas-operator/internal/vercheck"
 )
 
@@ -142,15 +142,15 @@ func main() {
 		os.Exit(1)
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
-	atlas := func(s string) (controllers.AtlasExec, error) {
+	atlas := func(s string) (controller.AtlasExec, error) {
 		return atlasexec.NewClient(s, "/atlas")
 	}
-	if err = controllers.NewAtlasSchemaReconciler(mgr, atlas, prewarmDevDB).
+	if err = controller.NewAtlasSchemaReconciler(mgr, atlas, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
-	if err = controllers.NewAtlasMigrationReconciler(mgr, atlas, prewarmDevDB).
+	if err = controller.NewAtlasMigrationReconciler(mgr, atlas, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 		os.Exit(1)
