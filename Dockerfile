@@ -30,16 +30,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 # Copy the go source
-COPY main.go main.go
+COPY cmd/main.go cmd/main.go
 COPY api/ api/
-COPY controllers/ controllers/
 COPY internal/ internal/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
-    -o manager -a main.go
+    -o manager -a cmd/main.go
 
 FROM alpine:3.19 as atlas
 RUN apk add --no-cache curl

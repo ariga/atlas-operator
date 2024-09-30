@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package controllers
+package controller
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/controllers/watch"
+	"github.com/ariga/atlas-operator/internal/controller/watch"
 )
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete;get;list;watch;create;update;patch;delete

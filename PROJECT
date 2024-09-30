@@ -2,31 +2,31 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
+version: "3"
 domain: atlasgo.io
 layout:
-- go.kubebuilder.io/v3
+- go.kubebuilder.io/v4
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: atlas-operator
 repo: github.com/ariga/atlas-operator
 resources:
-- api:
+- kind: AtlasSchema
+  domain: atlasgo.io
+  group: db
+  version: v1alpha1
+  api:
     crdVersion: v1
     namespaced: true
   controller: true
+  path: github.com/ariga/atlas-operator/api/v1alpha1
+- kind: AtlasMigration
   domain: atlasgo.io
   group: db
-  kind: AtlasSchema
-  path: github.com/ariga/atlas-operator/api/v1alpha1
   version: v1alpha1
-- api:
+  api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: atlasgo.io
-  group: db
-  kind: AtlasMigration
   path: github.com/ariga/atlas-operator/api/v1alpha1
-  version: v1alpha1
-version: "3"
