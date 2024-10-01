@@ -73,10 +73,10 @@ func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconcile
 
 // cleanUp clean up any resources created by the controller
 func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
+	key := nameDevDB(sc)
 	// If prewarmDevDB is false, scale down the deployment to 0
 	if !r.prewarm {
 		deploy := &appsv1.Deployment{}
-		key := nameDevDB(sc)
 		err := r.Get(ctx, key, deploy)
 		if err != nil {
 			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
@@ -90,11 +90,14 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 	}
 	// delete pods to clean up
 	pods := &corev1.PodList{}
-	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-		labelInstance: nameDevDB(sc).Name,
-	}))
-	if err != nil {
+	if err := r.List(ctx, pods,
+		client.InNamespace(key.Namespace),
+		client.MatchingLabels(map[string]string{
+			labelInstance: key.Name,
+		}),
+	); err != nil {
 		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
+		return
 	}
 	for _, p := range pods.Items {
 		if err := r.Delete(ctx, &p); err != nil {
@@ -146,11 +149,13 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		return "", err
 	}
 	pods := &corev1.PodList{}
-	err := r.List(ctx, pods, client.MatchingLabels(map[string]string{
-		labelEngine:   drv,
-		labelInstance: key.Name,
-	}))
-	switch {
+	switch err := r.List(ctx, pods,
+		client.InNamespace(key.Namespace),
+		client.MatchingLabels(map[string]string{
+			labelEngine:   drv,
+			labelInstance: key.Name,
+		}),
+	); {
 	case err != nil:
 		return "", transient(err)
 	case len(pods.Items) == 0:

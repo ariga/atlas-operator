@@ -70,6 +70,8 @@ func TestOperator(t *testing.T) {
 		Dir: filepath.Join("testdata", "atlas-schema"),
 		Setup: func(e *testscript.Env) (err error) {
 			e.Setenv("CONTROLLER", "deployment/atlas-operator-controller-manager")
+			// Sharing the atlas token with the test
+			e.Setenv("ATLAS_TOKEN", os.Getenv("ATLAS_TOKEN"))
 			// Ensure the test in running in the right kube context
 			e.Setenv("KUBECONFIG", kubeconfig)
 			// Creating a namespace for the test
