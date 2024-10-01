@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
+KIND_CLUSTER ?= kind
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
 
@@ -81,11 +82,15 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@kind get clusters | grep -q 'kind' || { \
+	@kind get clusters | grep -q ${KIND_CLUSTER} || { \
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v
+	@kind load docker-image ${IMG} --name ${KIND_CLUSTER} || { \
+		echo "Faild to load image ${IMG} to cluster ${KIND_CLUSTER}, please build the image first"; \
+		exit 1; \
+	}
+	go test ./test/e2e/ -v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
