@@ -31,6 +31,7 @@ jobs:
       - name: Run e2e tests
         run: |
           make docker-build test-e2e \
+            ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             IMG=ariga/atlas-operator:e2e \
             KIND_CLUSTER=chart-testing
   test:
