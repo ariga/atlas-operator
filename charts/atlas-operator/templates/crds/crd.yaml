@@ -442,6 +442,36 @@ spec:
           spec:
             description: AtlasSchemaSpec defines the desired state of AtlasSchema
             properties:
+              cloud:
+                description: Cloud defines the Atlas Cloud configuration.
+                properties:
+                  tokenFrom:
+                    description: TokenFrom defines the reference to the secret key
+                      that contains the Atlas Cloud Token.
+                    properties:
+                      secretKeyRef:
+                        description: SecretKeyRef references to the key of a secret
+                          in the same namespace.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            description: |-
+                              Name of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                type: object
               credentials:
                 description: |-
                   Credentials defines the credentials to use when connecting to the database.

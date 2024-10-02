@@ -70,6 +70,7 @@ type (
 		Policy  *dbv1alpha1.Policy
 		TxMode  dbv1alpha1.TransactionMode
 		Desired *url.URL
+		Cloud   *Cloud
 
 		schema []byte
 	}
@@ -207,7 +208,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
-	report, err := r.apply(ctx, wd.Path(), data, string(data.TxMode))
+	report, err := r.apply(ctx, wd, data)
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
@@ -245,6 +246,12 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 			res.NamespacedName(),
 		)
 	}
+	if s := res.Spec.Cloud.TokenFrom.SecretKeyRef; s != nil {
+		r.secretWatcher.Watch(
+			types.NamespacedName{Name: s.Name, Namespace: res.Namespace},
+			res.NamespacedName(),
+		)
+	}
 	if s := res.Spec.URLFrom.SecretKeyRef; s != nil {
 		r.secretWatcher.Watch(
 			types.NamespacedName{Name: s.Name, Namespace: res.Namespace},
@@ -265,15 +272,15 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir string, data *managedData, txMode string) (*atlasexec.SchemaApply, error) {
-	cli, err := r.atlasClient(dir, nil)
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData) (*atlasexec.SchemaApply, error) {
+	cli, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
 		return nil, err
 	}
 	return cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 		Env:         data.EnvName,
 		To:          data.Desired.String(),
-		TxMode:      txMode,
+		TxMode:      string(data.TxMode),
 		AutoApprove: true,
 	})
 }
@@ -282,6 +289,7 @@ func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir string, data *man
 func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasSchema) (_ *managedData, err error) {
 	var (
 		s    = res.Spec
+		c    = s.Cloud
 		data = &managedData{
 			EnvName: defaultEnvName,
 			DevURL:  s.DevURL,
@@ -291,6 +299,13 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 			TxMode:  s.TxMode,
 		}
 	)
+	if s := c.TokenFrom.SecretKeyRef; s != nil {
+		token, err := getSecretValue(ctx, r, res.Namespace, s)
+		if err != nil {
+			return nil, err
+		}
+		data.Cloud = &Cloud{Token: token}
+	}
 	data.URL, err = s.DatabaseURL(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)

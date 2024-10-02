@@ -51,6 +51,8 @@ type (
 
 		SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
 		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
+
+		WhoAmI(ctx context.Context) (*atlasexec.WhoAmI, error)
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.
