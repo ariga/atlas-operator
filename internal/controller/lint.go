@@ -34,21 +34,22 @@ const lintDirName = "lint-migrations"
 // - 1.sql: the current schema.
 // - 2.sql: the pending changes.
 // Then it runs `atlas migrate lint` in the temporary directory.
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, envName string, vars atlasexec.Vars) error {
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData, vars atlasexec.VarArgs) error {
 	cli, err := r.atlasClient(wd.Path())
 	if err != nil {
 		return err
 	}
 	current, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
-		Env:    envName,
-		Format: "sql",
+		Env:    data.EnvName,
+		Format: "{{ sql . }}",
 	})
 	if err != nil {
 		return err
 	}
 	plan, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+		Env:    data.EnvName,
+		To:     data.Desired.String(),
 		DryRun: true, // Dry run to get pending changes.
-		Env:    envName,
 	})
 	if err != nil {
 		return err
@@ -72,8 +73,8 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 		return err
 	}
 	lint, err := cli.MigrateLint(ctx, &atlasexec.MigrateLintParams{
+		Env:    data.EnvName,
 		DirURL: fmt.Sprintf("file://./%s", lintDirName),
-		Env:    envName,
 		Latest: 1, // Only lint 2.sql, pending changes.
 		Vars:   vars,
 	})

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -200,29 +201,35 @@ func (sc *AtlasSchema) SetNotReady(reason, msg string) {
 	})
 }
 
-// Content returns the desired schema of the AtlasSchema.
-func (s Schema) Content(ctx context.Context, r client.Reader, ns string) ([]byte, string, error) {
+// Schema reader types (URL schemes).
+const (
+	SchemaTypeAtlas = "atlas"
+	SchemaTypeFile  = "file"
+)
+
+// Desired returns the desired schema of the AtlasSchema.
+func (s Schema) DesiredState(ctx context.Context, r client.Reader, ns string) (*url.URL, []byte, error) {
 	switch ref := s.ConfigMapKeyRef; {
 	case ref != nil:
 		val := &corev1.ConfigMap{}
 		err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, err
 		}
 		// Guess the schema file format based on the key's extension.
 		ext := strings.ToLower(filepath.Ext(ref.Key))
 		switch desired, ok := val.Data[ref.Key]; {
 		case !ok:
-			return nil, "", fmt.Errorf("configmaps %s/%s does not contain key %q", ns, ref.Name, ref.Key)
+			return nil, nil, fmt.Errorf("configmaps %s/%s does not contain key %q", ns, ref.Name, ref.Key)
 		case ext == ".hcl" || ext == ".sql":
-			return []byte(desired), ext[1:], nil
+			return &url.URL{Scheme: SchemaTypeFile, Path: "schema" + ext}, []byte(desired), nil
 		default:
-			return nil, "", fmt.Errorf("configmaps key %q must be ending with .sql or .hcl, received %q", ref.Key, ext)
+			return nil, nil, fmt.Errorf("configmaps key %q must be ending with .sql or .hcl, received %q", ref.Key, ext)
 		}
 	case s.HCL != "":
-		return []byte(s.HCL), "hcl", nil
+		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.hcl"}, []byte(s.HCL), nil
 	case s.SQL != "":
-		return []byte(s.SQL), "sql", nil
+		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.sql"}, []byte(s.SQL), nil
 	}
-	return nil, "", fmt.Errorf("no desired schema specified")
+	return nil, nil, fmt.Errorf("no desired state specified")
 }

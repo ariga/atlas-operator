@@ -128,19 +128,19 @@ func TestSchema_Content(t *testing.T) {
 			Build()
 	)
 	// error
-	_, _, err := sch.Content(ctx, client, "default")
-	require.ErrorContains(t, err, "no desired schema specified")
+	_, _, err := sch.DesiredState(ctx, client, "default")
+	require.ErrorContains(t, err, "no desired state specified")
 
 	sch.SQL = "bar"
-	data, ext, err := sch.Content(ctx, client, "default")
+	u, data, err := sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "sql", ext)
+	require.Equal(t, "file://schema.sql", u.String())
 	require.Equal(t, []byte("bar"), data)
 
 	sch.HCL = "foo"
-	data, ext, err = sch.Content(ctx, client, "default")
+	u, data, err = sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "hcl", ext)
+	require.Equal(t, "file://schema.hcl", u.String())
 	require.Equal(t, []byte("foo"), data)
 
 	// Should return the content from the configmap
@@ -150,21 +150,21 @@ func TestSchema_Content(t *testing.T) {
 		},
 		Key: "schema.sql",
 	}
-	data, ext, err = sch.Content(ctx, client, "default")
+	u, data, err = sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "sql", ext)
+	require.Equal(t, "file://schema.sql", u.String())
 	require.Equal(t, []byte("bar"), data)
 
 	sch.ConfigMapKeyRef.Key = "schema.bug"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps key "schema.bug" must be ending with .sql or .hcl, received ".bug"`)
 
 	sch.ConfigMapKeyRef.Key = "schema.foo"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps default/test does not contain key "schema.foo"`)
 
 	sch.ConfigMapKeyRef.Name = "foo"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps "foo" not found`)
 }
 

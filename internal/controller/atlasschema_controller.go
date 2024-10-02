@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -68,9 +69,9 @@ type (
 		Exclude []string
 		Policy  *dbv1alpha1.Policy
 		TxMode  dbv1alpha1.TransactionMode
+		Desired *url.URL
 
-		desired []byte
-		ext     string
+		schema []byte
 	}
 )
 
@@ -161,16 +162,20 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	defer wd.Close()
 	// Write the schema file to the working directory.
-	_, err = wd.WriteFile(data.Source(), data.desired)
-	if err != nil {
-		res.SetNotReady("CreatingSchemaFile", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
+		_, err = wd.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
+		if err != nil {
+			res.SetNotReady("CreatingSchemaFile", err.Error())
+			r.recordErrEvent(res, err)
+			return result(err)
+		}
 	}
 	switch {
 	case res.Status.LastApplied == 0:
 		// Verify the first run doesn't contain destructive changes.
-		err = r.lint(ctx, wd, data.EnvName, atlasexec.Vars{"lint_destructive": "true"})
+		err = r.lint(ctx, wd, data, atlasexec.Vars2{
+			"lint_destructive": "true",
+		})
 		switch d := (&destructiveErr{}); {
 		case err == nil:
 		case errors.As(err, &d):
@@ -191,7 +196,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	case data.shouldLint():
 		// Run the linting policy.
-		if err = r.lint(ctx, wd, data.EnvName, nil); err != nil {
+		if err = r.lint(ctx, wd, data, nil); err != nil {
 			reason, msg := "LintPolicyError", err.Error()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
@@ -202,7 +207,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
-	report, err := r.apply(ctx, wd.Path(), data.EnvName, string(data.TxMode))
+	report, err := r.apply(ctx, wd.Path(), data, string(data.TxMode))
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
@@ -260,13 +265,14 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir, envName, txMode string) (*atlasexec.SchemaApply, error) {
+func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir string, data *managedData, txMode string) (*atlasexec.SchemaApply, error) {
 	cli, err := r.atlasClient(dir)
 	if err != nil {
 		return nil, err
 	}
 	return cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
-		Env:         envName,
+		Env:         data.EnvName,
+		To:          data.Desired.String(),
 		TxMode:      txMode,
 		AutoApprove: true,
 	})
@@ -289,7 +295,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	if err != nil {
 		return nil, transient(err)
 	}
-	data.desired, data.ext, err = s.Schema.Content(ctx, r, res.Namespace)
+	data.Desired, data.schema, err = s.Schema.DesiredState(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
 	}
@@ -312,11 +318,6 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err 
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, strings.TrimSpace(err.Error()))
 }
 
-// Source returns the file name of the desired schema.
-func (d *managedData) Source() string {
-	return fmt.Sprintf("schema.%s", d.ext)
-}
-
 // ShouldLint returns true if the linting policy is set to error.
 func (d *managedData) shouldLint() bool {
 	p := d.Policy
@@ -329,7 +330,11 @@ func (d *managedData) shouldLint() bool {
 // hash returns the sha256 hash of the desired.
 func (d *managedData) hash() (string, error) {
 	h := sha256.New()
-	h.Write([]byte(d.desired))
+	if len(d.schema) > 0 {
+		h.Write([]byte(d.schema))
+	} else {
+		h.Write([]byte(d.Desired.String()))
+	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
@@ -347,8 +352,8 @@ func (d *managedData) render(w io.Writer) error {
 	if d.DevURL == "" {
 		return errors.New("dev url is not set")
 	}
-	if d.ext == "" {
-		return errors.New("schema extension is not set")
+	if d.Desired == nil {
+		return errors.New("the desired state is not set")
 	}
 	return tmpl.ExecuteTemplate(w, "atlas_schema.tmpl", d)
 }
