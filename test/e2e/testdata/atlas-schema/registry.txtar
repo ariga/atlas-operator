@@ -1,0 +1,139 @@
+kubectl apply -f database.yaml
+expand secret.yaml
+stdin stdout
+kubectl apply -f -
+
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=60s -l app=postgres pods
+# Set the ATLAS_TOKEN for the controller, this is required to read from the registry
+kubectl set env -n atlas-operator-system ${CONTROLLER} ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+cmp stdout schema-v1.hcl
+
+kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+cmp stdout schema-v2.hcl
+-- patch-v2.yaml --
+spec:
+  schema:
+    url: atlas://atlas-operator?tag=registry-v2
+-- schema-v2.hcl --
+table "users1" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+table "users2" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema-v1.hcl --
+table "users2" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: postgres-credentials
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-v1
+-- secret.yaml --
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+type: Opaque
+stringData:
+  url: "postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable"
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready", "-U", "postgres" ]

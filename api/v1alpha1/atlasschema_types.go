@@ -85,8 +85,10 @@ type (
 	}
 	// Schema defines the desired state of the target database schema in plain SQL or HCL.
 	Schema struct {
-		SQL             string                       `json:"sql,omitempty"`
-		HCL             string                       `json:"hcl,omitempty"`
+		SQL string `json:"sql,omitempty"`
+		HCL string `json:"hcl,omitempty"`
+		URL string `json:"url,omitempty"`
+
 		ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 	}
 	// Policy defines the policies to apply when managing the schema change lifecycle.
@@ -230,6 +232,12 @@ func (s Schema) DesiredState(ctx context.Context, r client.Reader, ns string) (*
 		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.hcl"}, []byte(s.HCL), nil
 	case s.SQL != "":
 		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.sql"}, []byte(s.SQL), nil
+	case s.URL != "":
+		u, err := url.Parse(s.URL)
+		if err == nil && u.Scheme != SchemaTypeAtlas {
+			return nil, nil, fmt.Errorf("unsupported URL schema %q", u.Scheme)
+		}
+		return u, nil, err
 	}
 	return nil, nil, fmt.Errorf("no desired state specified")
 }
