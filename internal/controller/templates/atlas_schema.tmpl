@@ -82,7 +82,6 @@ lint {
 {{- end }}
 env {
   name = atlas.env
-  src  = "{{ removeSpecialChars .Source }}"
   url  = "{{ removeSpecialChars .URL }}"
   dev  = "{{ removeSpecialChars .DevURL }}"
   schemas = {{ slides .Schemas }}
