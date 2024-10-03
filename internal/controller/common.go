@@ -72,7 +72,7 @@ func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c != nil {
+	if c != nil && c.Token != "" {
 		env := atlasexec.NewOSEnviron()
 		env["ATLAS_TOKEN"] = c.Token
 		if err = cli.SetEnv(env); err != nil {
