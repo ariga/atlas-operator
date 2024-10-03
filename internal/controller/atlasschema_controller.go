@@ -153,23 +153,39 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
+	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
+	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
+		// Write the schema file to the working directory.
+		opts = append(opts, func(ce *atlasexec.WorkingDir) error {
+			_, err := ce.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
+			return err
+		})
+	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
-	wd, err := atlasexec.NewWorkingDir(atlasexec.WithAtlasHCL(data.render))
+	wd, err := atlasexec.NewWorkingDir(opts...)
 	if err != nil {
 		res.SetNotReady("CreatingWorkingDir", err.Error())
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
 	defer wd.Close()
-	// Write the schema file to the working directory.
-	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
-		_, err = wd.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
-		if err != nil {
-			res.SetNotReady("CreatingSchemaFile", err.Error())
-			r.recordErrEvent(res, err)
-			return result(err)
-		}
+	cli, err := r.atlasClient(wd.Path(), data.Cloud)
+	if err != nil {
+		res.SetNotReady("CreatingAtlasClient", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	var whoami *atlasexec.WhoAmI
+	switch whoami, err = cli.WhoAmI(ctx); {
+	case errors.Is(err, atlasexec.ErrRequireLogin):
+		log.Info("the resource is not connected to Atlas Cloud")
+	case err != nil:
+		res.SetNotReady("WhoAmI", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	default:
+		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
 	switch {
 	case res.Status.LastApplied == 0:
@@ -208,7 +224,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return result(err)
 		}
 	}
-	report, err := r.apply(ctx, wd, data)
+	report, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+		Env:         data.EnvName,
+		To:          data.Desired.String(),
+		TxMode:      string(data.TxMode),
+		AutoApprove: true,
+	})
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
@@ -270,19 +291,6 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 			res.NamespacedName(),
 		)
 	}
-}
-
-func (r *AtlasSchemaReconciler) apply(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData) (*atlasexec.SchemaApply, error) {
-	cli, err := r.atlasClient(wd.Path(), data.Cloud)
-	if err != nil {
-		return nil, err
-	}
-	return cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
-		Env:         data.EnvName,
-		To:          data.Desired.String(),
-		TxMode:      string(data.TxMode),
-		AutoApprove: true,
-	})
 }
 
 // extractData extracts the info about the managed database and its desired state.

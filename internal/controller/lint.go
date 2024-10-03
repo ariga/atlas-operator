@@ -81,13 +81,11 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	if err != nil {
 		return err
 	}
-	if diags := destructive(lint); len(diags) > 0 {
-		return &destructiveErr{diags: diags}
-	}
-	return nil
+	return destructive(lint)
 }
 
-func destructive(rep *atlasexec.SummaryReport) (checks []sqlcheck.Diagnostic) {
+func destructive(rep *atlasexec.SummaryReport) error {
+	var checks []sqlcheck.Diagnostic
 	for _, f := range rep.Files {
 		for _, r := range f.Reports {
 			if f.Error == "" {
@@ -100,7 +98,10 @@ func destructive(rep *atlasexec.SummaryReport) (checks []sqlcheck.Diagnostic) {
 			}
 		}
 	}
-	return
+	if len(checks) > 0 {
+		return &destructiveErr{diags: checks}
+	}
+	return nil
 }
 
 type destructiveErr struct {
