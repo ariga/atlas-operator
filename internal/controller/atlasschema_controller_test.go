@@ -354,6 +354,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 }
 
 func TestBadSQL(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	tt := cliTest(t)
 	sc := conditionReconciling()
 	sc.Spec.Schema.SQL = "bad sql;"
@@ -432,6 +433,10 @@ func TestConfigTemplate(t *testing.T) {
   type = bool
   default = true
 }
+variable "lint_review" {
+  type    = string
+  default = ""
+}
 diff {
   concurrent_index {
     create = true
@@ -442,17 +447,18 @@ diff {
     drop_table = true
   }
 }
-lint {
-  destructive {
-    error = var.lint_destructive
-  }
-}
 env {
   name = atlas.env
   url  = "mysql://root:password@localhost:3306/test"
   dev  = "mysql://root:password@localhost:3306/dev"
   schemas = ["foo","bar"]
   exclude = []
+  lint {
+    destructive {
+      error = var.lint_destructive
+    }
+    review = var.lint_review != "" ? var.lint_review : null
+  }
 }
 `
 	require.EqualValues(t, expected, buf.String())

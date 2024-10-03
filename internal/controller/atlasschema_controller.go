@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
+	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
 )
@@ -187,21 +188,168 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
-	switch {
+	var report *atlasexec.SchemaApply
+	switch desiredURL := data.Desired.String(); {
+	// The resource is connected to Atlas Cloud.
+	case whoami != nil:
+		vars := atlasexec.Vars2{
+			"lint_destructive": "true",
+			"lint_review":      "ERROR",
+		}
+		if p := data.Policy; p != nil && p.Lint != nil {
+			if d := p.Lint.Destructive; d != nil && !d.Error {
+				// Remove the lint_destructive variable.
+				// if the lint policy is not set to error.
+				delete(vars, "lint_destructive")
+			}
+			if r := p.Lint.Review; r != "" {
+				vars["lint_review"] = r
+			}
+		}
+		params := &atlasexec.SchemaApplyParams{
+			Env:    data.EnvName,
+			Vars:   vars,
+			To:     desiredURL,
+			TxMode: string(data.TxMode),
+		}
+		if repo := data.repoURL(); repo != "" {
+			// List the schema plans to check if there are any plans.
+			switch plans, err := cli.SchemaPlanList(ctx, &atlasexec.SchemaPlanListParams{
+				Env:  data.EnvName,
+				Vars: vars,
+				Repo: repo,
+				From: []string{"env://url"},
+				To:   []string{desiredURL},
+			}); {
+			case err != nil:
+				reason, msg := "ListingPlans", err.Error()
+				res.SetNotReady(reason, msg)
+				r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+				if !isSQLErr(err) {
+					err = transient(err)
+				}
+				r.recordErrEvent(res, err)
+				return result(err)
+			// There are multiple pending plans.
+			// This is an unexpected state.
+			case len(plans) > 1:
+				planURLs := make([]string, 0, len(plans))
+				for _, p := range plans {
+					planURLs = append(planURLs, p.URL)
+				}
+				log.Info("multiple schema plans found", "plans", planURLs)
+				reason, msg := "ListingPlans", fmt.Sprintf("multiple schema plans found: %s", strings.Join(planURLs, ", "))
+				res.SetNotReady(reason, msg)
+				r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+				err = errors.New(msg)
+				r.recordErrEvent(res, err)
+				return result(err)
+			// Deploy the changes using the approved plan.
+			case len(plans) == 1 && plans[0].Status == "APPROVED":
+				log.Info("found an approved schema plan, applying", "plan", plans[0].URL)
+				params.PlanURL = plans[0].URL
+			// The plan is pending approval, show the plan to the user.
+			case len(plans) == 1 && plans[0].Status == "PENDING":
+				log.Info("found a pending schema plan, waiting for approval", "plan", plans[0].URL)
+				res.Status.PlanURL = plans[0].URL
+				res.Status.PlanLink = plans[0].Link
+				reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
+				res.SetNotReady(reason, msg)
+				r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
+				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+			}
+		}
+		// Try to apply the schema changes with lint policies,
+		// if the changes are rejected by the review policy, create a plan
+		// for the pending changes.
+		report, err = cli.SchemaApply(ctx, params)
+		// TODO: Better error handling for rejected changes.
+		if err != nil && strings.HasPrefix(err.Error(), "Rejected by review policy") {
+			log.Info("schema changes are rejected by the review policy, creating a new schema plan")
+			// If the desired state is a file, we need to push the schema to the Atlas Cloud.
+			// This is to ensure that the schema is in sync with the Atlas Cloud.
+			// And the schema is available for the Atlas CLI (on local machine)
+			// to modify or approve the changes.
+			if data.Desired.Scheme == dbv1alpha1.SchemaTypeFile {
+				log.Info("schema is a file, pushing the schema to Atlas Cloud")
+				// Using hash of desired state as the tag for the schema.
+				// This ensures push is idempotent.
+				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
+					Env:    data.EnvName,
+					Vars:   vars,
+					URL:    desiredURL,
+					Format: `{{ .Hash | base64url }}`,
+				})
+				if err != nil {
+					reason, msg := "SchemaPush", err.Error()
+					res.SetNotReady(reason, msg)
+					r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+					if !isSQLErr(err) {
+						err = transient(err)
+					}
+					r.recordErrEvent(res, err)
+					return result(err)
+				}
+				state, err := cli.SchemaPush(ctx, &atlasexec.SchemaPushParams{
+					Env:  data.EnvName,
+					Vars: vars,
+					Name: data.Cloud.Repo,
+					Tag:  fmt.Sprintf("operator-plan-%.8s", strings.ToLower(tag)),
+					URL:  []string{desiredURL},
+				})
+				if err != nil {
+					reason, msg := "SchemaPush", err.Error()
+					res.SetNotReady(reason, msg)
+					r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+					if !isSQLErr(err) {
+						err = transient(err)
+					}
+					r.recordErrEvent(res, err)
+					return result(err)
+				}
+				desiredURL = state.URL
+			}
+			log.Info("creating a new schema plan", "desiredURL", desiredURL)
+			// Create a new plan for the pending changes.
+			plan, err := cli.SchemaPlan(ctx, &atlasexec.SchemaPlanParams{
+				Env:     data.EnvName,
+				Vars:    vars,
+				Repo:    data.repoURL(),
+				From:    []string{"env://url"},
+				To:      []string{desiredURL},
+				Pending: true,
+			})
+			if err != nil {
+				reason, msg := "SchemaPlan", err.Error()
+				res.SetNotReady(reason, msg)
+				r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
+				if !isSQLErr(err) {
+					err = transient(err)
+				}
+				r.recordErrEvent(res, err)
+				return result(err)
+			}
+			log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
+			res.Status.PlanURL = plan.File.URL
+			res.Status.PlanLink = plan.File.Link
+			reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
+			res.SetNotReady(reason, msg)
+			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+		}
+	// Verify the first run doesn't contain destructive changes.
 	case res.Status.LastApplied == 0:
-		// Verify the first run doesn't contain destructive changes.
 		err = r.lint(ctx, wd, data, atlasexec.Vars2{
 			"lint_destructive": "true",
 		})
-		switch d := (&destructiveErr{}); {
-		case err == nil:
+		switch d := (*destructiveErr)(nil); {
 		case errors.As(err, &d):
 			reason, msg := d.FirstRun()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
 			// Don't requeue destructive errors.
 			return ctrl.Result{}, nil
-		default:
+		case err != nil:
 			reason, msg := "VerifyingFirstRun", err.Error()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
@@ -211,8 +359,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recordErrEvent(res, err)
 			return result(err)
 		}
+		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+			Env:         data.EnvName,
+			To:          desiredURL,
+			TxMode:      string(data.TxMode),
+			AutoApprove: true,
+		})
+	// Run the linting policy.
 	case data.shouldLint():
-		// Run the linting policy.
 		if err = r.lint(ctx, wd, data, nil); err != nil {
 			reason, msg := "LintPolicyError", err.Error()
 			res.SetNotReady(reason, msg)
@@ -223,13 +377,21 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recordErrEvent(res, err)
 			return result(err)
 		}
+		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+			Env:         data.EnvName,
+			To:          desiredURL,
+			TxMode:      string(data.TxMode),
+			AutoApprove: true,
+		})
+	// No linting policy is set.
+	default:
+		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+			Env:         data.EnvName,
+			To:          desiredURL,
+			TxMode:      string(data.TxMode),
+			AutoApprove: true,
+		})
 	}
-	report, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
-		Env:         data.EnvName,
-		To:          data.Desired.String(),
-		TxMode:      string(data.TxMode),
-		AutoApprove: true,
-	})
 	if err != nil {
 		res.SetNotReady("ApplyingSchema", err.Error())
 		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", err.Error())
@@ -239,13 +401,20 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
+	log.Info("schema changes are applied", "applied", len(report.Changes.Applied))
 	// Truncate the applied and pending changes to 1024 bytes.
 	report.Changes.Applied = truncateSQL(report.Changes.Applied, sqlLimitSize)
 	report.Changes.Pending = truncateSQL(report.Changes.Pending, sqlLimitSize)
-	res.SetReady(dbv1alpha1.AtlasSchemaStatus{
+	s := dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
 		ObservedHash: hash,
-	}, report)
+	}
+	// Set the plan URL if it exists.
+	if p := report.Plan; p != nil {
+		s.PlanLink = p.File.Link
+		s.PlanURL = p.File.URL
+	}
+	res.SetReady(s, report)
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
@@ -314,6 +483,13 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 		}
 		data.Cloud = &Cloud{Token: token}
 	}
+	if r := c.Repo; r != "" {
+		if data.Cloud == nil {
+			// The ATLAS_TOKEN token can be provide via the environment variable.
+			data.Cloud = &Cloud{}
+		}
+		data.Cloud.Repo = r
+	}
 	data.URL, err = s.DatabaseURL(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
@@ -359,6 +535,24 @@ func (d *managedData) hash() (string, error) {
 		h.Write([]byte(d.Desired.String()))
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (d *managedData) repoURL() string {
+	switch {
+	// The user has provided the repository name.
+	case d.Cloud != nil && d.Cloud.Repo != "":
+		return (&url.URL{
+			Scheme: v1alpha1.SchemaTypeAtlas,
+			Host:   d.Cloud.Repo,
+		}).String()
+	// Fallback to desired URL if it's Cloud URL.
+	case d.Desired.Scheme == dbv1alpha1.SchemaTypeAtlas:
+		c := *d.Desired
+		c.RawQuery = ""
+		return c.String()
+	default:
+		return ""
+	}
 }
 
 // render renders the atlas.hcl template.

@@ -6,6 +6,10 @@ variable "lint_destructive" {
   default = false
 {{- end }}
 }
+variable "lint_review" {
+  type    = string
+  default = ""
+}
 {{- with .Policy }}
   {{- with .Diff }}
   {{- if or .ConcurrentIndex .Skip }}
@@ -72,13 +76,6 @@ diff {
 }
   {{- end }}
 {{- end }}
-{{- with .Lint }}
-lint {
-  destructive {
-    error = var.lint_destructive
-  }
-}
-{{- end }}
 {{- end }}
 env {
   name = atlas.env
@@ -86,4 +83,10 @@ env {
   dev  = "{{ removeSpecialChars .DevURL }}"
   schemas = {{ slides .Schemas }}
   exclude = {{ slides .Exclude }}
+  lint {
+    destructive {
+      error = var.lint_destructive
+    }
+    review = var.lint_review != "" ? var.lint_review : null
+  }
 }

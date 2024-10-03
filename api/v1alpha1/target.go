@@ -58,6 +58,8 @@ type (
 	Cloud struct {
 		// TokenFrom defines the reference to the secret key that contains the Atlas Cloud Token.
 		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
+		// Repo is the name of repository on the Atlas Cloud.
+		Repo string `json:"repo,omitempty"`
 	}
 )
 

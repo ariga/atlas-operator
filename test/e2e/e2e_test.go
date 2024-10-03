@@ -193,6 +193,25 @@ func TestOperator(t *testing.T) {
 				_, err := w.Write([]byte(content))
 				ts.Check(err)
 			},
+			// plans-rm removes the plans from the given file
+			"plans-rm": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg {
+					ts.Fatalf("unsupported: ! plans-rm")
+				}
+				if len(args) < 1 {
+					ts.Fatalf("usage: plans-rm filename")
+				}
+				plans := strings.Split(ts.ReadFile(args[0]), "\n")
+				for _, plan := range plans {
+					if plan == "" {
+						continue
+					}
+					ts.Check(ts.Exec("kubectl", "exec",
+						"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
+						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), plan),
+					))
+				}
+			},
 		},
 	})
 }
