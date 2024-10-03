@@ -260,7 +260,7 @@ func TestSchemaConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the schema was applied.
-	cli, err := tt.r.atlasClient("")
+	cli, err := tt.r.atlasClient("", nil)
 	require.NoError(t, err)
 	inspect, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -344,7 +344,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.Contains(t, ev, "FirstRunDestructive")
 	require.Contains(t, ev, "Warning")
 
-	cli, err := tt.r.atlasClient("")
+	cli, err := tt.r.atlasClient("", nil)
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -393,7 +393,7 @@ func TestDiffPolicy(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	cli, err := tt.r.atlasClient("")
+	cli, err := tt.r.atlasClient("", nil)
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -544,7 +544,7 @@ type test struct {
 func cliTest(t *testing.T) *test {
 	tt := newTest(t)
 	var err error
-	tt.r.atlasClient = globalAtlasMock
+	tt.r.atlasClient = NewAtlasExec
 	require.NoError(t, err)
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
@@ -566,7 +566,7 @@ func newTest(t *testing.T) *test {
 		r: &AtlasSchemaReconciler{
 			Client:           m,
 			scheme:           scheme,
-			atlasClient:      globalAtlasMock,
+			atlasClient:      NewAtlasExec,
 			configMapWatcher: watch.New(),
 			secretWatcher:    watch.New(),
 			recorder:         r,

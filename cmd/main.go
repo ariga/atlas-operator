@@ -27,7 +27,6 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
 	"golang.org/x/mod/semver"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -142,15 +141,12 @@ func main() {
 		os.Exit(1)
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
-	atlas := func(s string) (controller.AtlasExec, error) {
-		return atlasexec.NewClient(s, "/atlas")
-	}
-	if err = controller.NewAtlasSchemaReconciler(mgr, atlas, prewarmDevDB).
+	if err = controller.NewAtlasSchemaReconciler(mgr, controller.NewAtlasExec, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
-	if err = controller.NewAtlasMigrationReconciler(mgr, atlas, prewarmDevDB).
+	if err = controller.NewAtlasMigrationReconciler(mgr, controller.NewAtlasExec, prewarmDevDB).
 		SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 		os.Exit(1)

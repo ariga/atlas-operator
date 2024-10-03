@@ -49,9 +49,8 @@ RUN curl -sSf https://atlasgo.sh | sh
 FROM alpine:3.19
 WORKDIR /
 COPY --from=builder /workspace/manager .
-COPY --from=atlas /usr/local/bin/atlas .
-RUN chmod +x /atlas
-ENV ATLAS_NO_UPDATE_NOTIFIER=1
+COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
+RUN chmod +x /usr/local/bin/atlas
 ENV ATLAS_KUBERNETES_OPERATOR=1
 USER 65532:65532
 ENTRYPOINT ["/manager"]

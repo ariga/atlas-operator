@@ -68,18 +68,13 @@ type (
 		DevURL          string
 		Dir             migrate.Dir
 		DirLatest       migrate.Dir
-		Cloud           *cloud
+		Cloud           *Cloud
 		RevisionsSchema string
 		Baseline        string
 		ExecOrder       string
 		MigrateDown     bool
 		ObservedHash    string
-	}
-	cloud struct {
-		URL       string
-		Token     string
-		Project   string
-		RemoteDir *dbv1alpha1.Remote
+		RemoteDir       *dbv1alpha1.Remote
 	}
 )
 
@@ -261,7 +256,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return err
 	}
 	defer wd.Close()
-	c, err := r.atlasClient(wd.Path())
+	c, err := r.atlasClient(wd.Path(), nil)
 	if err != nil {
 		return err
 	}
@@ -298,9 +293,9 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		// Atlas needs all versions to be present in the directory
 		// to downgrade to a specific version.
 		switch {
-		case data.Cloud != nil && data.Cloud.RemoteDir != nil:
+		case data.Cloud != nil && data.RemoteDir != nil:
 			// Use the `latest` tag of the remote directory to fetch all versions.
-			params.DirURL = fmt.Sprintf("atlas://%s", data.Cloud.RemoteDir.Name)
+			params.DirURL = fmt.Sprintf("atlas://%s", data.RemoteDir.Name)
 		case data.DirLatest != nil:
 			// Copy the dir-state from latest deployment to the different location
 			// (to avoid the conflict with the current migration directory)
@@ -445,12 +440,12 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if err != nil {
 			return nil, err
 		}
-		data.Cloud = &cloud{
-			Token:     token,
-			Project:   c.Project,
-			URL:       c.URL,
-			RemoteDir: &d.Remote,
+		data.Cloud = &Cloud{
+			Token: token,
+			Repo:  c.Project,
+			URL:   c.URL,
 		}
+		data.RemoteDir = &d.Remote
 	case d.Local != nil || d.ConfigMapRef != nil:
 		if d.Local != nil && d.ConfigMapRef != nil {
 			return nil, errors.New("cannot use both configmaps and local directory")
@@ -520,13 +515,13 @@ func hashMigrationData(d *migrationData) (string, error) {
 	if c := d.Cloud; c != nil {
 		h.Write([]byte(c.Token))
 		h.Write([]byte(c.URL))
-		h.Write([]byte(c.Project))
+		h.Write([]byte(c.Repo))
 	}
 	switch {
-	case d.Cloud.hasRemoteDir():
+	case d.hasRemoteDir():
 		// Hash cloud directory
-		h.Write([]byte(d.Cloud.RemoteDir.Name))
-		h.Write([]byte(d.Cloud.RemoteDir.Tag))
+		h.Write([]byte(d.RemoteDir.Name))
+		h.Write([]byte(d.RemoteDir.Tag))
 	case d.Dir != nil:
 		// Hash local directory
 		hf, err := d.Dir.Checksum()
@@ -541,8 +536,8 @@ func hashMigrationData(d *migrationData) (string, error) {
 }
 
 func (d *migrationData) DirURL() string {
-	if d.Cloud.hasRemoteDir() {
-		return fmt.Sprintf("atlas://%s?tag=%s", d.Cloud.RemoteDir.Name, d.Cloud.RemoteDir.Tag)
+	if d.hasRemoteDir() {
+		return fmt.Sprintf("atlas://%s?tag=%s", d.RemoteDir.Name, d.RemoteDir.Tag)
 	}
 	return "file://migrations"
 }
@@ -556,7 +551,7 @@ func (d *migrationData) render(w io.Writer) error {
 		return errors.New("database URL is empty")
 	}
 	switch {
-	case d.Cloud.hasRemoteDir():
+	case d.hasRemoteDir():
 		if d.Dir != nil {
 			return errors.New("cannot use both remote and local directory")
 		}
@@ -571,7 +566,7 @@ func (d *migrationData) render(w io.Writer) error {
 }
 
 // hasRemoteDir returns true if the given migration data has a remote directory
-func (c *cloud) hasRemoteDir() bool {
+func (c *migrationData) hasRemoteDir() bool {
 	if c == nil {
 		return false
 	}

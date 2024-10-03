@@ -28,7 +28,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const nsController = "atlas-operator-system"
+const (
+	nsController = "atlas-operator-system"
+	controller   = "deployment/atlas-operator-controller-manager"
+)
 
 func TestOperator(t *testing.T) {
 	img := os.Getenv("IMG")
@@ -65,11 +68,19 @@ func TestOperator(t *testing.T) {
 	// Deploying the controller-manager
 	_, err = kind("make", "deploy", "install", fmt.Sprintf("IMG=%s", img))
 	require.NoError(t, err)
+	// Restarting the controller-manager, to ensure the latest image is used
+	_, err = kind("kubectl", "rollout", "restart",
+		"-n", nsController, controller)
+	require.NoError(t, err)
+	// Waiting for the controller-manager to be ready
+	_, err = kind("kubectl", "rollout", "status",
+		"-n", nsController, controller, "--timeout", "2m")
+	require.NoError(t, err)
 	// Running the test script
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testdata", "atlas-schema"),
 		Setup: func(e *testscript.Env) (err error) {
-			e.Setenv("CONTROLLER", "deployment/atlas-operator-controller-manager")
+			e.Setenv("CONTROLLER", controller)
 			// Sharing the atlas token with the test
 			e.Setenv("ATLAS_TOKEN", os.Getenv("ATLAS_TOKEN"))
 			// Ensure the test in running in the right kube context
@@ -125,7 +136,7 @@ func TestOperator(t *testing.T) {
 				err := ts.Exec("kubectl", append([]string{
 					"--namespace", nsController,
 					"exec", ts.Getenv("CONTROLLER"),
-					"--", "/atlas",
+					"--", "atlas",
 				}, args...)...)
 				if !neg {
 					ts.Check(err)

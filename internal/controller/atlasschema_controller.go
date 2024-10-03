@@ -266,7 +266,7 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 }
 
 func (r *AtlasSchemaReconciler) apply(ctx context.Context, dir string, data *managedData, txMode string) (*atlasexec.SchemaApply, error) {
-	cli, err := r.atlasClient(dir)
+	cli, err := r.atlasClient(dir, nil)
 	if err != nil {
 		return nil, err
 	}
