@@ -65,7 +65,7 @@ type (
 		// EnvName sets the environment name used for reporting runs to Atlas Cloud.
 		EnvName string `json:"envName,omitempty"`
 		// Cloud defines the Atlas Cloud configuration.
-		Cloud Cloud `json:"cloud,omitempty"`
+		Cloud CloudV0 `json:"cloud,omitempty"`
 		// Dir defines the directory to use for migrations as a configmap key reference.
 		Dir Dir `json:"dir"`
 		// DevURL is the URL of the database to use for normalization and calculations.
@@ -85,8 +85,7 @@ type (
 		// ProtectedFlows defines the protected flows of a deployment.
 		ProtectedFlows *ProtectFlows `json:"protectedFlows,omitempty"`
 	}
-	// Cloud defines the Atlas Cloud configuration.
-	Cloud struct {
+	CloudV0 struct {
 		URL       string    `json:"url,omitempty"`
 		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
 		Project   string    `json:"project,omitempty"`

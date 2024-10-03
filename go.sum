@@ -1,7 +1,7 @@
 ariga.io/atlas v0.21.2-0.20240424054305-cf871e4a7c1e h1:3iOt1DD4c6IGRjxcm+C5IeI+pHo7HnqMoN14xjVjxsE=
 ariga.io/atlas v0.21.2-0.20240424054305-cf871e4a7c1e/go.mod h1:VPlcXdd4w2KqKnH54yEZcry79UAhpaWaxEsmn5JRNoE=
-ariga.io/atlas-go-sdk v0.6.3 h1:szfRe9bAhMRfRapOVt9I0Ifdx6ROb7Cqmt/W4rPs3hw=
-ariga.io/atlas-go-sdk v0.6.3/go.mod h1:9Q+/04PVyJHUse1lEE9Kp6E18xj/6mIzaUTcWYSjSnQ=
+ariga.io/atlas-go-sdk v0.6.4-0.20241002105845-ab6583b472e8 h1:C5ZatdFRE+p5enmFpwlViDR6kNWqdcmtLLzyvhf320I=
+ariga.io/atlas-go-sdk v0.6.4-0.20241002105845-ab6583b472e8/go.mod h1:9Q+/04PVyJHUse1lEE9Kp6E18xj/6mIzaUTcWYSjSnQ=
 github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20OEh60=
 github.com/DATA-DOG/go-sqlmock v1.5.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/agext/levenshtein v1.2.3 h1:YB2fHEn0UJagG8T1rrWknE3ZQzWM06O8AMAatNn7lmo=

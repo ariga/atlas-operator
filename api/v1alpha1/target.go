@@ -54,6 +54,11 @@ type (
 		// SecretKeyRef defines the secret key reference to use for the user.
 		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 	}
+	// Cloud defines the Atlas Cloud configuration.
+	Cloud struct {
+		// TokenFrom defines the reference to the secret key that contains the Atlas Cloud Token.
+		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
+	}
 )
 
 // DatabaseURL returns the database url.

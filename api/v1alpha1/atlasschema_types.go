@@ -66,6 +66,8 @@ type (
 		TargetSpec `json:",inline"`
 		// Desired Schema of the target.
 		Schema Schema `json:"schema,omitempty"`
+		// Cloud defines the Atlas Cloud configuration.
+		Cloud Cloud `json:"cloud,omitempty"`
 		// +optional
 		// DevURL is the URL of the database to use for normalization and calculations.
 		// If not specified, the operator will spin up a temporary database container to use for these operations.

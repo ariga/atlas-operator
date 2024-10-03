@@ -51,6 +51,8 @@ type (
 
 		SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
 		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
+
+		WhoAmI(ctx context.Context) (*atlasexec.WhoAmI, error)
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.
@@ -70,7 +72,7 @@ func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c != nil {
+	if c != nil && c.Token != "" {
 		env := atlasexec.NewOSEnviron()
 		env["ATLAS_TOKEN"] = c.Token
 		if err = cli.SetEnv(env); err != nil {

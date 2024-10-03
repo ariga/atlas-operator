@@ -268,7 +268,7 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 				TargetSpec: v1alpha1.TargetSpec{
 					URL: "sqlite://file?mode=memory",
 				},
-				Cloud: v1alpha1.Cloud{
+				Cloud: v1alpha1.CloudV0{
 					TokenFrom: v1alpha1.TokenFrom{
 						SecretKeyRef: &corev1.SecretKeySelector{
 							Key: "token",
@@ -783,7 +783,7 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, wd.Close())
 	})
-	cli, err := tt.r.atlasClient(wd.Path(), nil)
+	cli, err := tt.r.atlasClient(wd.Path(), md.Cloud)
 	require.NoError(t, err)
 	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{
 		Env: "test",
@@ -860,7 +860,7 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 		ObjectMeta: migrationObjmeta(),
 		Spec: v1alpha1.AtlasMigrationSpec{
 			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
-			Cloud: v1alpha1.Cloud{
+			Cloud: v1alpha1.CloudV0{
 				URL:     "https://atlasgo.io/",
 				Project: "my-project",
 				TokenFrom: v1alpha1.TokenFrom{
@@ -904,7 +904,7 @@ func TestReconciler_watch(t *testing.T) {
 					},
 				},
 			},
-			Cloud: v1alpha1.Cloud{
+			Cloud: v1alpha1.CloudV0{
 				TokenFrom: v1alpha1.TokenFrom{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{

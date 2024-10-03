@@ -53,11 +53,16 @@ type (
 		lint          mockCmd[atlasexec.SummaryReport]
 		status        mockCmd[atlasexec.MigrateStatus]
 		schemaApply   mockCmd[atlasexec.SchemaApply]
+		whoami        mockCmd[atlasexec.WhoAmI]
 		schemaInspect mockCmd[string]
 	}
 )
 
 var _ AtlasExec = &mockAtlasExec{}
+
+func (m *mockAtlasExec) WhoAmI(context.Context) (*atlasexec.WhoAmI, error) {
+	return m.whoami.res, m.whoami.err
+}
 
 // SchemaApply implements AtlasExec.
 func (m *mockAtlasExec) SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error) {
