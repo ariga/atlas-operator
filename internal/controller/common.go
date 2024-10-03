@@ -54,8 +54,31 @@ type (
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.
-	AtlasExecFn func(string) (AtlasExec, error)
+	AtlasExecFn func(string, *Cloud) (AtlasExec, error)
+	// Cloud holds the cloud configuration.
+	Cloud struct {
+		Token string
+		Repo  string
+		URL   string
+	}
 )
+
+// NewAtlasExec returns a new AtlasExec with the given directory and cloud configuration.
+// The atlas binary is expected to be in the $PATH.
+func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
+	cli, err := atlasexec.NewClient(dir, "atlas")
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
+		env := atlasexec.NewOSEnviron()
+		env["ATLAS_TOKEN"] = c.Token
+		if err = cli.SetEnv(env); err != nil {
+			return nil, err
+		}
+	}
+	return cli, nil
+}
 
 var (
 	//go:embed templates

@@ -89,10 +89,6 @@ func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusP
 	return m.status.res, m.status.err
 }
 
-var globalAtlasMock = func(dir string) (AtlasExec, error) {
-	return atlasexec.NewClient(dir, "atlas")
-}
-
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
 func newRunner[T reconcile.Reconciler](fn func(Manager, AtlasExecFn, bool) T, modify func(*fake.ClientBuilder), mock *mockAtlasExec) (*helper, runner) {
 	scheme := runtime.NewScheme()
@@ -108,9 +104,9 @@ func newRunner[T reconcile.Reconciler](fn func(Manager, AtlasExecFn, bool) T, mo
 		client:   c,
 		recorder: r,
 		scheme:   scheme,
-	}, func(s string) (AtlasExec, error) {
+	}, func(s string, c *Cloud) (AtlasExec, error) {
 		if mock == nil {
-			return globalAtlasMock(s)
+			return NewAtlasExec(s, c)
 		}
 		return mock, nil
 	}, true)

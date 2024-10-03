@@ -35,7 +35,7 @@ const lintDirName = "lint-migrations"
 // - 2.sql: the pending changes.
 // Then it runs `atlas migrate lint` in the temporary directory.
 func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData, vars atlasexec.VarArgs) error {
-	cli, err := r.atlasClient(wd.Path())
+	cli, err := r.atlasClient(wd.Path(), nil)
 	if err != nil {
 		return err
 	}

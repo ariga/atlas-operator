@@ -327,7 +327,7 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 			h.get(t, res)
 			require.Len(t, res.Status.Conditions, 1)
 			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason)
+			require.Equal(t, reason, res.Status.Conditions[0].Reason, res.Status.Conditions[0].Message)
 			require.Contains(t, res.Status.Conditions[0].Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
 			require.Equal(t, approvalURL, res.Status.ApprovalURL)
@@ -783,7 +783,7 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, wd.Close())
 	})
-	cli, err := tt.r.atlasClient(wd.Path())
+	cli, err := tt.r.atlasClient(wd.Path(), nil)
 	require.NoError(t, err)
 	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{
 		Env: "test",
@@ -883,10 +883,10 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tt.dburl, amd.URL.String())
 	require.Equal(t, "https://atlasgo.io/", amd.Cloud.URL)
-	require.Equal(t, "my-project", amd.Cloud.Project)
+	require.Equal(t, "my-project", amd.Cloud.Repo)
 	require.Equal(t, "my-token", amd.Cloud.Token)
-	require.Equal(t, "my-remote-dir", amd.Cloud.RemoteDir.Name)
-	require.Equal(t, "my-remote-tag", amd.Cloud.RemoteDir.Tag)
+	require.Equal(t, "my-remote-dir", amd.RemoteDir.Name)
+	require.Equal(t, "my-remote-tag", amd.RemoteDir.Tag)
 }
 
 func TestReconciler_watch(t *testing.T) {
@@ -1035,14 +1035,14 @@ func TestCloudTemplate(t *testing.T) {
 	migrate := &migrationData{
 		URL:    must(url.Parse("sqlite://file2/?mode=memory")),
 		DevURL: "sqlite://dev/?mode=memory",
-		Cloud: &cloud{
-			URL:     "https://atlasgo.io/",
-			Project: "my-project",
-			Token:   "my-token",
-			RemoteDir: &v1alpha1.Remote{
-				Name: "my-remote-dir",
-				Tag:  "my-remote-tag",
-			},
+		Cloud: &Cloud{
+			URL:   "https://atlasgo.io/",
+			Repo:  "my-project",
+			Token: "my-token",
+		},
+		RemoteDir: &v1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
 		},
 	}
 	var fileContent bytes.Buffer
@@ -1138,7 +1138,7 @@ func migrationReq() ctrl.Request {
 func migrationCliTest(t *testing.T) *migrationTest {
 	tt := newMigrationTest(t)
 	var err error
-	tt.r.atlasClient = globalAtlasMock
+	tt.r.atlasClient = NewAtlasExec
 	require.NoError(t, err)
 	td, err := os.MkdirTemp("", "operator-test-sqlite-*")
 	require.NoError(t, err)
