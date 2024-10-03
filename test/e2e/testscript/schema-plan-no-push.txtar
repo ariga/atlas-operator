@@ -1,0 +1,179 @@
+env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic postgres-credentials --from-literal=url=${DB_URL}
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=60s -l app=postgres pods
+
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Sync the $WORK directory to the controller pod
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+env DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+# Push the schemas to the registry
+atlas schema push atlas-operator --tag=plan-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
+atlas schema push atlas-operator --tag=plan-v2 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v2.hcl
+# List all schema plans and remove them, it may come from previous failure runs
+atlas schema plan list --format="{{range .}}{{println .URL}}{{end}}" --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=atlas://atlas-operator?tag=plan-v1 --to=atlas://atlas-operator?tag=plan-v2
+plans-rm stdout
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+
+kubectl patch -f schema.yaml --type merge --patch-file patch-remove-c1.yaml
+# Ensure the controller is aware of the change
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=60s AtlasSchemas/atlasschema-postgres
+
+# Get the plan URL from resource then approve it
+kubectl get AtlasSchemas/atlasschema-postgres -o go-template --template='{{ .status.planURL }}'
+envfile PLAN_URL=stdout
+atlas schema plan approve --url=${PLAN_URL}
+
+# The schema should be updated now
+kubectl wait --for=condition=ready --timeout=120s AtlasSchemas/atlasschema-postgres
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v2.hcl
+
+# Cleanup schema plan for the next run
+atlas schema plan rm --url=${PLAN_URL}
+-- schema-v1.hcl --
+table "t1" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  column "c1" {
+    null = true
+    type = integer
+  }
+  column "c2" {
+    null = true
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema-v2.hcl --
+table "t1" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- patch-remove-c1.yaml --
+spec:
+  schema:
+    url: atlas://atlas-operator?tag=plan-v2
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: postgres-credentials
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=plan-v1
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready" ]
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready" ]
