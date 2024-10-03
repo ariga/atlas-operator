@@ -42,16 +42,28 @@ type (
 		GetScheme() *runtime.Scheme
 		GetEventRecorderFor(name string) record.EventRecorder
 	}
-	// AtlasExec is the interface for the Atlas SDK.
+	// AtlasExec is the interface for the atlas exec client.
 	AtlasExec interface {
-		MigrateApply(ctx context.Context, params *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error)
-		MigrateDown(ctx context.Context, params *atlasexec.MigrateDownParams) (*atlasexec.MigrateDown, error)
-		MigrateLint(ctx context.Context, params *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error)
-		MigrateStatus(ctx context.Context, params *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
+		// MigrateApply runs the `migrate apply` command and returns the successful runs.
+		MigrateApply(context.Context, *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error)
+		// MigrateDown runs the `migrate down` command.
+		MigrateDown(context.Context, *atlasexec.MigrateDownParams) (*atlasexec.MigrateDown, error)
+		// MigrateLint runs the `migrate lint` command.
+		MigrateLint(context.Context, *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error)
+		// MigrateStatus runs the `migrate status` command.
+		MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
 
-		SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
+		// SchemaApply runs the `schema apply` command.
+		SchemaApply(context.Context, *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
+		// SchemaInspect runs the `schema inspect` command.
 		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
-
+		// SchemaPush runs the `schema push` command.
+		SchemaPush(context.Context, *atlasexec.SchemaPushParams) (*atlasexec.SchemaPush, error)
+		// SchemaPlan runs the `schema plan` command.
+		SchemaPlan(context.Context, *atlasexec.SchemaPlanParams) (*atlasexec.SchemaPlan, error)
+		// SchemaPlanList runs the `schema plan list` command.
+		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
+		// WhoAmI runs the `whoami` command.
 		WhoAmI(ctx context.Context) (*atlasexec.WhoAmI, error)
 	}
 	// AtlasExecFn is a function that returns an AtlasExec

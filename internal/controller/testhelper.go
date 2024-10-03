@@ -48,17 +48,35 @@ type (
 		err error
 	}
 	mockAtlasExec struct {
-		apply         mockCmd[atlasexec.MigrateApply]
-		down          mockCmd[atlasexec.MigrateDown]
-		lint          mockCmd[atlasexec.SummaryReport]
-		status        mockCmd[atlasexec.MigrateStatus]
-		schemaApply   mockCmd[atlasexec.SchemaApply]
-		whoami        mockCmd[atlasexec.WhoAmI]
-		schemaInspect mockCmd[string]
+		apply          mockCmd[atlasexec.MigrateApply]
+		down           mockCmd[atlasexec.MigrateDown]
+		lint           mockCmd[atlasexec.SummaryReport]
+		status         mockCmd[atlasexec.MigrateStatus]
+		schemaApply    mockCmd[atlasexec.SchemaApply]
+		whoami         mockCmd[atlasexec.WhoAmI]
+		schemaPush     mockCmd[atlasexec.SchemaPush]
+		schemaPlanList mockCmd[[]atlasexec.SchemaPlanFile]
+		schemaPlan     mockCmd[atlasexec.SchemaPlan]
+		schemaInspect  mockCmd[string]
 	}
 )
 
 var _ AtlasExec = &mockAtlasExec{}
+
+// SchemaPlan implements AtlasExec.
+func (m *mockAtlasExec) SchemaPlan(context.Context, *atlasexec.SchemaPlanParams) (*atlasexec.SchemaPlan, error) {
+	return m.schemaPlan.res, m.schemaPlan.err
+}
+
+// SchemaPlanList implements AtlasExec.
+func (m *mockAtlasExec) SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error) {
+	return *m.schemaPlanList.res, m.schemaPlanList.err
+}
+
+// SchemaPush implements AtlasExec.
+func (m *mockAtlasExec) SchemaPush(context.Context, *atlasexec.SchemaPushParams) (*atlasexec.SchemaPush, error) {
+	return m.schemaPush.res, m.schemaPush.err
+}
 
 func (m *mockAtlasExec) WhoAmI(context.Context) (*atlasexec.WhoAmI, error) {
 	return m.whoami.res, m.whoami.err
