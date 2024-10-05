@@ -1,0 +1,101 @@
+# Accept the EULA and set the PID
+kubectl set env -n ${CONTROLLER_NS} ${CONTROLLER} MSSQL_ACCEPT_EULA=Y MSSQL_PID=Developer
+
+kubectl apply -f database.yaml
+env DB_URL=sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
+kubectl create secret generic sqlserver-credentials --from-literal=url=${DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=420s -l app=sqlserver pods
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=420s --all atlasschemas
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
+cmp stdout schema.hcl
+-- schema.hcl --
+table "t1" {
+  schema = schema.dbo
+  column "id" {
+    null = false
+    type = int
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "dbo" {
+}
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-sqlserver
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: sqlserver-credentials
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  schema:
+    sql: |
+      create table [t1] (
+        [id] int not null,
+        primary key ([id])
+      );
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver
+spec:
+  type: ClusterIP
+  selector:
+    app: sqlserver
+  ports:
+    - name: sqlserver
+      port: 1433
+      targetPort: sqlserver
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlserver
+spec:
+  selector:
+    matchLabels:
+      app: sqlserver
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: sqlserver
+    spec:
+      containers:
+        - name: sqlserver
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_PID
+              value: "Developer"
+            - name: MSSQL_SA_PASSWORD
+              value: "P@ssw0rd0995"
+          ports:
+            - containerPort: 1433
+              name: sqlserver
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [
+                "/opt/mssql-tools18/bin/sqlcmd",
+                "-C", "-U", "sa", "-P","P@ssw0rd0995",
+                "-Q", "SELECT 1"
+              ]
