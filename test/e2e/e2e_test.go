@@ -80,6 +80,7 @@ func TestOperator(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testdata", "atlas-schema"),
 		Setup: func(e *testscript.Env) (err error) {
+			e.Setenv("CONTROLLER_NS", nsController)
 			e.Setenv("CONTROLLER", controller)
 			// Sharing the atlas token with the test
 			e.Setenv("ATLAS_TOKEN", os.Getenv("ATLAS_TOKEN"))
@@ -133,11 +134,10 @@ func TestOperator(t *testing.T) {
 			},
 			// atlas runs the atlas binary in the controller-manager pod
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", append([]string{
-					"--namespace", nsController,
-					"exec", ts.Getenv("CONTROLLER"),
-					"--", "atlas",
-				}, args...)...)
+				err := ts.Exec("kubectl", "exec",
+					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
+					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
+				)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {

@@ -29,7 +29,3 @@ manifests:
     - config/default
 profiles:
 - name: integration
-  manifests:
-    kustomize:
-      paths:
-        - config/atlas-token
