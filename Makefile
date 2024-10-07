@@ -80,6 +80,10 @@ test: manifests generate fmt vet envtest ## Run tests.
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	go test ./test/e2e/ -v -run=^TestOperator/${TEST_RUN}
+
+.PHONY: kind-image
+kind-image:
 	@command -v kind >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
@@ -92,7 +96,6 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "Faild to load image ${IMG} to cluster ${KIND_CLUSTER}, please build the image first"; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

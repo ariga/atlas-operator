@@ -30,7 +30,7 @@ jobs:
         uses: helm/kind-action@v1
       - name: Run e2e tests
         run: |
-          make docker-build test-e2e \
+          make docker-build kind-image test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             IMG=ariga/atlas-operator:e2e \
             KIND_CLUSTER=chart-testing
