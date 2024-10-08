@@ -103,7 +103,7 @@ func TestOperator(t *testing.T) {
 			// expand reads a file and expands it with the environment variables
 			"expand": func(ts *testscript.TestScript, neg bool, args []string) {
 				if neg {
-					ts.Fatalf("unsupported: ! stdin")
+					ts.Fatalf("unsupported: ! expand")
 				}
 				if len(args) < 1 {
 					ts.Fatalf("usage: expand filename")
@@ -142,6 +142,19 @@ func TestOperator(t *testing.T) {
 					ts.Check(err)
 				} else if err == nil {
 					ts.Fatalf("unexpected success")
+				}
+			},
+			// envfile read the file and using its content as environment variables
+			"envfile": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg {
+					ts.Fatalf("unsupported: ! envfile")
+				}
+				for _, k := range args {
+					vals := strings.SplitN(k, "=", 2)
+					if len(vals) != 2 {
+						ts.Fatalf("expect KEY=filename, got %q", k)
+					}
+					ts.Setenv(vals[0], ts.ReadFile(vals[1]))
 				}
 			},
 		},

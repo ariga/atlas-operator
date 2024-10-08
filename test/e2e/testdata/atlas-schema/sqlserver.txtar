@@ -1,18 +1,21 @@
 # Accept the EULA and set the PID
 kubectl set env -n ${CONTROLLER_NS} ${CONTROLLER} MSSQL_ACCEPT_EULA=Y MSSQL_PID=Developer
 
-kubectl apply -f database.yaml
 env DB_URL=sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
+kubectl apply -f database.yaml
 kubectl create secret generic sqlserver-credentials --from-literal=url=${DB_URL}
-kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
-
 # Wait for the DB ready before creating the schema
 kubectl wait --for=condition=ready --timeout=420s -l app=sqlserver pods
+
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=420s --all atlasschemas
+kubectl wait --for=condition=ready --timeout=420s AtlasSchema/atlasschema-sqlserver
 
 # Inspect the schema to ensure it's correct
-atlas schema inspect -u sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
+atlas schema inspect -u ${DB_URL}
 cmp stdout schema.hcl
 -- schema.hcl --
 table "t1" {
