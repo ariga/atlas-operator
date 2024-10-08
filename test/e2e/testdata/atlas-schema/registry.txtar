@@ -18,6 +18,8 @@ atlas schema inspect -u postgres://root:pass@postgres.${NAMESPACE}:5432/postgres
 cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
+# Ensure the controller is aware of the change
+kubectl wait --for=condition=ready=false --timeout=60s AtlasSchemas/atlasschema-postgres
 kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
 
 # Inspect the schema to ensure it's correct
