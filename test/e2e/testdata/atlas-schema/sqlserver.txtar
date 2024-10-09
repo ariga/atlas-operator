@@ -1,6 +1,3 @@
-# Accept the EULA and set the PID
-kubectl set env -n ${CONTROLLER_NS} ${CONTROLLER} MSSQL_ACCEPT_EULA=Y MSSQL_PID=Developer
-
 env DB_URL=sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
 kubectl apply -f database.yaml
 kubectl create secret generic sqlserver-credentials --from-literal=url=${DB_URL}
