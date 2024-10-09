@@ -7,6 +7,13 @@ kubectl wait --for=condition=ready --timeout=60s -l app=postgres pods
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
+# Sync the $WORK directory to the controller pod
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+# Push the schemas to the registry
+env DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+atlas schema push atlas-operator --tag=registry-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
+atlas schema push atlas-operator --tag=registry-v2 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v2.hcl
+
 # Create the schema
 kubectl apply -f schema.yaml
 kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
@@ -17,7 +24,7 @@ cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=60s AtlasSchemas/atlasschema-postgres
+kubectl wait --for=condition=ready=false --timeout=60s AtlasSchema/atlasschema-postgres
 kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
 
 # Inspect the schema to ensure it's correct
@@ -94,6 +101,9 @@ spec:
     - name: postgres
       port: 5432
       targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
   type: ClusterIP
 ---
 apiVersion: apps/v1
@@ -134,4 +144,27 @@ spec:
             periodSeconds: 2
             timeoutSeconds: 1
             exec:
-              command: [ "pg_isready", "-U", "postgres" ]
+              command: [ "pg_isready" ]
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready" ]

@@ -68,20 +68,47 @@ func TestOperator(t *testing.T) {
 	// Deploying the controller-manager
 	_, err = kind("make", "deploy", "install", fmt.Sprintf("IMG=%s", img))
 	require.NoError(t, err)
+	// Accept the EULA and set the PID
+	_, err = kind("kubectl", "set", "env",
+		"-n", nsController, controller,
+		"MSSQL_ACCEPT_EULA=Y", "MSSQL_PID=Developer")
+	require.NoError(t, err)
 	// Restarting the controller-manager, to ensure the latest image is used
 	_, err = kind("kubectl", "rollout", "restart",
 		"-n", nsController, controller)
 	require.NoError(t, err)
 	// Waiting for the controller-manager to be ready
 	_, err = kind("kubectl", "rollout", "status",
-		"-n", nsController, controller, "--timeout", "2m")
+		"-n", nsController, controller,
+		"--timeout", "2m")
 	require.NoError(t, err)
+	var controllerPod string
+	for range 5 {
+		// Wait for the old pods to be deleted
+		<-time.After(time.Second)
+		// Getting the controller-manager pod name
+		output, err := kind("kubectl", "wait", "pod",
+			"-n", nsController,
+			"-l", "control-plane=controller-manager",
+			"--for", "condition=Ready",
+			"--timeout", "2m",
+			"-o", "go-template",
+			"--template", "{{.metadata.name}}",
+		)
+		require.NoError(t, err)
+		pods := strings.Split(output, "\n")
+		if len(pods) == 1 {
+			controllerPod = pods[0]
+			break
+		}
+	}
+	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	// Running the test script
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testdata", "atlas-schema"),
 		Setup: func(e *testscript.Env) (err error) {
 			e.Setenv("CONTROLLER_NS", nsController)
-			e.Setenv("CONTROLLER", controller)
+			e.Setenv("CONTROLLER", controllerPod)
 			// Sharing the atlas token with the test
 			e.Setenv("ATLAS_TOKEN", os.Getenv("ATLAS_TOKEN"))
 			// Ensure the test in running in the right kube context
@@ -123,9 +150,7 @@ func TestOperator(t *testing.T) {
 			},
 			// kubectl runs kubectl with the namespace set to the test namespace
 			"kubectl": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", append([]string{
-					"--namespace", ts.Getenv("NAMESPACE"),
-				}, args...)...)
+				err := ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE")}, args...)...)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {
