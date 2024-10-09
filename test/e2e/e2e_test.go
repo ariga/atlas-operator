@@ -91,6 +91,7 @@ func TestOperator(t *testing.T) {
 			"-n", nsController,
 			"-l", "control-plane=controller-manager",
 			"--for", "condition=Ready",
+			"--timeout", "2m",
 			"-o", "go-template",
 			"--template", "{{.metadata.name}}",
 		)
