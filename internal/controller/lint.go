@@ -41,6 +41,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	}
 	current, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		Env:    data.EnvName,
+		Vars:   vars,
 		Format: "{{ sql . }}",
 	})
 	if err != nil {
@@ -48,6 +49,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	}
 	plan, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 		Env:    data.EnvName,
+		Vars:   vars,
 		To:     data.Desired.String(),
 		DryRun: true, // Dry run to get pending changes.
 	})
@@ -74,9 +76,9 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	}
 	lint, err := cli.MigrateLint(ctx, &atlasexec.MigrateLintParams{
 		Env:    data.EnvName,
+		Vars:   vars,
 		DirURL: fmt.Sprintf("file://./%s", lintDirName),
 		Latest: 1, // Only lint 2.sql, pending changes.
-		Vars:   vars,
 	})
 	if err != nil {
 		return err

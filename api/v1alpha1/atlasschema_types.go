@@ -60,6 +60,12 @@ type (
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful schema apply operation.
 		LastApplied int64 `json:"last_applied"`
+		// PlanURL is the URL of the schema plan to apply.
+		// +optional
+		PlanURL string `json:"planURL"`
+		// PlanLink is the link to the schema plan on the Atlas Cloud.
+		// +optional
+		PlanLink string `json:"planLink"`
 	}
 	// AtlasSchemaSpec defines the desired state of AtlasSchema
 	AtlasSchemaSpec struct {
@@ -101,6 +107,9 @@ type (
 	// Lint defines the linting policies to apply before applying the schema.
 	Lint struct {
 		Destructive *CheckConfig `json:"destructive,omitempty"`
+		// Review defines the review policy to apply after linting the schema changes.
+		// +kubebuilder:default=ERROR
+		Review LintReview `json:"review,omitempty"`
 	}
 	// CheckConfig defines the configuration of a linting check.
 	CheckConfig struct {
@@ -153,6 +162,9 @@ type (
 	// TransactionMode
 	// +kubebuilder:validation:Enum=file;all;none
 	TransactionMode string
+	// LintReview defines the review policies to apply after linting the schema.
+	// +kubebuilder:validation:Enum=ALWAYS;WARNING;ERROR
+	LintReview string
 )
 
 func init() {
