@@ -34,23 +34,18 @@ const (
 )
 
 func TestOperator(t *testing.T) {
-	img := os.Getenv("IMG")
-	if img == "" {
-		img = "ariga/atlas-operator:e2e"
-	}
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
 	}
-	dir, err := getProjectDir()
-	require.NoError(t, err)
 	// Creating kubeconfig for the kind cluster
 	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	err = pipeFile(kubeconfig, func(f io.Writer) error {
+	require.NoError(t, pipeFile(kubeconfig, func(f io.Writer) error {
 		cmd := exec.Command("kind", "get", "kubeconfig", "--name", kindCluster)
 		cmd.Stdout, cmd.Stderr = f, os.Stderr
 		return cmd.Run()
-	})
+	}))
+	dir, err := getProjectDir()
 	require.NoError(t, err)
 	// Kind run the command with kubeconfig set to kind cluster
 	kind := func(name string, args ...string) (string, error) {
@@ -66,41 +61,37 @@ func TestOperator(t *testing.T) {
 		return string(output), nil
 	}
 	// Deploying the controller-manager
-	_, err = kind("make", "deploy", "install", fmt.Sprintf("IMG=%s", img))
+	_, err = kind("skaffold", "run", "--wait-for-connection=true", "-p", "integration")
 	require.NoError(t, err)
+	// Installing the CRDs
+	_, err = kind("make", "install")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err = kind("make", "undeploy", "ignore-not-found=true")
+		require.NoError(t, err)
+	})
 	// Accept the EULA and set the PID
 	_, err = kind("kubectl", "set", "env",
 		"-n", nsController, controller,
 		"MSSQL_ACCEPT_EULA=Y", "MSSQL_PID=Developer")
 	require.NoError(t, err)
-	// Restarting the controller-manager, to ensure the latest image is used
-	_, err = kind("kubectl", "rollout", "restart",
-		"-n", nsController, controller)
-	require.NoError(t, err)
-	// Waiting for the controller-manager to be ready
-	_, err = kind("kubectl", "rollout", "status",
-		"-n", nsController, controller,
-		"--timeout", "2m")
-	require.NoError(t, err)
 	var controllerPod string
 	for range 5 {
-		// Wait for the old pods to be deleted
-		<-time.After(time.Second)
 		// Getting the controller-manager pod name
-		output, err := kind("kubectl", "wait", "pod",
+		output, err := kind("kubectl", "get", "pod",
 			"-n", nsController,
 			"-l", "control-plane=controller-manager",
-			"--for", "condition=Ready",
-			"--timeout", "2m",
-			"-o", "go-template",
-			"--template", "{{.metadata.name}}",
+			"-o", "jsonpath",
+			"--template", "{.items[*].metadata.name}",
 		)
 		require.NoError(t, err)
-		pods := strings.Split(output, "\n")
+		pods := strings.Split(output, " ")
 		if len(pods) == 1 {
 			controllerPod = pods[0]
 			break
 		}
+		// Wait 5s before retrying
+		<-time.After(time.Second * 5)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	// Running the test script
@@ -127,42 +118,21 @@ func TestOperator(t *testing.T) {
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			// expand reads a file and expands it with the environment variables
-			"expand": func(ts *testscript.TestScript, neg bool, args []string) {
-				if neg {
-					ts.Fatalf("unsupported: ! expand")
-				}
-				if len(args) < 1 {
-					ts.Fatalf("usage: expand filename")
-				}
-				w := ts.Stdout()
-				// If the last argument is >, write to a file
-				if l := len(args); l > 2 && args[l-2] == ">" {
-					outPath := filepath.Join(ts.Getenv("WORK"), args[l-1])
-					f, err := os.Create(outPath)
-					ts.Check(err)
-					defer f.Close()
-					w = f
-				}
-				content := os.Expand(ts.ReadFile(args[0]), ts.Getenv)
-				_, err := w.Write([]byte(content))
-				ts.Check(err)
-			},
-			// kubectl runs kubectl with the namespace set to the test namespace
-			"kubectl": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE")}, args...)...)
-				if !neg {
-					ts.Check(err)
-				} else if err == nil {
-					ts.Fatalf("unexpected success")
-				}
-			},
 			// atlas runs the atlas binary in the controller-manager pod
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
 				err := ts.Exec("kubectl", "exec",
 					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
 					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
 				)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
+				}
+			},
+			// kubectl runs kubectl with the namespace set to the test namespace
+			"kubectl": func(ts *testscript.TestScript, neg bool, args []string) {
+				err := ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE")}, args...)...)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {
@@ -181,6 +151,27 @@ func TestOperator(t *testing.T) {
 					}
 					ts.Setenv(vals[0], ts.ReadFile(vals[1]))
 				}
+			},
+			// cat reads a file and expands it with the environment variables
+			"cat": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg {
+					ts.Fatalf("unsupported: ! cat")
+				}
+				if len(args) < 1 {
+					ts.Fatalf("usage: cat filename")
+				}
+				w := ts.Stdout()
+				// If the last argument is >, write to a file
+				if l := len(args); l > 2 && args[l-2] == ">" {
+					outPath := filepath.Join(ts.Getenv("WORK"), args[l-1])
+					f, err := os.Create(outPath)
+					ts.Check(err)
+					defer f.Close()
+					w = f
+				}
+				content := os.Expand(ts.ReadFile(args[0]), ts.Getenv)
+				_, err := w.Write([]byte(content))
+				ts.Check(err)
 			},
 		},
 	})

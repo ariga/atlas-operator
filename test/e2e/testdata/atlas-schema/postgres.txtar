@@ -93,4 +93,4 @@ spec:
             periodSeconds: 2
             timeoutSeconds: 1
             exec:
-              command: [ "pg_isready", "-U", "postgres" ]
+              command: [ "pg_isready" ]
