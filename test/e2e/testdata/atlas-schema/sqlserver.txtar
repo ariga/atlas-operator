@@ -96,6 +96,6 @@ spec:
             exec:
               command: [
                 "/opt/mssql-tools18/bin/sqlcmd",
-                "-C", "-U", "sa", "-P","P@ssw0rd0995",
+                "-C", "-U", "sa", "-P", "P@ssw0rd0995",
                 "-Q", "SELECT 1"
               ]

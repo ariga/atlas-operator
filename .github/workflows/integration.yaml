@@ -28,11 +28,14 @@ jobs:
           go-version-file: 'go.mod'
       - name: Create k8s Kind Cluster
         uses: helm/kind-action@v1
+      - name: Install Skaffold
+        run: |
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
+          sudo install skaffold /usr/local/bin/
       - name: Run e2e tests
         run: |
-          make docker-build kind-image test-e2e \
+          make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
-            IMG=ariga/atlas-operator:e2e \
             KIND_CLUSTER=chart-testing
   test:
     runs-on: ubuntu-latest

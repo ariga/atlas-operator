@@ -20,8 +20,6 @@ spec:
         "app.kubernetes.io/part-of": "atlas-operator"
         "app.kubernetes.io/created-by": "controller-manager"
         "atlasgo.io/engine": "{{ .Driver }}"
-      annotations:
-        "atlasgo.io/conntmpl": "{{ .ConnTmpl }}"
     spec:
       {{- if ne .Driver "sqlserver" }}
       securityContext:
@@ -46,6 +44,14 @@ spec:
           - name: MYSQL_DATABASE
             value: {{ .DB }}
           {{- end }}
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            exec:
+              command: [
+                "mysql", "-u", "root", "-h", "127.0.0.1", "-ppass", "-e", "SELECT 1"
+              ]
           {{- else if eq .Driver "postgres" }}
           image: postgres:15
           env:
@@ -55,11 +61,27 @@ spec:
               value: pass
             - name: POSTGRES_USER
               value: root
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            exec:
+              command: [ "pg_isready" ]
           {{- else if eq .Driver "sqlserver" }}
           image: mcr.microsoft.com/mssql/server:2022-latest
           env:
             - name: MSSQL_SA_PASSWORD
               value: {{ .Pass }}
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            exec:
+              command: [
+                "/opt/mssql-tools18/bin/sqlcmd",
+                "-C", "-U", "sa", "-P", "{{ .Pass }}",
+                "-Q", "SELECT 1"
+              ]
           {{- end }}
           ports:
           - containerPort: {{ .Port }}

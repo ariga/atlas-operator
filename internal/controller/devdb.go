@@ -161,9 +161,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	case len(pods.Items) == 0:
 		return "", transient(errors.New("no pods found"))
 	}
-	idx := slices.IndexFunc(pods.Items, func(p corev1.Pod) bool {
-		return p.Status.Phase == corev1.PodRunning
-	})
+	idx := slices.IndexFunc(pods.Items, isPodReady)
 	if idx == -1 {
 		return "", transient(errors.New("no running pods found"))
 	}
@@ -185,6 +183,12 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
+func isPodReady(pod corev1.Pod) bool {
+	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+	})
+}
+
 // devDB contains values used to render a devDB pod template.
 type devDB struct {
 	types.NamespacedName
@@ -197,8 +201,8 @@ type devDB struct {
 	SchemaBound bool
 }
 
-// ConnTmpl returns a connection template for the devDB.
-func (d *devDB) ConnTmpl() string {
+// connTmpl returns a connection template for the devDB.
+func (d *devDB) connTmpl() string {
 	u := url.URL{
 		Scheme: d.Driver,
 		User:   url.UserPassword(d.User, d.Pass),
@@ -220,7 +224,7 @@ func (d *devDB) ConnTmpl() string {
 	return u.String()
 }
 
-func (d *devDB) Render(w io.Writer) error {
+func (d *devDB) render(w io.Writer) error {
 	return tmpl.ExecuteTemplate(w, "devdb.tmpl", d)
 }
 
@@ -253,12 +257,15 @@ func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*
 		return nil, fmt.Errorf("unsupported driver %q", v.Driver)
 	}
 	b := &bytes.Buffer{}
-	if err := v.Render(b); err != nil {
+	if err := v.render(b); err != nil {
 		return nil, err
 	}
 	d := &appsv1.Deployment{}
 	if err := yaml.NewYAMLToJSONDecoder(b).Decode(d); err != nil {
 		return nil, err
+	}
+	d.Spec.Template.Annotations = map[string]string{
+		annoConnTmpl: v.connTmpl(),
 	}
 	if drv == "sqlserver" {
 		c := &d.Spec.Template.Spec.Containers[0]
