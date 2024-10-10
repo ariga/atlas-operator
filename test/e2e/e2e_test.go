@@ -76,7 +76,7 @@ func TestOperator(t *testing.T) {
 		"MSSQL_ACCEPT_EULA=Y", "MSSQL_PID=Developer")
 	require.NoError(t, err)
 	var controllerPod string
-	for range 5 {
+	for range 10 {
 		// Getting the controller-manager pod name
 		output, err := kind("kubectl", "get", "pod",
 			"-n", nsController,
@@ -96,7 +96,7 @@ func TestOperator(t *testing.T) {
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	// Running the test script
 	testscript.Run(t, testscript.Params{
-		Dir: filepath.Join("testdata", "atlas-schema"),
+		Dir: filepath.Join("testscript"),
 		Setup: func(e *testscript.Env) (err error) {
 			e.Setenv("CONTROLLER_NS", nsController)
 			e.Setenv("CONTROLLER", controllerPod)
