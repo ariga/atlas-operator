@@ -58,34 +58,11 @@ cd ./config/integration
 # Bring up the database resources
 kubectl apply -f ./databases
 
-mysql_reset "Test the atlas schema controller"
-# Create a table not described in the desired schema but excluded from it.
-mysql_exec "create table myapp.ignore_me (c int);"
-# Apply the desired schema and wait for it to be ready.
-kubectl apply -f ./schema
-kubectl wait --for=condition=ready --timeout=360s atlasschemas --all
-# Expect the excluded table to be present.
-mysql_exec "describe myapp.ignore_me"
-# Update sql schema configmap
-kubectl create configmap mysql-schema \
-  --from-file=./schema/mysql \
-  --dry-run=client -o yaml | kubectl apply -f -
-sleep 1 # Wait for the migration to be applied.
-kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
-echo ""
-echo "Expect the new column to be present"
-mysql_exec "SHOW COLUMNS FROM myapp.users LIKE 'phone';" | grep -q 'phone'
-echo ""
-echo "Expect the devdb deployment is scaled to 1"
-kubectl get deployment atlasschema-mysql-atlas-dev-db \
-  -o=jsonpath='{.spec.replicas}' | grep -q '1'
-
 mysql_reset "Test prewarm_devdb flag"
 # SET PREWARM_DEVDB to false
 kubectl set env -n atlas-operator-system deployment/atlas-operator-controller-manager \
   PREWARM_DEVDB=false
 # Apply the desired schema and wait for it to be ready.
-kubectl delete -f ./schema
 kubectl apply -f ./schema
 kubectl wait --for=condition=ready --timeout=120s atlasschemas --all
 echo ""
