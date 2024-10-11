@@ -145,23 +145,55 @@ func getSecrectValue(
 	return string(val.Data[ref.Key]), nil
 }
 
+// Driver defines the database driver.
+type Driver string
+
+const (
+	DriverPostgres  Driver = "postgres"
+	DriverSQLServer Driver = "sqlserver"
+	DriverMySQL     Driver = "mysql"
+	DriverSQLite    Driver = "sqlite"
+)
+
 // DriverBySchema returns the driver from the given schema.
 // it remove the schema modifier if present.
 // e.g. mysql+unix -> mysql
 // it also handles aliases.
 // e.g. mariadb -> mysql
-func DriverBySchema(schema string) string {
+func DriverBySchema(schema string) Driver {
 	p := strings.SplitN(schema, "+", 2)
 	switch drv := strings.ToLower(p[0]); drv {
-	case "libsql":
-		return "sqlite"
-	case "maria", "mariadb":
-		return "mysql"
-	case "postgresql":
-		return "postgres"
+	case "sqlite", "libsql":
+		return DriverSQLite
+	case "mysql", "maria", "mariadb":
+		return DriverMySQL
+	case "postgres", "postgresql":
+		return DriverPostgres
 	case "sqlserver", "azuresql", "mssql":
-		return "sqlserver"
+		return DriverSQLServer
 	default:
-		return drv
+		panic(fmt.Sprintf("unsupported driver %q", drv))
+	}
+}
+
+// String returns the string representation of the driver.
+func (d Driver) String() string {
+	return string(d)
+}
+
+// SchemaBound returns true if the driver requires a schema.
+func (d Driver) SchemaBound(u url.URL) bool {
+	switch d {
+	case DriverSQLite:
+		return true
+	case DriverPostgres:
+		return u.Query().Get("search_path") != ""
+	case DriverMySQL:
+		return u.Path != ""
+	case DriverSQLServer:
+		m := u.Query().Get("mode")
+		return m == "" || strings.ToLower(m) == "schema"
+	default:
+		panic(fmt.Sprintf("unsupported driver %q", d))
 	}
 }

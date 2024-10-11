@@ -15,15 +15,12 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -32,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,6 +43,12 @@ const (
 	labelInstance = "app.kubernetes.io/instance"
 )
 
+const (
+	ReasonCreatedDevDB  = "CreatedDevDB"
+	ReasonCleanUpDevDB  = "CleanUpDevDB"
+	ReasonScaledUpDevDB = "ScaledUpDevDB"
+)
+
 type (
 	// TODO: Refactor this to a separate controller
 	devDBReconciler struct {
@@ -56,6 +58,8 @@ type (
 		prewarm  bool
 	}
 )
+
+var errWaitDevDB = transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
 
 func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconciler {
 	if r == nil {
@@ -79,12 +83,12 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 		deploy := &appsv1.Deployment{}
 		err := r.Get(ctx, key, deploy)
 		if err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error getting devDB deployment: %v", err)
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleanUpDevDB, "Error getting devDB deployment: %v", err)
 			return
 		}
-		deploy.Spec.Replicas = new(int32)
+		deploy.Spec.Replicas = ptr.To[int32](0)
 		if err := r.Update(ctx, deploy); err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error scaling down devDB deployment: %v", err)
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleanUpDevDB, "Error scaling down devDB deployment: %v", err)
 		}
 		return
 	}
@@ -96,12 +100,12 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 			labelInstance: key.Name,
 		}),
 	); err != nil {
-		r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error listing devDB pods: %v", err)
+		r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleanUpDevDB, "Error listing devDB pods: %v", err)
 		return
 	}
 	for _, p := range pods.Items {
 		if err := r.Delete(ctx, &p); err != nil {
-			r.recorder.Eventf(sc, corev1.EventTypeWarning, "CleanUpDevDB", "Error deleting devDB pod %s: %v", p.Name, err)
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleanUpDevDB, "Error deleting devDB pod %s: %v", p.Name, err)
 		}
 	}
 }
@@ -110,27 +114,25 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 // It creates a dev database if it does not exist.
 func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL) (string, error) {
 	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
-	if drv == "sqlite" {
+	if drv == dbv1alpha1.DriverSQLite {
 		return "sqlite://db?mode=memory", nil
 	}
 	// make sure we have a dev db running
 	key := nameDevDB(sc)
 	deploy := &appsv1.Deployment{}
 	switch err := r.Get(ctx, key, deploy); {
-	case err == nil:
-		// The dev database already exists,
+	// The dev database already exists,
+	case err == nil && (deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0):
 		// If it is scaled down, scale it up.
-		if deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0 {
-			deploy.Spec.Replicas = ptr.To[int32](1)
-			if err := r.Update(ctx, deploy); err != nil {
-				return "", transient(err)
-			}
-			r.recorder.Eventf(sc, corev1.EventTypeNormal, "ScaledUpDevDB", "Scaled up dev database deployment: %s", deploy.Name)
-			return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
+		deploy.Spec.Replicas = ptr.To[int32](1)
+		if err := r.Update(ctx, deploy); err != nil {
+			return "", transient(err)
 		}
+		r.recorder.Eventf(sc, corev1.EventTypeNormal, ReasonScaledUpDevDB, "Scaled up dev database deployment: %s", deploy.Name)
+		return "", errWaitDevDB
+	// The dev database does not exist, create it.
 	case apierrors.IsNotFound(err):
-		// The dev database does not exist, create it.
-		deploy, err := deploymentDevDB(key, drv, isSchemaBound(drv, &targetURL))
+		deploy, err := deploymentDevDB(key, targetURL)
 		if err != nil {
 			return "", err
 		}
@@ -142,30 +144,26 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		if err := r.Create(ctx, deploy); err != nil {
 			return "", transient(err)
 		}
-		r.recorder.Eventf(sc, corev1.EventTypeNormal, "CreatedDevDB", "Created dev database deployment: %s", deploy.Name)
-		return "", transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
-	default:
-		// An error occurred while getting the dev database,
-		return "", err
-	}
-	pods := &corev1.PodList{}
-	switch err := r.List(ctx, pods,
-		client.InNamespace(key.Namespace),
-		client.MatchingLabels(map[string]string{
-			labelEngine:   drv,
-			labelInstance: key.Name,
-		}),
-	); {
+		r.recorder.Eventf(sc, corev1.EventTypeNormal, ReasonCreatedDevDB, "Created dev database deployment: %s", key.Name)
+		return "", errWaitDevDB
+	// An error occurred while getting the dev database,
 	case err != nil:
 		return "", transient(err)
-	case len(pods.Items) == 0:
-		return "", transient(errors.New("no pods found"))
 	}
-	idx := slices.IndexFunc(pods.Items, isPodReady)
-	if idx == -1 {
-		return "", transient(errors.New("no running pods found"))
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods,
+		client.InNamespace(key.Namespace),
+		client.MatchingLabels(map[string]string{
+			labelEngine:   drv.String(),
+			labelInstance: key.Name,
+		}),
+	); err != nil {
+		return "", transient(err)
 	}
-	pod := pods.Items[idx]
+	pod, err := readyPod(pods.Items)
+	if err != nil {
+		return "", transient(err)
+	}
 	if conn, ok := pod.Annotations[annoConnTmpl]; ok {
 		u, err := url.Parse(conn)
 		if err != nil {
@@ -183,106 +181,164 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
-func isPodReady(pod corev1.Pod) bool {
-	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
-		return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
-	})
-}
-
-// devDB contains values used to render a devDB pod template.
-type devDB struct {
-	types.NamespacedName
-	Driver      string
-	User        string
-	Pass        string
-	Port        int
-	UID         int
-	DB          string
-	SchemaBound bool
-}
-
-// connTmpl returns a connection template for the devDB.
-func (d *devDB) connTmpl() string {
-	u := url.URL{
-		Scheme: d.Driver,
-		User:   url.UserPassword(d.User, d.Pass),
-		Host:   fmt.Sprintf("localhost:%d", d.Port),
-		Path:   d.DB,
-	}
-	q := u.Query()
-	switch {
-	case d.Driver == "postgres":
-		q.Set("sslmode", "disable")
-	case d.Driver == "sqlserver":
-		q.Set("database", d.DB)
-		if !d.SchemaBound {
-			q.Set("mode", "DATABASE")
-		}
-	}
-	u.RawQuery = q.Encode()
-
-	return u.String()
-}
-
-func (d *devDB) render(w io.Writer) error {
-	return tmpl.ExecuteTemplate(w, "devdb.tmpl", d)
-}
-
 // deploymentDevDB returns a deployment for a dev database.
-func deploymentDevDB(name types.NamespacedName, drv string, schemaBound bool) (*appsv1.Deployment, error) {
-	v := &devDB{
-		Driver:         drv,
-		NamespacedName: name,
-		User:           "root",
-		Pass:           "pass",
-		SchemaBound:    schemaBound,
+func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deployment, error) {
+	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+	var (
+		user string
+		pass string
+		path string
+		q    = url.Values{}
+	)
+	c := corev1.Container{
+		Name: drv.String(),
+		ReadinessProbe: &corev1.Probe{
+			InitialDelaySeconds: 10,
+			PeriodSeconds:       5,
+			TimeoutSeconds:      5,
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot:             ptr.To(true),
+			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		},
 	}
 	switch drv {
-	case "postgres":
-		v.DB = "postgres"
-		v.Port = 5432
-		v.UID = 999
-	case "mysql":
-		if schemaBound {
-			v.DB = "dev"
+	case dbv1alpha1.DriverPostgres:
+		// URLs
+		user, pass, path = "root", "pass", "postgres"
+		q.Set("sslmode", "disable")
+		// Containers
+		c.Image = "postgres:15"
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 5432},
 		}
-		v.Port = 3306
-		v.UID = 1000
-	case "sqlserver":
-		v.User = "sa"
-		v.Pass = "P@ssw0rd0995"
-		v.DB = "master"
-		v.Port = 1433
+		c.ReadinessProbe.Exec = &corev1.ExecAction{
+			Command: []string{"pg_isready"},
+		}
+		c.Env = []corev1.EnvVar{
+			{Name: "POSTGRES_DB", Value: path},
+			{Name: "POSTGRES_USER", Value: user},
+			{Name: "POSTGRES_PASSWORD", Value: pass},
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](999)
+	case dbv1alpha1.DriverSQLServer:
+		// URLs
+		user, pass, path = "sa", "P@ssw0rd0995", ""
+		q.Set("database", "master")
+		if !drv.SchemaBound(targetURL) {
+			q.Set("mode", "DATABASE")
+		}
+		// Containers
+		c.Image = "mcr.microsoft.com/mssql/server:2022-latest"
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 1433},
+		}
+		c.ReadinessProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"/opt/mssql-tools18/bin/sqlcmd",
+				"-C", "-Q", "SELECT 1",
+				"-U", user, "-P", pass,
+			},
+		}
+		c.Env = []corev1.EnvVar{
+			{Name: "MSSQL_SA_PASSWORD", Value: pass},
+			{Name: "MSSQL_PID", Value: os.Getenv("MSSQL_PID")},
+			{Name: "ACCEPT_EULA", Value: os.Getenv("MSSQL_ACCEPT_EULA")},
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](10001)
+		c.SecurityContext.Capabilities.Add = []corev1.Capability{
+			// The --cap-add NET_BIND_SERVICE flag is required for non-root SQL Server
+			// containers to allow `sqlservr` to bind the default MSDTC RPC on port `135`
+			// which is less than 1024.
+			"NET_BIND_SERVICE",
+			// The --cap-add SYS_PTRACE flag is required for non-root SQL Server
+			// containers to generate dumps for troubleshooting purposes.
+			"SYS_PTRACE",
+		}
+	case dbv1alpha1.DriverMySQL:
+		// URLs
+		user, pass, path = "root", "pass", ""
+		// Containers
+		c.Image = "mysql:8"
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 3306},
+		}
+		c.ReadinessProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"mysql",
+				"-h", "127.0.0.1",
+				"-e", "SELECT 1",
+				"-u", user, "-p" + pass,
+			},
+		}
+		c.Env = []corev1.EnvVar{
+			{Name: "MYSQL_ROOT_PASSWORD", Value: pass},
+		}
+		if drv.SchemaBound(targetURL) {
+			path = "dev"
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name: "MYSQL_DATABASE", Value: path,
+			})
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](1000)
 	default:
-		return nil, fmt.Errorf("unsupported driver %q", v.Driver)
+		return nil, fmt.Errorf("unsupported driver %q", drv)
 	}
-	b := &bytes.Buffer{}
-	if err := v.render(b); err != nil {
-		return nil, err
+	conn := &url.URL{
+		Scheme:   c.Ports[0].Name,
+		User:     url.UserPassword(user, pass),
+		Host:     fmt.Sprintf("localhost:%d", c.Ports[0].ContainerPort),
+		Path:     path,
+		RawQuery: q.Encode(),
 	}
-	d := &appsv1.Deployment{}
-	if err := yaml.NewYAMLToJSONDecoder(b).Decode(d); err != nil {
-		return nil, err
+	labels := map[string]string{
+		labelEngine:                    drv.String(),
+		labelInstance:                  key.Name,
+		"app.kubernetes.io/name":       "atlas-dev-db",
+		"app.kubernetes.io/part-of":    "atlas-operator",
+		"app.kubernetes.io/created-by": "controller-manager",
 	}
-	d.Spec.Template.Annotations = map[string]string{
-		annoConnTmpl: v.connTmpl(),
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Replicas: ptr.To[int32](1),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						annoConnTmpl: conn.String(),
+					},
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{c},
+				},
+			},
+		},
+	}, nil
+}
+
+func readyPod(pods []corev1.Pod) (*corev1.Pod, error) {
+	if len(pods) == 0 {
+		return nil, errors.New("no pods found")
 	}
-	if drv == "sqlserver" {
-		c := &d.Spec.Template.Spec.Containers[0]
-		if v := os.Getenv("MSSQL_ACCEPT_EULA"); v != "" {
-			c.Env = append(c.Env, corev1.EnvVar{
-				Name:  "ACCEPT_EULA",
-				Value: v,
-			})
-		}
-		if v := os.Getenv("MSSQL_PID"); v != "" {
-			c.Env = append(c.Env, corev1.EnvVar{
-				Name:  "MSSQL_PID",
-				Value: v,
-			})
-		}
+	idx := slices.IndexFunc(pods, func(p corev1.Pod) bool {
+		return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PodCondition) bool {
+			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+		})
+	})
+	if idx == -1 {
+		return nil, errors.New("no running pods found")
 	}
-	return d, nil
+	return &pods[idx], nil
 }
 
 // nameDevDB returns the namespaced name of the dev database.
@@ -291,21 +347,4 @@ func nameDevDB(owner metav1.Object) types.NamespacedName {
 		Name:      fmt.Sprintf("%s-atlas-dev-db", owner.GetName()),
 		Namespace: owner.GetNamespace(),
 	}
-}
-
-// isSchemaBound returns true if the given target URL is schema bound.
-// e.g. sqlite, postgres with search_path, mysql with path
-func isSchemaBound(drv string, u *url.URL) bool {
-	switch drv {
-	case "sqlite":
-		return true
-	case "postgres":
-		return u.Query().Get("search_path") != ""
-	case "mysql":
-		return u.Path != ""
-	case "sqlserver":
-		m := u.Query().Get("mode")
-		return m == "" || strings.ToLower(m) == "schema"
-	}
-	return false
 }
