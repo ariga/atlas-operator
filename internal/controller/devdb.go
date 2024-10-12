@@ -211,7 +211,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		user, pass, path = "root", "pass", "postgres"
 		q.Set("sslmode", "disable")
 		// Containers
-		c.Image = "postgres:15"
+		c.Image = "postgres:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 5432},
 		}
@@ -262,7 +262,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "root", "pass", ""
 		// Containers
-		c.Image = "mysql:8"
+		c.Image = "mysql:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 3306},
 		}
@@ -284,6 +284,32 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			})
 		}
 		c.SecurityContext.RunAsUser = ptr.To[int64](1000)
+	case dbv1alpha1.DriverMariaDB:
+		// URLs
+		user, pass, path = "root", "pass", ""
+		// Containers
+		c.Image = "mariadb:latest"
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 3306},
+		}
+		c.ReadinessProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"mariadb",
+				"-h", "127.0.0.1",
+				"-e", "SELECT 1",
+				"-u", user, "-p" + pass,
+			},
+		}
+		c.Env = []corev1.EnvVar{
+			{Name: "MARIADB_ROOT_PASSWORD", Value: pass},
+		}
+		if drv.SchemaBound(targetURL) {
+			path = "dev"
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name: "MARIADB_DATABASE", Value: path,
+			})
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](999)
 	default:
 		return nil, fmt.Errorf("unsupported driver %q", drv)
 	}

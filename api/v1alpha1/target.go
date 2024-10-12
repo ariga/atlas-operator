@@ -150,9 +150,10 @@ type Driver string
 
 const (
 	DriverPostgres  Driver = "postgres"
-	DriverSQLServer Driver = "sqlserver"
 	DriverMySQL     Driver = "mysql"
+	DriverMariaDB   Driver = "mariadb"
 	DriverSQLite    Driver = "sqlite"
+	DriverSQLServer Driver = "sqlserver"
 )
 
 // DriverBySchema returns the driver from the given schema.
@@ -165,8 +166,10 @@ func DriverBySchema(schema string) Driver {
 	switch drv := strings.ToLower(p[0]); drv {
 	case "sqlite", "libsql":
 		return DriverSQLite
-	case "mysql", "maria", "mariadb":
+	case "mysql":
 		return DriverMySQL
+	case "mariadb", "maria":
+		return DriverMariaDB
 	case "postgres", "postgresql":
 		return DriverPostgres
 	case "sqlserver", "azuresql", "mssql":
@@ -188,7 +191,7 @@ func (d Driver) SchemaBound(u url.URL) bool {
 		return true
 	case DriverPostgres:
 		return u.Query().Get("search_path") != ""
-	case DriverMySQL:
+	case DriverMySQL, DriverMariaDB:
 		return u.Path != ""
 	case DriverSQLServer:
 		m := u.Query().Get("mode")
