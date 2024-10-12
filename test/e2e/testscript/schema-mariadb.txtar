@@ -1,0 +1,227 @@
+env DB_URL=mariadb://root:pass@mariadb.${NAMESPACE}:3306/myapp
+kubectl apply -f database.yaml
+kubectl create secret generic mariadb-credentials --from-literal=url=${DB_URL}
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=60s -l app=mariadb pods
+
+# Sync the $WORK directory to the controller pod
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+env DEV_URL=mariadb://root:pass@mariadb.${NAMESPACE}:3307/myapp
+# Create a table not described in the desired schema but excluded from it.
+atlas schema apply --auto-approve --dev-url=${DEV_URL} --url=${DB_URL} --to=file:///tmp/${NAMESPACE}/ignore.sql
+
+# Create the configmap to store the schema.sql
+kubectl create configmap mariadb-schema --from-file=./schema-v1 --dry-run=client -o yaml
+stdin stdout
+kubectl apply -f -
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-mariadb
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+
+# Update the configmap with the new schema
+kubectl create configmap mariadb-schema --from-file=./schema-v2 --dry-run=client -o yaml
+stdin stdout
+kubectl apply -f -
+
+# Ensure the controller is aware of the change
+kubectl wait --for=condition=ready=false --timeout=60s AtlasSchema/atlasschema-mariadb
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-mariadb
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v2.hcl
+-- schema-v1.hcl --
+table "ignore_me" {
+  schema = schema.myapp
+  column "c" {
+    null = true
+    type = int
+  }
+}
+table "users" {
+  schema = schema.myapp
+  column "id" {
+    null           = false
+    type           = int
+    auto_increment = true
+  }
+  column "name" {
+    null = false
+    type = varchar(255)
+  }
+  column "email" {
+    null = false
+    type = varchar(255)
+  }
+  column "short_bio" {
+    null = false
+    type = varchar(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "email" {
+    unique  = true
+    columns = [column.email]
+  }
+}
+schema "myapp" {
+  charset = "utf8mb4"
+  collate = "utf8mb4_uca1400_ai_ci"
+}
+-- schema-v2.hcl --
+table "ignore_me" {
+  schema = schema.myapp
+  column "c" {
+    null = true
+    type = int
+  }
+}
+table "users" {
+  schema = schema.myapp
+  column "id" {
+    null           = false
+    type           = int
+    auto_increment = true
+  }
+  column "name" {
+    null = false
+    type = varchar(255)
+  }
+  column "email" {
+    null = false
+    type = varchar(255)
+  }
+  column "short_bio" {
+    null = false
+    type = varchar(255)
+  }
+  column "phone" {
+    null = false
+    type = varchar(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "email" {
+    unique  = true
+    columns = [column.email]
+  }
+}
+schema "myapp" {
+  charset = "utf8mb4"
+  collate = "utf8mb4_uca1400_ai_ci"
+}
+-- schema-v1/schema.sql --
+create table users (
+  id int not null auto_increment,
+  name varchar(255) not null,
+  email varchar(255) unique not null,
+  short_bio varchar(255) not null,
+  primary key (id)
+);
+-- schema-v2/schema.sql --
+create table users (
+  id int not null auto_increment,
+  name varchar(255) not null,
+  email varchar(255) unique not null,
+  short_bio varchar(255) not null,
+  phone varchar(255) not null,
+  primary key (id)
+);
+-- ignore.sql --
+create table myapp.ignore_me (c int);
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-mariadb
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: mariadb-credentials
+  policy:
+    lint:
+      destructive:
+        error: true
+    diff:
+      skip:
+        drop_column: true
+  schema:
+    configMapKeyRef:
+      key: schema.sql
+      name: mariadb-schema
+  exclude:
+    - ignore_me
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+spec:
+  selector:
+    app: mariadb
+  ports:
+    - name: mariadb
+      port: 3306
+      targetPort: mariadb
+    - name: mariadb-dev
+      port: 3307
+      targetPort: mariadb-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+spec:
+  selector:
+    matchLabels:
+      app: mariadb
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:latest
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              value: pass
+            - name: MARIADB_DATABASE
+              value: myapp
+          ports:
+            - containerPort: 3306
+              name: mariadb
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+        - name: mariadb-dev
+          image: mariadb:latest
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              value: pass
+            - name: MARIADB_DATABASE
+              value: myapp
+            - name: MYSQL_TCP_PORT
+              value: "3307"
+          ports:
+            - containerPort: 3307
+              name: mariadb-dev
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]

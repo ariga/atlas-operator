@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
 )
@@ -78,7 +77,7 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			Schema: dbv1alpha1.Schema{SQL: "create table foo (id int primary key);"},
-			TargetSpec: v1alpha1.TargetSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{
 				URL: "mysql://root:password@localhost:3306/test",
 			},
 		},
@@ -132,7 +131,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 	h.patch(t, &dbv1alpha1.AtlasSchema{
 		ObjectMeta: meta,
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
 		},
 	})
 	// Third reconcile, return error for missing schema
@@ -141,7 +140,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 	h.patch(t, &dbv1alpha1.AtlasSchema{
 		ObjectMeta: meta,
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
 			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
 		},
 	})
@@ -151,7 +150,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 	h.patch(t, &dbv1alpha1.AtlasSchema{
 		ObjectMeta: meta,
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
 			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY, c1 INT NULL);"},
 		},
 	})
@@ -489,7 +488,7 @@ func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			TargetSpec: v1alpha1.TargetSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{
 				URL: "sqlite://file?mode=memory",
 			},
 			Schema: dbv1alpha1.Schema{SQL: "CREATE TABLE foo (id INT PRIMARY KEY);"},

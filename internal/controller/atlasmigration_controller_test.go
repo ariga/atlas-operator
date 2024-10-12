@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
 )
@@ -66,8 +65,8 @@ func TestMigration_ConfigMap(t *testing.T) {
 	obj := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
 		Spec: dbv1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
-			Dir: v1alpha1.Dir{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "migrations-dir"},
 			},
 		},
@@ -156,8 +155,8 @@ func TestMigration_Local(t *testing.T) {
 	obj := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
 		Spec: dbv1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
-			Dir: v1alpha1.Dir{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			Dir: dbv1alpha1.Dir{
 				Local: map[string]string{
 					"20230412003626_create_foo.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
 					"atlas.sum": `h1:i2OZ2waAoNC0T8LDtu90qFTpbiYcwTNLOrr5YUrq8+g=
@@ -189,7 +188,7 @@ func TestMigration_Local(t *testing.T) {
 		h.patch(t, &dbv1alpha1.AtlasMigration{
 			ObjectMeta: meta,
 			Spec: dbv1alpha1.AtlasMigrationSpec{
-				Dir: v1alpha1.Dir{Local: dir},
+				Dir: dbv1alpha1.Dir{Local: dir},
 			},
 		})
 	}
@@ -265,11 +264,11 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 		obj  = &dbv1alpha1.AtlasMigration{
 			ObjectMeta: meta,
 			Spec: dbv1alpha1.AtlasMigrationSpec{
-				TargetSpec: v1alpha1.TargetSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{
 					URL: "sqlite://file?mode=memory",
 				},
-				Cloud: v1alpha1.CloudV0{
-					TokenFrom: v1alpha1.TokenFrom{
+				Cloud: dbv1alpha1.CloudV0{
+					TokenFrom: dbv1alpha1.TokenFrom{
 						SecretKeyRef: &corev1.SecretKeySelector{
 							Key: "token",
 							LocalObjectReference: corev1.LocalObjectReference{
@@ -278,14 +277,14 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 						},
 					},
 				},
-				Dir: v1alpha1.Dir{
-					Remote: v1alpha1.Remote{
+				Dir: dbv1alpha1.Dir{
+					Remote: dbv1alpha1.Remote{
 						Name: "my-dir",
 						Tag:  "v1",
 					},
 				},
 			},
-			Status: v1alpha1.AtlasMigrationStatus{
+			Status: dbv1alpha1.AtlasMigrationStatus{
 				Conditions: []metav1.Condition{
 					{Type: "Ready", Status: metav1.ConditionFalse},
 				},
@@ -392,10 +391,10 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 		obj  = &dbv1alpha1.AtlasMigration{
 			ObjectMeta: meta,
 			Spec: dbv1alpha1.AtlasMigrationSpec{
-				TargetSpec: v1alpha1.TargetSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{
 					URL: "sqlite://file?mode=memory",
 				},
-				Dir: v1alpha1.Dir{
+				Dir: dbv1alpha1.Dir{
 					Local: map[string]string{
 						"1.sql": "CREATE TABLE t1 (id INT);",
 						"atlas.sum": `h1:NIfJIuMahN58AEbN26mlFN1UfIH5YYAPLVish2vrYA0=
@@ -404,7 +403,7 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 					},
 				},
 			},
-			Status: v1alpha1.AtlasMigrationStatus{
+			Status: dbv1alpha1.AtlasMigrationStatus{
 				Conditions: []metav1.Condition{
 					{Type: "Ready", Status: metav1.ConditionFalse},
 				},
@@ -631,8 +630,8 @@ func TestReconcile_Transient(t *testing.T) {
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{
-				URLFrom: v1alpha1.Secret{
+			TargetSpec: dbv1alpha1.TargetSpec{
+				URLFrom: dbv1alpha1.Secret{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "other-secret",
@@ -642,7 +641,7 @@ func TestReconcile_Transient(t *testing.T) {
 				},
 			},
 		},
-		Status: v1alpha1.AtlasMigrationStatus{
+		Status: dbv1alpha1.AtlasMigrationStatus{
 			Conditions: []metav1.Condition{
 				{
 					Type:   "Ready",
@@ -677,11 +676,11 @@ func TestReconcile_reconcile(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	res := &v1alpha1.AtlasMigration{
+	res := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
-			Dir: v1alpha1.Dir{
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
@@ -697,7 +696,7 @@ func TestReconcile_reconciling(t *testing.T) {
 	tt := migrationCliTest(t)
 	am := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Status: v1alpha1.AtlasMigrationStatus{
+		Status: dbv1alpha1.AtlasMigrationStatus{
 			Conditions: []metav1.Condition{
 				{
 					Type:   "Ready",
@@ -705,10 +704,10 @@ func TestReconcile_reconciling(t *testing.T) {
 				},
 			},
 		},
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
 			EnvName:    "test",
-			Dir: v1alpha1.Dir{
+			Dir: dbv1alpha1.Dir{
 				Local: map[string]string{
 					"1.sql": "bar",
 				},
@@ -736,12 +735,12 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 		},
 	}
 	tt.k8s.put(res)
-	md, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+	md, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
 			EnvName:    "test",
-			Dir: v1alpha1.Dir{
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
@@ -758,12 +757,12 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	tt.addMigrationScript("20230412003627_create_bar.sql", "CREATE TABLE bar (id INT PRIMARY KEY);")
 	tt.addMigrationScript("20230412003628_create_baz.sql", "CREATE TABLE baz (id INT PRIMARY KEY);")
 
-	res := &v1alpha1.AtlasMigration{
+	res := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
 			EnvName:    "test",
-			Dir: v1alpha1.Dir{
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 			Baseline: "20230412003627",
@@ -838,11 +837,11 @@ func TestReconcile_extractMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultMigrationDir()
 
-	amd, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+	amd, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
-			Dir: v1alpha1.Dir{
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
@@ -856,14 +855,14 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultTokenSecret()
 
-	amd, err := tt.r.extractData(context.Background(), &v1alpha1.AtlasMigration{
+	amd, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: tt.dburl},
-			Cloud: v1alpha1.CloudV0{
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			Cloud: dbv1alpha1.CloudV0{
 				URL:     "https://atlasgo.io/",
 				Project: "my-project",
-				TokenFrom: v1alpha1.TokenFrom{
+				TokenFrom: dbv1alpha1.TokenFrom{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "my-secret",
@@ -872,8 +871,8 @@ func TestReconcile_extractCloudMigrationData(t *testing.T) {
 					},
 				},
 			},
-			Dir: v1alpha1.Dir{
-				Remote: v1alpha1.Remote{
+			Dir: dbv1alpha1.Dir{
+				Remote: dbv1alpha1.Remote{
 					Name: "my-remote-dir",
 					Tag:  "my-remote-tag",
 				},
@@ -895,8 +894,8 @@ func TestReconciler_watch(t *testing.T) {
 	tt.r.watchRefs(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{
-				URLFrom: v1alpha1.Secret{
+			TargetSpec: dbv1alpha1.TargetSpec{
+				URLFrom: dbv1alpha1.Secret{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "database-connection",
@@ -904,8 +903,8 @@ func TestReconciler_watch(t *testing.T) {
 					},
 				},
 			},
-			Cloud: v1alpha1.CloudV0{
-				TokenFrom: v1alpha1.TokenFrom{
+			Cloud: dbv1alpha1.CloudV0{
+				TokenFrom: dbv1alpha1.TokenFrom{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: "atlas-token",
@@ -913,7 +912,7 @@ func TestReconciler_watch(t *testing.T) {
 					},
 				},
 			},
-			Dir: v1alpha1.Dir{
+			Dir: dbv1alpha1.Dir{
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "migration-directory"},
 			},
 		},
@@ -939,7 +938,7 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 	tt.k8s.put(&dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{
 				Credentials: dbv1alpha1.Credentials{
 					Scheme: "sqlite",
 					Host:   "localhost",
@@ -956,7 +955,7 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 				},
 			},
 		},
-		Status: v1alpha1.AtlasMigrationStatus{
+		Status: dbv1alpha1.AtlasMigrationStatus{
 			Conditions: []metav1.Condition{
 				{
 					Type:   "Ready",
@@ -1040,7 +1039,7 @@ func TestCloudTemplate(t *testing.T) {
 			Repo:  "my-project",
 			Token: "my-token",
 		},
-		RemoteDir: &v1alpha1.Remote{
+		RemoteDir: &dbv1alpha1.Remote{
 			Name: "my-remote-dir",
 			Tag:  "my-remote-tag",
 		},
@@ -1103,7 +1102,7 @@ func TestMigrationWithDeploymentContext(t *testing.T) {
 	am.Spec.Cloud.URL = srv.URL
 	am.Spec.Dir.Remote.Name = "my-remote-dir"
 	am.Spec.Cloud.Project = "my-project"
-	am.Spec.Cloud.TokenFrom = v1alpha1.TokenFrom{
+	am.Spec.Cloud.TokenFrom = dbv1alpha1.TokenFrom{
 		SecretKeyRef: &corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{
 				Name: "my-secret",
@@ -1209,15 +1208,15 @@ func (t *migrationTest) initDefaultAtlasMigration() {
 	t.initDefaultMigrationDir()
 	t.initDefaultTokenSecret()
 	t.k8s.put(
-		&v1alpha1.AtlasMigration{
+		&dbv1alpha1.AtlasMigration{
 			ObjectMeta: migrationObjmeta(),
-			Spec: v1alpha1.AtlasMigrationSpec{
-				TargetSpec: v1alpha1.TargetSpec{URL: t.dburl},
-				Dir: v1alpha1.Dir{
+			Spec: dbv1alpha1.AtlasMigrationSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{URL: t.dburl},
+				Dir: dbv1alpha1.Dir{
 					ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 				},
 			},
-			Status: v1alpha1.AtlasMigrationStatus{
+			Status: dbv1alpha1.AtlasMigrationStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:   "Ready",
@@ -1245,13 +1244,13 @@ func (t *migrationTest) initDefaultMigrationDir() {
 	)
 }
 
-func (t *migrationTest) getAtlasMigration() *v1alpha1.AtlasMigration {
-	return &v1alpha1.AtlasMigration{
+func (t *migrationTest) getAtlasMigration() *dbv1alpha1.AtlasMigration {
+	return &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Spec: v1alpha1.AtlasMigrationSpec{
-			TargetSpec: v1alpha1.TargetSpec{URL: t.dburl},
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: t.dburl},
 		},
-		Status: v1alpha1.AtlasMigrationStatus{
+		Status: dbv1alpha1.AtlasMigrationStatus{
 			Conditions: []metav1.Condition{
 				{
 					Type:   "Ready",
