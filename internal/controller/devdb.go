@@ -310,6 +310,33 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			})
 		}
 		c.SecurityContext.RunAsUser = ptr.To[int64](999)
+	case dbv1alpha1.DriverClickHouse:
+		// URLs
+		user, pass, path = "root", "pass", ""
+		// Containers
+		c.Image = "clickhouse/clickhouse-server:latest"
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 9000},
+		}
+		c.ReadinessProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"clickhouse-client", "-q", "SELECT 1",
+			},
+		}
+		c.Env = []corev1.EnvVar{
+			{Name: "CLICKHOUSE_USER", Value: user},
+			{Name: "CLICKHOUSE_PASSWORD", Value: pass},
+		}
+		if drv.SchemaBound(targetURL) {
+			path = "dev"
+			c.Env = append(c.Env, corev1.EnvVar{
+				Name: "CLICKHOUSE_DB", Value: path,
+			})
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](101)
+		c.SecurityContext.Capabilities.Add = []corev1.Capability{
+			"SYS_NICE", "NET_ADMIN", "IPC_LOCK",
+		}
 	default:
 		return nil, fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}

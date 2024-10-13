@@ -1,0 +1,134 @@
+env DB_URL=clickhouse://root:pass@clickhouse.${NAMESPACE}:9000/myapp
+kubectl apply -f database.yaml
+kubectl create secret generic clickhouse-credentials --from-literal=url=${DB_URL}
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=60s -l app=clickhouse pods
+
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Create the configmap to store the schema.sql
+kubectl create configmap clickhouse-schema --from-file=./schema-v1 --dry-run=client -o yaml
+stdin stdout
+kubectl apply -f -
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=120s AtlasSchema/clickhouse
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+-- schema-v1.hcl --
+table "users" {
+  schema = schema.myapp
+  engine = MergeTree
+  settings = {
+    index_granularity = 8192
+  }
+  column "id" {
+    null = false
+    type = UInt32
+  }
+  column "name" {
+    null = false
+    type = String
+  }
+  column "created" {
+    null = false
+    type = DateTime
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  sort {
+    columns = [column.id]
+  }
+}
+schema "myapp" {
+  engine = Atomic
+}
+-- schema-v1/schema.sql --
+CREATE TABLE `users` (
+  `id` UInt32,
+  `name` String,
+  `created` DateTime
+)
+ENGINE = MergeTree
+PRIMARY KEY (`id`)
+SETTINGS index_granularity = 8192;
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: clickhouse
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: clickhouse-credentials
+  policy:
+    lint:
+      destructive:
+        error: true
+    diff:
+      skip:
+        drop_column: true
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  schema:
+    configMapKeyRef:
+      key: schema.sql
+      name: clickhouse-schema
+  exclude:
+    - ignore_me
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+spec:
+  selector:
+    app: clickhouse
+  ports:
+    - name: clickhouse
+      port: 9000
+      targetPort: clickhouse
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse
+spec:
+  selector:
+    matchLabels:
+      app: clickhouse
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:latest
+          env:
+            - name: CLICKHOUSE_USER
+              value: root
+            - name: CLICKHOUSE_PASSWORD
+              value: pass
+            - name: CLICKHOUSE_DB
+              value: myapp
+          ports:
+            - containerPort: 9000
+              name: clickhouse
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "clickhouse-client", "-q", "SELECT 1" ]
