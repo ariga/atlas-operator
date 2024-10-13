@@ -63,23 +63,3 @@ jobs:
           make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             KIND_CLUSTER=chart-testing
-  e2e-shell:
-    runs-on: ubuntu-latest
-    needs: [unit]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-      - name: Install Atlas CLI
-        uses: ariga/setup-atlas@master
-      - uses: azure/setup-kubectl@v4
-      - name: Start minikube
-        uses: medyagh/setup-minikube@master
-      - name: Install Skaffold
-        run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
-          sudo install skaffold /usr/local/bin/
-      - name: Run integration tests
-        run: |
-          make docker-build integration-tests
