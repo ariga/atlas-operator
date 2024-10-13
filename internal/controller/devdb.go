@@ -311,7 +311,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		}
 		c.SecurityContext.RunAsUser = ptr.To[int64](999)
 	default:
-		return nil, fmt.Errorf("unsupported driver %q", drv)
+		return nil, fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
 	conn := &url.URL{
 		Scheme:   c.Ports[0].Name,

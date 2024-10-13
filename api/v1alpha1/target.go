@@ -149,11 +149,13 @@ func getSecrectValue(
 type Driver string
 
 const (
-	DriverPostgres  Driver = "postgres"
-	DriverMySQL     Driver = "mysql"
-	DriverMariaDB   Driver = "mariadb"
-	DriverSQLite    Driver = "sqlite"
-	DriverSQLServer Driver = "sqlserver"
+	DriverPostgres   Driver = "postgres"
+	DriverMySQL      Driver = "mysql"
+	DriverMariaDB    Driver = "mariadb"
+	DriverSQLite     Driver = "sqlite"
+	DriverSQLServer  Driver = "sqlserver"
+	DriverClickHouse Driver = "clickhouse"
+	DriverRedshift   Driver = "redshift"
 )
 
 // DriverBySchema returns the driver from the given schema.
@@ -174,8 +176,12 @@ func DriverBySchema(schema string) Driver {
 		return DriverPostgres
 	case "sqlserver", "azuresql", "mssql":
 		return DriverSQLServer
+	case "clickhouse":
+		return DriverClickHouse
+	case "redshift":
+		return DriverRedshift
 	default:
-		panic(fmt.Sprintf("unsupported driver %q", drv))
+		panic(fmt.Sprintf("unknown driver %q", drv))
 	}
 }
 
@@ -187,12 +193,12 @@ func (d Driver) String() string {
 // SchemaBound returns true if the driver requires a schema.
 func (d Driver) SchemaBound(u url.URL) bool {
 	switch d {
+	case DriverPostgres, DriverRedshift: // PG-like
+		return u.Query().Get("search_path") != ""
+	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
+		return u.Path != ""
 	case DriverSQLite:
 		return true
-	case DriverPostgres:
-		return u.Query().Get("search_path") != ""
-	case DriverMySQL, DriverMariaDB:
-		return u.Path != ""
 	case DriverSQLServer:
 		m := u.Query().Get("mode")
 		return m == "" || strings.ToLower(m) == "schema"
