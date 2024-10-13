@@ -445,6 +445,9 @@ spec:
               cloud:
                 description: Cloud defines the Atlas Cloud configuration.
                 properties:
+                  repo:
+                    description: Repo is the name of repository on the Atlas Cloud.
+                    type: string
                   tokenFrom:
                     description: TokenFrom defines the reference to the secret key
                       that contains the Atlas Cloud Token.
@@ -667,6 +670,15 @@ spec:
                           error:
                             type: boolean
                         type: object
+                      review:
+                        default: ERROR
+                        description: Review defines the review policy to apply after
+                          linting the schema changes.
+                        enum:
+                        - ALWAYS
+                        - WARNING
+                        - ERROR
+                        type: string
                     type: object
                 type: object
               schema:
@@ -811,6 +823,13 @@ spec:
               observed_hash:
                 description: ObservedHash is the hash of the most recently applied
                   schema.
+                type: string
+              planLink:
+                description: PlanLink is the link to the schema plan on the Atlas
+                  Cloud.
+                type: string
+              planURL:
+                description: PlanURL is the URL of the schema plan to apply.
                 type: string
             required:
             - last_applied
