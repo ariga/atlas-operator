@@ -26,37 +26,23 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: start minikube
-        id: minikube
-        uses: medyagh/setup-minikube@master
-      - uses: azure/setup-helm@v3
-      - name: install atlas-operator
+      - uses: actions/checkout@v4
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+      - name: Run e2e tests with Operator
         run: |
-          helm install atlas-operator charts/atlas-operator --wait \
-          --set image.pullPolicy=Always
-      - name: apply test resources
-        run: |
-          kubectl apply -k config/integration
-      - name: wait for test resources
-        run: |
-          if ! kubectl wait --for=condition=ready --timeout=120s atlasschemas --all; then
-            kubectl describe atlasschemas
-            kubectl describe pods -l atlasgo.io/engine=postgres
-            kubectl describe pods -l atlasgo.io/engine=mysql
-            kubectl describe deployments
-            exit 1
-          fi
+          make test-e2e \
+            ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
+            KIND_CLUSTER=chart-testing \
+            TEST_RUN='(schema|migration)-mysql'
+        env:
+          HELM_TEST: "true"
       - name: test env vars
         run: |
-          kubectl apply -k config/integration/env
-          helm upgrade atlas-operator charts/atlas-operator -f ./config/integration/env/values.yaml --wait
-          # Find the operator pod
-          OPERATOR=$(kubectl get pods -o jsonpath='{.items[0].metadata.name}')
-          # Extract the env from the operator pod
-          kubectl exec $OPERATOR -- env | grep NORMAL_ENV
-          kubectl exec $OPERATOR -- env | grep CONFIGMAP_REF_ENV
-          kubectl exec $OPERATOR -- env | grep SECRET_REF_ENV
+          helm template atlas-operator charts/atlas-operator \
+            --set-json=extraEnvs='[{"name":"NORMAL_ENV","value":"value"}]' | grep NORMAL_ENV
   helm-push:
     name: Push to ghcr.io
     needs: [helm-test]
@@ -66,8 +52,8 @@ jobs:
       run:
         working-directory: charts/
     steps:
-      - uses: actions/checkout@v3
-      - uses: azure/setup-helm@v3
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
       - name: get version
         id: version
         run: |

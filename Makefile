@@ -80,7 +80,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	go test ./test/e2e/ -v -run=^TestOperator/${TEST_RUN}
+	go test ./test/e2e/ -v -run="^TestOperator/${TEST_RUN}"
 
 .PHONY: kind-image
 kind-image:
