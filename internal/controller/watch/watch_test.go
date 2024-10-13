@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 )
@@ -52,7 +53,7 @@ func TestWatcher(t *testing.T) {
 	}
 	t.Run("Non-watched object", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 
 		watcher.Create(context.Background(), event.CreateEvent{
 			Object: obj,
@@ -64,7 +65,7 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Multiple objects to reconcile", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 		watcher.Watch(objNsName, mdb2.NamespacedName())
 
@@ -78,7 +79,7 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Create event", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
 		watcher.Create(context.Background(), event.CreateEvent{
@@ -90,7 +91,7 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Update event", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
 		watcher.Update(context.Background(), event.UpdateEvent{
@@ -103,7 +104,7 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Delete event", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
 		watcher.Delete(context.Background(), event.DeleteEvent{
@@ -115,7 +116,7 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Generic event", func(t *testing.T) {
 		watcher := New()
-		queue := &controllertest.Queue{Interface: workqueue.New()}
+		queue := newQueue()
 		watcher.Watch(objNsName, mdb1.NamespacedName())
 
 		watcher.Generic(context.Background(), event.GenericEvent{
@@ -162,4 +163,10 @@ func TestWatcherAdd(t *testing.T) {
 		mdb1.NamespacedName(),
 		mdb2.NamespacedName(),
 	}, watcher.watched[watchedName])
+}
+
+func newQueue() *controllertest.Queue {
+	return &controllertest.Queue{
+		TypedInterface: workqueue.NewTyped[reconcile.Request](),
+	}
 }

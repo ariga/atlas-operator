@@ -32,6 +32,8 @@ type ResourceWatcher struct {
 	watched map[types.NamespacedName][]types.NamespacedName
 }
 
+type Queue = workqueue.TypedRateLimitingInterface[reconcile.Request]
+
 // New will create a new ResourceWatcher with no watched objects.
 func New() *ResourceWatcher {
 	return &ResourceWatcher{
@@ -53,26 +55,26 @@ func (w ResourceWatcher) Read(watchedName types.NamespacedName) []types.Namespac
 	return w.watched[watchedName]
 }
 
-func (w ResourceWatcher) Create(ctx context.Context, event event.CreateEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Create(_ context.Context, event event.CreateEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Update(ctx context.Context, event event.UpdateEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Update(_ context.Context, event event.UpdateEvent, queue Queue) {
 	w.handleEvent(event.ObjectOld, queue)
 }
 
-func (w ResourceWatcher) Delete(ctx context.Context, event event.DeleteEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Delete(_ context.Context, event event.DeleteEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Generic(ctx context.Context, event event.GenericEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Generic(_ context.Context, event event.GenericEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
 // handleEvent is called when an event is received for an object.
 // It will check if the object is being watched and trigger a reconciliation for
 // the dependent object.
-func (w ResourceWatcher) handleEvent(meta metav1.Object, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) handleEvent(meta metav1.Object, queue Queue) {
 	changedObjectName := types.NamespacedName{
 		Name:      meta.GetName(),
 		Namespace: meta.GetNamespace(),
