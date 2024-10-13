@@ -230,13 +230,6 @@ cli-gen: generate manifests chart-manifests license
 chart-manifests: manifests license kustomize
 	$(KUSTOMIZE) build config/crd -o charts/atlas-operator/templates/crds/crd.yaml
 
-.PHONY: integration-tests
-integration-tests:
-	skaffold run --wait-for-connection=true -p integration
-	$(MAKE) install
-	./scripts/integration-tests.sh
-	$(MAKE) undeploy ignore-not-found=true
-
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
 # $2 - package url which can be installed
