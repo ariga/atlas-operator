@@ -36,7 +36,7 @@ jobs:
           make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             KIND_CLUSTER=chart-testing \
-            TEST_RUN=schema-mysql
+            TEST_RUN='(schema|migration)-mysql'
         env:
           HELM_TEST: "true"
       - name: test env vars
