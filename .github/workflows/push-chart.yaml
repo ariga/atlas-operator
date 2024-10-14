@@ -29,6 +29,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create k8s Kind Cluster
         uses: helm/kind-action@v1
+      - name: Install Skaffold
+        run: |
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
+          sudo install skaffold /usr/local/bin/
       - name: Setup Helm
         uses: azure/setup-helm@v4
       - name: Run e2e tests with Operator
@@ -38,7 +42,7 @@ jobs:
             KIND_CLUSTER=chart-testing \
             TEST_RUN='(schema|migration)-mysql'
         env:
-          HELM_TEST: "true"
+          SKAFFOLD_PROFILE: helm
       - name: test env vars
         run: |
           helm template atlas-operator charts/atlas-operator \

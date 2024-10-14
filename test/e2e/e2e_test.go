@@ -60,41 +60,13 @@ func TestOperator(t *testing.T) {
 		}
 		return string(output), nil
 	}
-	if os.Getenv("HELM_TEST") != "" {
-		release := "atlas-operator"
-		// Deploying the controller-manager using helm
-		_, err = kind("helm", "install",
-			"-n", nsController, release,
-			"charts/atlas-operator",
-			"--create-namespace",
-			"--set", "image.tag=nightly",
-			"--set", "image.pullPolicy=Always",
-			"--set-json", `extraEnvs=[{"name":"MSSQL_ACCEPT_EULA","value":"Y"},{"name":"MSSQL_PID","value":"Developer"}]`,
-			"--wait")
+	// Deploying the controller-manager
+	_, err = kind("skaffold", "run", "--wait-for-connection=true")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err = kind("skaffold", "delete")
 		require.NoError(t, err)
-		t.Cleanup(func() {
-			_, err = kind("helm", "uninstall",
-				"-n", nsController, release,
-				"--wait")
-			require.NoError(t, err)
-		})
-	} else {
-		// Deploying the controller-manager
-		_, err = kind("skaffold", "run", "--wait-for-connection=true", "-p", "integration")
-		require.NoError(t, err)
-		// Installing the CRDs
-		_, err = kind("make", "install")
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			_, err = kind("make", "undeploy", "ignore-not-found=true")
-			require.NoError(t, err)
-		})
-		// Accept the EULA and set the PID
-		_, err = kind("kubectl", "set", "env",
-			"-n", nsController, "deployment/atlas-operator-controller-manager",
-			"MSSQL_ACCEPT_EULA=Y", "MSSQL_PID=Developer")
-		require.NoError(t, err)
-	}
+	})
 	var controllerPod string
 	for range 10 {
 		// Getting the controller-manager pod name

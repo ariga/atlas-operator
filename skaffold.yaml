@@ -23,9 +23,29 @@ build:
       dockerfile: Dockerfile
       buildArgs:
         OPERATOR_VERSION: v0.0.1-local-k8s
-manifests:
-  kustomize:
-    paths:
-    - config/default
 profiles:
-- name: integration
+- name: kustomize
+  manifests:
+    kustomize:
+      paths:
+      - config/default
+      - config/sqlserver
+- name: helm
+  deploy:
+    helm:
+      releases:
+      - name: atlas-operator
+        chartPath: charts/atlas-operator
+        namespace: atlas-operator-system
+        createNamespace: true
+        setValues:
+          image:
+            repository: controller
+            tag: v0.0.1-local-k8s
+          extraEnvs:
+            - name: MSSQL_ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_PID
+              value: "Developer"
+        valuesFiles:
+        - charts/atlas-operator/values.yaml
