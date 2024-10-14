@@ -38,7 +38,7 @@ jobs:
             KIND_CLUSTER=chart-testing \
             TEST_RUN='(schema|migration)-mysql'
         env:
-          HELM_TEST: "true"
+          SKAFFOLD_PROFILE: helm
       - name: test env vars
         run: |
           helm template atlas-operator charts/atlas-operator \

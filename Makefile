@@ -79,8 +79,9 @@ test: manifests generate fmt vet envtest ## Run tests.
 # - PROMETHEUS_INSTALL_SKIP=true
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: test-e2e
+SKAFFOLD_PROFILE ?= kustomize
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	go test ./test/e2e/ -v -run="^TestOperator/${TEST_RUN}"
+	SKAFFOLD_PROFILE=${SKAFFOLD_PROFILE} go test ./test/e2e/ -v -run="^TestOperator/${TEST_RUN}"
 
 .PHONY: kind-image
 kind-image:
