@@ -46,11 +46,13 @@ ARG ATLAS_VERSION=latest
 ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh
 
+FROM docker:27.3.1-cli-alpine3.20 as docker
+
 FROM alpine:3.20
-WORKDIR /
-COPY --from=builder /workspace/manager .
-COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
-RUN chmod +x /usr/local/bin/atlas
 ENV ATLAS_KUBERNETES_OPERATOR=1
+WORKDIR /
+COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
+COPY --from=docker /usr/local/bin/docker /usr/local/bin
+COPY --from=builder /workspace/manager .
 USER 65532:65532
 ENTRYPOINT ["/manager"]

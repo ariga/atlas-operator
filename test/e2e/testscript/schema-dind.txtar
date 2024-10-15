@@ -1,0 +1,97 @@
+env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic postgres-credentials --from-literal=url=${DB_URL}
+# Wait for the DB ready before creating the schema
+kubectl wait --for=condition=ready --timeout=60s -l app=postgres pods
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=condition=ready --timeout=360s AtlasSchema/atlasschema-postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema.hcl
+-- schema.hcl --
+table "users2" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: atlasschema-postgres
+spec:
+  devURL: docker://postgres/15/dev
+  urlFrom:
+    secretKeyRef:
+      name: postgres-credentials
+      key: url
+  schema:
+    sql: |
+      create table users2 (
+        id int not null,
+        primary key (id)
+      );
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 1
+            exec:
+              command: [ "pg_isready" ]
