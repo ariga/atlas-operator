@@ -192,10 +192,9 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 	)
 	c := corev1.Container{
 		Name: drv.String(),
-		ReadinessProbe: &corev1.Probe{
-			InitialDelaySeconds: 10,
-			PeriodSeconds:       5,
-			TimeoutSeconds:      5,
+		StartupProbe: &corev1.Probe{
+			FailureThreshold: 30,
+			PeriodSeconds:    10,
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot:             ptr.To(true),
@@ -215,7 +214,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 5432},
 		}
-		c.ReadinessProbe.Exec = &corev1.ExecAction{
+		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{"pg_isready"},
 		}
 		c.Env = []corev1.EnvVar{
@@ -236,7 +235,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 1433},
 		}
-		c.ReadinessProbe.Exec = &corev1.ExecAction{
+		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{
 				"/opt/mssql-tools18/bin/sqlcmd",
 				"-C", "-Q", "SELECT 1",
@@ -266,7 +265,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 3306},
 		}
-		c.ReadinessProbe.Exec = &corev1.ExecAction{
+		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{
 				"mysql",
 				"-h", "127.0.0.1",
@@ -292,7 +291,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 3306},
 		}
-		c.ReadinessProbe.Exec = &corev1.ExecAction{
+		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{
 				"mariadb",
 				"-h", "127.0.0.1",
@@ -318,7 +317,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 9000},
 		}
-		c.ReadinessProbe.Exec = &corev1.ExecAction{
+		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{
 				"clickhouse-client", "-q", "SELECT 1",
 			},

@@ -139,12 +139,11 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
         - name: postgres-dev
           image: postgres:15.4
           securityContext:
@@ -162,9 +161,8 @@ spec:
           ports:
             - containerPort: 5433
               name: postgres-dev
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

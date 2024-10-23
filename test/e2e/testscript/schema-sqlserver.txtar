@@ -89,13 +89,12 @@ spec:
           ports:
             - containerPort: 1433
               name: sqlserver
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [
                 "/opt/mssql-tools18/bin/sqlcmd",
                 "-C", "-U", "sa", "-P", "P@ssw0rd0995",
                 "-Q", "SELECT 1"
               ]
+            failureThreshold: 30
+            periodSeconds: 10
