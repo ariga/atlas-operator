@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -197,10 +198,8 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			"lint_review":      "ERROR",
 		}
 		if p := data.Policy; p != nil && p.Lint != nil {
-			if d := p.Lint.Destructive; d != nil && !d.Error {
-				// Remove the lint_destructive variable.
-				// if the lint policy is not set to error.
-				delete(vars, "lint_destructive")
+			if d := p.Lint.Destructive; d != nil {
+				vars["lint_destructive"] = strconv.FormatBool(d.Error)
 			}
 			if r := p.Lint.Review; r != "" {
 				vars["lint_review"] = r
@@ -367,7 +366,13 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	// Run the linting policy.
 	case data.shouldLint():
-		if err = r.lint(ctx, wd, data, nil); err != nil {
+		vars := atlasexec.Vars2{}
+		if p := data.Policy; p != nil && p.Lint != nil {
+			if d := p.Lint.Destructive; d != nil {
+				vars["lint_destructive"] = strconv.FormatBool(d.Error)
+			}
+		}
+		if err = r.lint(ctx, wd, data, vars); err != nil {
 			reason, msg := "LintPolicyError", err.Error()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
@@ -379,6 +384,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
+			Vars:        vars,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
 			AutoApprove: true,
