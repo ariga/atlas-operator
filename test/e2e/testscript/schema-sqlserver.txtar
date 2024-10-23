@@ -1,6 +1,6 @@
 env DB_URL=sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
 kubectl apply -f database.yaml
-kubectl create secret generic sqlserver-credentials --from-literal=url=${DB_URL}
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 # Wait for the DB ready before creating the schema
 kubectl wait --for=condition=ready --timeout=420s -l app=sqlserver pods
 
@@ -9,7 +9,7 @@ kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOK
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=420s AtlasSchema/atlasschema-sqlserver
+kubectl wait --for=condition=ready --timeout=420s AtlasSchema/sqlserver
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -31,11 +31,11 @@ schema "dbo" {
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
 metadata:
-  name: atlasschema-sqlserver
+  name: sqlserver
 spec:
   urlFrom:
     secretKeyRef:
-      name: sqlserver-credentials
+      name: db-creds
       key: url
   cloud:
     tokenFrom:

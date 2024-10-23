@@ -1,8 +1,8 @@
 env DB_URL=clickhouse://root:pass@clickhouse.${NAMESPACE}:9000/myapp
 kubectl apply -f database.yaml
-kubectl create secret generic clickhouse-credentials --from-literal=url=${DB_URL}
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 # Wait for the DB ready before creating the schema
-kubectl wait --for=condition=ready --timeout=60s -l app=clickhouse pods
+kubectl-wait-ready -l app=clickhouse pods
 
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
@@ -14,7 +14,7 @@ kubectl apply -f -
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=120s AtlasSchema/clickhouse
+kubectl-wait-ready AtlasSchema/clickhouse
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -65,8 +65,8 @@ metadata:
 spec:
   urlFrom:
     secretKeyRef:
+      name: db-creds
       key: url
-      name: clickhouse-credentials
   policy:
     lint:
       destructive:
