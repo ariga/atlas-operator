@@ -1,8 +1,8 @@
 env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
 kubectl apply -f database.yaml
-kubectl create secret generic postgres-credentials --from-literal=url=${DB_URL}
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 # Wait for the DB ready before creating the schema
-kubectl wait --for=condition=ready --timeout=60s -l app=postgres pods
+kubectl-wait-ready -l app=postgres pods
 
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
@@ -16,7 +16,7 @@ atlas schema push atlas-operator --tag=registry-v2 --dev-url=${DEV_URL} --url=fi
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
+kubectl-wait-ready AtlasSchema/postgres
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -24,8 +24,8 @@ cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=60s AtlasSchema/atlasschema-postgres
-kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-postgres
+kubectl wait --for=condition=ready=false --timeout=120s AtlasSchema/postgres
+kubectl-wait-ready AtlasSchema/postgres
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -76,11 +76,11 @@ schema "public" {
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
 metadata:
-  name: atlasschema-postgres
+  name: postgres
 spec:
   urlFrom:
     secretKeyRef:
-      name: postgres-credentials
+      name: db-creds
       key: url
   schema:
     url: atlas://atlas-operator?tag=registry-v1
@@ -139,12 +139,11 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
         - name: postgres-dev
           image: postgres:15.4
           securityContext:
@@ -162,9 +161,8 @@ spec:
           ports:
             - containerPort: 5433
               name: postgres-dev
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

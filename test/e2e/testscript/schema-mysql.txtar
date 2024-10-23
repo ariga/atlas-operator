@@ -1,8 +1,8 @@
 env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
 kubectl apply -f database.yaml
-kubectl create secret generic mysql-credentials --from-literal=url=${DB_URL}
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 # Wait for the DB ready before creating the schema
-kubectl wait --for=condition=ready --timeout=60s -l app=mysql pods
+kubectl-wait-ready -l app=mysql pods
 
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
@@ -17,7 +17,7 @@ kubectl apply -f -
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-mysql
+kubectl-wait-ready AtlasSchema/mysql
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -29,8 +29,8 @@ stdin stdout
 kubectl apply -f -
 
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=60s AtlasSchema/atlasschema-mysql
-kubectl wait --for=condition=ready --timeout=120s AtlasSchema/atlasschema-mysql
+kubectl wait --for=condition=ready=false --timeout=120s AtlasSchema/mysql
+kubectl-wait-ready AtlasSchema/mysql
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
@@ -140,12 +140,12 @@ create table myapp.ignore_me (c int);
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
 metadata:
-  name: atlasschema-mysql
+  name: mysql
 spec:
   urlFrom:
     secretKeyRef:
+      name: db-creds
       key: url
-      name: mysql-credentials
   policy:
     lint:
       destructive:
@@ -201,12 +201,11 @@ spec:
           ports:
             - containerPort: 3306
               name: mysql
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+            failureThreshold: 30
+            periodSeconds: 10
         - name: mysql-dev
           image: mysql:latest
           env:
@@ -219,9 +218,8 @@ spec:
           ports:
             - containerPort: 3307
               name: mysql-dev
-          readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
+          startupProbe:
             exec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+            failureThreshold: 30
+            periodSeconds: 10
