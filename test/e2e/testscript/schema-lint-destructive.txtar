@@ -14,9 +14,6 @@ cmp stdout schema.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-remove-bio.yaml
 
-# Wait for the controller to detect the change
-exec sleep 10
-
 # Ensure the controller is aware of the change
 kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=LintPolicyError --timeout=120s AtlasSchemas/mysql
 # Check the error message
