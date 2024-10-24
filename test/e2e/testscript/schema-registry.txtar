@@ -139,6 +139,10 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [ "pg_isready" ]
@@ -161,6 +165,10 @@ spec:
           ports:
             - containerPort: 5433
               name: postgres-dev
+          readinessProbe:
+            tcpSocket:
+              port: 5433
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [ "pg_isready" ]
