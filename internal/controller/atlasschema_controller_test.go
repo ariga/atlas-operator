@@ -430,8 +430,8 @@ func TestConfigTemplate(t *testing.T) {
 	err := data.render(&buf)
 	require.NoError(t, err)
 	expected := `variable "lint_destructive" {
-  type = bool
-  default = true
+  type    = bool
+  default = false
 }
 variable "lint_review" {
   type    = string

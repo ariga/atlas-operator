@@ -1,10 +1,6 @@
 variable "lint_destructive" {
-  type = bool
-{{- with .Policy }}
-  default = {{ .Lint.Destructive.Error }}
-{{- else }}
+  type    = bool
   default = false
-{{- end }}
 }
 variable "lint_review" {
   type    = string
