@@ -167,6 +167,13 @@ type (
 	LintReview string
 )
 
+// LintReview values.
+const (
+	LintReviewAlways  LintReview = "ALWAYS"
+	LintReviewWarning LintReview = "WARNING"
+	LintReviewError   LintReview = "ERROR"
+)
+
 func init() {
 	SchemeBuilder.Register(&AtlasSchema{}, &AtlasSchemaList{})
 }
