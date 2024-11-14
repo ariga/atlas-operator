@@ -207,8 +207,11 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 	switch drv {
 	case dbv1alpha1.DriverPostgres:
 		// URLs
-		user, pass, path = "root", "pass", "postgres"
+		user, pass, path = "postgres", "pass", "postgres"
 		q.Set("sslmode", "disable")
+		if drv.SchemaBound(targetURL) {
+			q.Set("search_path", "public")
+		}
 		// Containers
 		c.Image = "postgres:latest"
 		c.Ports = []corev1.ContainerPort{
