@@ -126,6 +126,10 @@ spec:
           ports:
             - containerPort: 9000
               name: clickhouse
+          readinessProbe:
+            tcpSocket:
+              port: 9000
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [ "clickhouse-client", "-q", "SELECT 1" ]
