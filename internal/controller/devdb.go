@@ -395,6 +395,11 @@ func readyPod(pods []corev1.Pod) (*corev1.Pod, error) {
 		return nil, errors.New("no pods found")
 	}
 	idx := slices.IndexFunc(pods, func(p corev1.Pod) bool {
+		for _, c := range p.Status.ContainerStatuses {
+			if !c.Ready {
+				return false
+			}
+		}
 		return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PodCondition) bool {
 			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
 		})
