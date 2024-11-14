@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -132,7 +133,8 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		return "", errWaitDevDB
 	// The dev database does not exist, create it.
 	case apierrors.IsNotFound(err):
-		deploy, err := deploymentDevDB(key, targetURL)
+		drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+		deploy, err := deploymentDevDB(key, drv, drv.SchemaBound(targetURL))
 		if err != nil {
 			return "", err
 		}
@@ -182,8 +184,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 }
 
 // deploymentDevDB returns a deployment for a dev database.
-func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deployment, error) {
-	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, schemaBound bool) (*appsv1.Deployment, error) {
 	var (
 		user string
 		pass string
@@ -209,7 +210,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "postgres", "pass", "postgres"
 		q.Set("sslmode", "disable")
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			q.Set("search_path", "public")
 		}
 		// Containers
@@ -230,7 +231,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "sa", "P@ssw0rd0995", ""
 		q.Set("database", "master")
-		if !drv.SchemaBound(targetURL) {
+		if !schemaBound {
 			q.Set("mode", "DATABASE")
 		}
 		// Containers
@@ -279,7 +280,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Env = []corev1.EnvVar{
 			{Name: "MYSQL_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MYSQL_DATABASE", Value: path,
@@ -305,7 +306,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		c.Env = []corev1.EnvVar{
 			{Name: "MARIADB_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MARIADB_DATABASE", Value: path,
@@ -329,7 +330,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			{Name: "CLICKHOUSE_USER", Value: user},
 			{Name: "CLICKHOUSE_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "CLICKHOUSE_DB", Value: path,
@@ -342,6 +343,14 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 	default:
 		return nil, fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
+	c.ReadinessProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{
+				Port: intstr.FromInt32(c.Ports[0].ContainerPort),
+			},
+		},
+		PeriodSeconds: 5,
+	}
 	conn := &url.URL{
 		Scheme:   c.Ports[0].Name,
 		User:     url.UserPassword(user, pass),
@@ -350,11 +359,11 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		RawQuery: q.Encode(),
 	}
 	labels := map[string]string{
-		labelEngine:                    drv.String(),
-		labelInstance:                  key.Name,
-		"app.kubernetes.io/name":       "atlas-dev-db",
-		"app.kubernetes.io/part-of":    "atlas-operator",
-		"app.kubernetes.io/created-by": "controller-manager",
+		labelEngine:                   drv.String(),
+		labelInstance:                 key.Name,
+		"app.kubernetes.io/component": "dev-db",
+		"app.kubernetes.io/name":      "atlas-dev-db",
+		"app.kubernetes.io/part-of":   "atlas-operator",
 	}
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
