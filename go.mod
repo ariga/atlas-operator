@@ -9,7 +9,7 @@ require (
 	ariga.io/atlas-go-sdk v0.6.4
 	github.com/rogpeppe/go-internal v1.13.1
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/mod v0.21.0
+	golang.org/x/mod v0.22.0
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.0
