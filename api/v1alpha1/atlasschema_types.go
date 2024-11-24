@@ -199,10 +199,14 @@ func (sc *AtlasSchema) IsHashModified(hash string) bool {
 // SetReady sets the Ready condition to true
 func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	var msg string
-	if j, err := json.Marshal(report); err != nil {
-		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
+	if report != nil {
+		if j, err := json.Marshal(report); err != nil {
+			msg = fmt.Sprintf("Error marshalling apply response: %v", err)
+		} else {
+			msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
+		}
 	} else {
-		msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
+		msg = "The schema has been applied successfully."
 	}
 	sc.Status = status
 	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{

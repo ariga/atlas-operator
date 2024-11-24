@@ -29,6 +29,19 @@ kubectl-wait-ready AtlasSchema/postgres
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}
 cmp stdout schema-v1.hcl
+kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/postgres
+stdout 2a59599f3d4f2f07d4fabb87bf872030020fd7410e10a1042ace7a0865953cac
+
+# Apply again without any change in the schema, it should be a no-op
+kubectl patch -f schema.yaml --type merge --patch-file patch-comment.yaml
+# Ensure the controller is aware of the change
+exec sleep 10
+kubectl-wait-ready AtlasSchema/postgres
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/postgres
+stdout 6a60e051a482fb40392f768e0a080bc101bd9d87efa21ff40472b1dbd7d4e7a8
 -- empty.hcl --
 schema "public" {
   comment = "standard public schema"
@@ -51,6 +64,16 @@ table "t1" {
 schema "public" {
   comment = "standard public schema"
 }
+-- patch-comment.yaml --
+spec:
+  schema:
+    sql: |
+      -- added some comment to cause the hash change
+      create table t1 (
+        id int not null,
+        c1 int,
+        primary key (id)
+      );
 -- schema.yaml --
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
