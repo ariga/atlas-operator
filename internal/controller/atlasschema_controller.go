@@ -272,7 +272,15 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				To:      []string{desiredURL},
 				Pending: true,
 			})
-			if err != nil {
+			switch {
+			case err != nil && strings.Contains(err.Error(), "no changes to be made"):
+				res.SetReady(dbv1alpha1.AtlasSchemaStatus{
+					LastApplied:  time.Now().Unix(),
+					ObservedHash: hash,
+				}, nil)
+				r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
+				return ctrl.Result{}, nil
+			case err != nil:
 				reason, msg := "SchemaPlan", err.Error()
 				res.SetNotReady(reason, msg)
 				r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
@@ -281,14 +289,15 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 				r.recordErrEvent(res, err)
 				return result(err)
+			default:
+				log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
+				res.Status.PlanURL = plan.File.URL
+				res.Status.PlanLink = plan.File.Link
+				reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
+				res.SetNotReady(reason, msg)
+				r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
+				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 			}
-			log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
-			res.Status.PlanURL = plan.File.URL
-			res.Status.PlanLink = plan.File.Link
-			reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
-			res.SetNotReady(reason, msg)
-			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
-			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 		// List the schema plans to check if there are any plans.
 		switch plans, err := cli.SchemaPlanList(ctx, &atlasexec.SchemaPlanListParams{
