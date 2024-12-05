@@ -26,6 +26,7 @@ import (
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
+	"github.com/zclconf/go-cty/cty"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -222,4 +223,13 @@ func result(err error) (r ctrl.Result, _ error) {
 		r.RequeueAfter = t.after
 	}
 	return r, nil
+}
+
+// listStringVal returns a cty.ListVal from the given slice of strings.
+func listStringVal(s []string) cty.Value {
+	v := make([]cty.Value, len(s))
+	for i, s := range s {
+		v[i] = cty.StringVal(s)
+	}
+	return cty.ListVal(v)
 }
