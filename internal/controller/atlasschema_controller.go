@@ -42,6 +42,9 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete;get;list;watch;create;update;patch;delete
@@ -598,7 +601,15 @@ func (d *managedData) render(w io.Writer) error {
 	if d.Desired == nil {
 		return errors.New("the desired state is not set")
 	}
-	return tmpl.ExecuteTemplate(w, "atlas_schema.tmpl", d)
+	f := hclwrite.NewFile()
+	fBody := f.Body()
+	for _, b := range d.AsBlocks() {
+		fBody.AppendBlock(b)
+	}
+	if _, err := f.WriteTo(w); err != nil {
+		return err
+	}
+	return nil
 }
 
 func truncateSQL(s []string, size int) []string {
@@ -619,4 +630,83 @@ func truncateSQL(s []string, size int) []string {
 		}
 	}
 	return s
+}
+
+// AsBlock returns the HCL block for the environment configuration.
+func (d *managedData) AsBlocks() []*hclwrite.Block {
+	var blocks []*hclwrite.Block
+	// lint_destructive variable block
+	ld := hclwrite.NewBlock("variable", []string{"lint_destructive"})
+	blocks = append(blocks, ld)
+	ld.Body().SetAttributeRaw("type", hclwrite.Tokens{{
+		Type: hclsyntax.TokenIdent, Bytes: []byte("bool"),
+	}})
+	ld.Body().SetAttributeValue("default", cty.False)
+	// lint_review variable block
+	lr := hclwrite.NewBlock("variable", []string{"lint_review"})
+	blocks = append(blocks, lr)
+	lr.Body().SetAttributeRaw("type", hclwrite.Tokens{{
+		Type: hclsyntax.TokenIdent, Bytes: []byte("string"),
+	}})
+	lr.Body().SetAttributeValue("default", cty.StringVal(""))
+	// diff block
+	if p := d.Policy; p != nil {
+		if d := p.Diff; d != nil {
+			blocks = append(blocks, d.AsBlock())
+		}
+	}
+	// env block
+	env := hclwrite.NewBlock("env", nil)
+	blocks = append(blocks, env)
+	envBody := env.Body()
+	// env.name = atlas.env
+	envBody.SetAttributeRaw("name", hclwrite.Tokens{
+		{Type: hclsyntax.TokenIdent, Bytes: []byte("atlas")},
+		{Type: hclsyntax.TokenDot, Bytes: []byte(".")},
+		{Type: hclsyntax.TokenIdent, Bytes: []byte("env")},
+	})
+	if d.URL != nil {
+		envBody.SetAttributeValue("url", cty.StringVal(d.URL.String()))
+	}
+	if d.DevURL != "" {
+		envBody.SetAttributeValue("dev", cty.StringVal(d.DevURL))
+	}
+	if l := d.Schemas; len(l) > 0 {
+		envBody.SetAttributeValue("schemas", listStringVal(l))
+	}
+	if l := d.Exclude; len(l) > 0 {
+		envBody.SetAttributeValue("exclude", listStringVal(l))
+	}
+	if p := d.Policy; p != nil {
+		if l := p.Lint; l != nil {
+			lint := envBody.AppendNewBlock("lint", nil).Body()
+			if v := l.Destructive; v != nil {
+				b := lint.AppendNewBlock("destructive", nil).Body()
+				// var.lint_destructive
+				b.SetAttributeRaw("error", hclwrite.Tokens{
+					{Type: hclsyntax.TokenIdent, Bytes: []byte("var")},
+					{Type: hclsyntax.TokenDot, Bytes: []byte(".")},
+					{Type: hclsyntax.TokenIdent, Bytes: []byte("lint_destructive")},
+				})
+			}
+			// var.lint_review != \"\" ? var.lint_review : null
+			lint.SetAttributeRaw("review", hclwrite.Tokens{
+				{Type: hclsyntax.TokenIdent, Bytes: []byte("var")},
+				{Type: hclsyntax.TokenDot, Bytes: []byte(".")},
+				{Type: hclsyntax.TokenIdent, Bytes: []byte("lint_review")},
+				{Type: hclsyntax.TokenNotEqual, Bytes: []byte("!="), SpacesBefore: 1},
+				{Type: hclsyntax.TokenIdent, Bytes: []byte(`""`), SpacesBefore: 1},
+				{Type: hclsyntax.TokenQuestion, Bytes: []byte("?"), SpacesBefore: 1},
+				{Type: hclsyntax.TokenIdent, Bytes: []byte("var"), SpacesBefore: 1},
+				{Type: hclsyntax.TokenDot, Bytes: []byte(".")},
+				{Type: hclsyntax.TokenIdent, Bytes: []byte("lint_review")},
+				{Type: hclsyntax.TokenColon, Bytes: []byte(":"), SpacesBefore: 1},
+				{Type: hclsyntax.TokenIdent, Bytes: []byte("null")},
+			})
+		}
+	}
+	if v := d.TxMode; v != "" {
+		envBody.SetAttributeValue("tx_mode", cty.StringVal(string(v)))
+	}
+	return blocks
 }

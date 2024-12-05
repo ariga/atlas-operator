@@ -7,8 +7,10 @@ toolchain go1.23.2
 require (
 	ariga.io/atlas v0.28.1
 	ariga.io/atlas-go-sdk v0.6.4
+	github.com/hashicorp/hcl/v2 v2.18.1
 	github.com/rogpeppe/go-internal v1.13.1
 	github.com/stretchr/testify v1.9.0
+	github.com/zclconf/go-cty v1.14.4
 	golang.org/x/mod v0.21.0
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.1
@@ -42,7 +44,6 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hashicorp/hcl/v2 v2.18.1 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -59,7 +60,6 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/zclconf/go-cty v1.14.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect

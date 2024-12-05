@@ -440,19 +440,18 @@ variable "lint_review" {
 diff {
   concurrent_index {
     create = true
-    drop = true
+    drop   = true
   }
   skip {
     drop_schema = true
-    drop_table = true
+    drop_table  = true
   }
 }
 env {
-  name = atlas.env
-  url  = "mysql://root:password@localhost:3306/test"
-  dev  = "mysql://root:password@localhost:3306/dev"
-  schemas = ["foo","bar"]
-  exclude = []
+  name    = atlas.env
+  url     = "mysql://root:password@localhost:3306/test"
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
   lint {
     destructive {
       error = var.lint_destructive

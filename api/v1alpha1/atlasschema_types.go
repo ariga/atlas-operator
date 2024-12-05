@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -265,4 +267,64 @@ func (s Schema) DesiredState(ctx context.Context, r client.Reader, ns string) (*
 		return u, nil, err
 	}
 	return nil, nil, fmt.Errorf("no desired state specified")
+}
+
+// AsBlock returns the HCL block representation of the diff.
+func (d Diff) AsBlock() *hclwrite.Block {
+	blk := hclwrite.NewBlock("diff", nil)
+	body := blk.Body()
+	if v := d.ConcurrentIndex; v != nil {
+		b := body.AppendNewBlock("concurrent_index", nil).Body()
+		b.SetAttributeValue("create", cty.BoolVal(v.Create))
+		b.SetAttributeValue("drop", cty.BoolVal(v.Drop))
+	}
+	if v := d.Skip; v != nil {
+		b := body.AppendNewBlock("skip", nil).Body()
+		if v.AddSchema {
+			b.SetAttributeValue("add_schema", cty.BoolVal(v.AddSchema))
+		}
+		if v.DropSchema {
+			b.SetAttributeValue("drop_schema", cty.BoolVal(v.DropSchema))
+		}
+		if v.ModifySchema {
+			b.SetAttributeValue("modify_schema", cty.BoolVal(v.ModifySchema))
+		}
+		if v.AddTable {
+			b.SetAttributeValue("add_table", cty.BoolVal(v.AddTable))
+		}
+		if v.DropTable {
+			b.SetAttributeValue("drop_table", cty.BoolVal(v.DropTable))
+		}
+		if v.ModifyTable {
+			b.SetAttributeValue("modify_table", cty.BoolVal(v.ModifyTable))
+		}
+		if v.AddColumn {
+			b.SetAttributeValue("add_column", cty.BoolVal(v.AddColumn))
+		}
+		if v.DropColumn {
+			b.SetAttributeValue("drop_column", cty.BoolVal(v.DropColumn))
+		}
+		if v.ModifyColumn {
+			b.SetAttributeValue("modify_column", cty.BoolVal(v.ModifyColumn))
+		}
+		if v.AddIndex {
+			b.SetAttributeValue("add_index", cty.BoolVal(v.AddIndex))
+		}
+		if v.DropIndex {
+			b.SetAttributeValue("drop_index", cty.BoolVal(v.DropIndex))
+		}
+		if v.ModifyIndex {
+			b.SetAttributeValue("modify_index", cty.BoolVal(v.ModifyIndex))
+		}
+		if v.AddForeignKey {
+			b.SetAttributeValue("add_foreign_key", cty.BoolVal(v.AddForeignKey))
+		}
+		if v.DropForeignKey {
+			b.SetAttributeValue("drop_foreign_key", cty.BoolVal(v.DropForeignKey))
+		}
+		if v.ModifyForeignKey {
+			b.SetAttributeValue("modify_foreign_key", cty.BoolVal(v.ModifyForeignKey))
+		}
+	}
+	return blk
 }
