@@ -89,6 +89,10 @@ spec:
           ports:
             - containerPort: 1433
               name: sqlserver
+          readinessProbe:
+            tcpSocket:
+              port: 1433
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [

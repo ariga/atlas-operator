@@ -201,6 +201,10 @@ spec:
           ports:
             - containerPort: 3306
               name: mysql
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
@@ -218,6 +222,10 @@ spec:
           ports:
             - containerPort: 3307
               name: mysql-dev
+          readinessProbe:
+            tcpSocket:
+              port: 3307
+            periodSeconds: 5
           startupProbe:
             exec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
