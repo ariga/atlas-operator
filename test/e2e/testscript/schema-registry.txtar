@@ -1,6 +1,9 @@
 env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=postgres pods
 
@@ -24,7 +27,7 @@ cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=120s AtlasSchema/postgres
+kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/postgres
 kubectl-wait-ready AtlasSchema/postgres
 
 # Inspect the schema to ensure it's correct

@@ -1,6 +1,9 @@
 env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/mysql
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=mysql pods
 
@@ -29,7 +32,7 @@ stdin stdout
 kubectl apply -f -
 
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=120s AtlasSchema/mysql
+kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/mysql
 kubectl-wait-ready AtlasSchema/mysql
 
 # Inspect the schema to ensure it's correct

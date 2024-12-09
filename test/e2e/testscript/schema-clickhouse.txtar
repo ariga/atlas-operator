@@ -1,6 +1,9 @@
 env DB_URL=clickhouse://root:pass@clickhouse.${NAMESPACE}:9000/myapp
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/clickhouse
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=clickhouse pods
 
