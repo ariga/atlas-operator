@@ -429,35 +429,24 @@ func TestConfigTemplate(t *testing.T) {
 	}
 	err := data.render(&buf)
 	require.NoError(t, err)
-	expected := `variable "lint_destructive" {
-  type    = bool
-  default = false
-}
-variable "lint_review" {
-  type    = string
-  default = ""
-}
-diff {
-  concurrent_index {
-    create = true
-    drop = true
+	expected := `env "kubernetes" {
+  url     = "mysql://root:password@localhost:3306/test"
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
+  diff {
+    concurrent_index {
+      create = true
+      drop   = true
+    }
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
   }
-  skip {
-    drop_schema = true
-    drop_table = true
-  }
-}
-env {
-  name = atlas.env
-  url  = "mysql://root:password@localhost:3306/test"
-  dev  = "mysql://root:password@localhost:3306/dev"
-  schemas = ["foo","bar"]
-  exclude = []
   lint {
     destructive {
-      error = var.lint_destructive
+      error = true
     }
-    review = var.lint_review != "" ? var.lint_review : null
   }
 }
 `
