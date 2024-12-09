@@ -149,6 +149,26 @@ func TestOperator(t *testing.T) {
 					ts.Fatalf("unexpected success")
 				}
 			},
+			// kubectl-wait-available runs kubectl wait for the given deployment available
+			"kubectl-wait-available": func(ts *testscript.TestScript, neg bool, args []string) {
+				if len(args) == 0 {
+					ts.Fatalf("usage: kubectl-wait-available <name>")
+				}
+				// wait for the deployment to be available,
+				// minimum available is 1 so pods are created
+				err = ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE"),
+					"wait", "--for=condition=available",
+					// We need a timeout of 10m because we run the test in parallel
+					// and the controller-manager is not able to handle all the requests
+					// at the same time
+					"--timeout=10m",
+				}, args...)...)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
+				}
+			},
 			// envfile read the file and using its content as environment variables
 			"envfile": func(ts *testscript.TestScript, neg bool, args []string) {
 				if neg {

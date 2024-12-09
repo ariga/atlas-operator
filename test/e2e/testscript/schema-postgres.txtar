@@ -1,6 +1,9 @@
 env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=postgres pods
 

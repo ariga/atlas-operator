@@ -1,6 +1,9 @@
 env DB_URL=mariadb://root:pass@mariadb.${NAMESPACE}:3306/myapp
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/mariadb
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=mariadb pods
 
@@ -29,7 +32,7 @@ stdin stdout
 kubectl apply -f -
 
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=120s AtlasSchema/mariadb
+kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/mariadb
 kubectl-wait-ready AtlasSchema/mariadb
 
 # Inspect the schema to ensure it's correct

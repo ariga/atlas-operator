@@ -1,6 +1,9 @@
 env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=postgres pods
 
@@ -24,7 +27,7 @@ cmp stdout schema-v1.hcl
 
 # Add a new index to the schema
 kubectl patch -f schema.yaml --type merge --patch-file patch-index.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=120s AtlasSchemas/postgres
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=500s AtlasSchemas/postgres
 
 # Get the plan URL from resource
 kubectl get AtlasSchemas/postgres -o go-template --template='{{ .status.planURL }}'
@@ -43,7 +46,7 @@ stdout '}'
 atlas schema plan approve --url=${PLAN_URL}
 
 # The migration should be failed
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApplyingSchema --timeout=120s AtlasSchemas/postgres
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApplyingSchema --timeout=500s AtlasSchemas/postgres
 # Check the error message
 kubectl get AtlasSchemas/postgres -o jsonpath --template='{.status.conditions[*].message}'
 stdout 'pq: CREATE INDEX CONCURRENTLY cannot run inside a transaction block'

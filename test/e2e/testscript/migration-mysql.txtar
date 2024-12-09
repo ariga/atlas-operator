@@ -1,6 +1,9 @@
 env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/mysql
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=mysql pods
 
@@ -20,7 +23,7 @@ kubectl create configmap migration-dir --from-file=migrations-v2 --dry-run=clien
 stdin stdout
 kubectl apply -f -
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=120s AtlasMigration/mysql
+kubectl wait --for=condition=ready=false --timeout=500s AtlasMigration/mysql
 kubectl-wait-ready AtlasMigration/mysql
 
 # Inspect the schema to ensure it's correct
@@ -32,10 +35,10 @@ kubectl create configmap migration-dir --from-file=migrations-v1 --dry-run=clien
 stdin stdout
 kubectl apply -f -
 # Expect migration is failured
-kubectl wait --timeout=120s --for=jsonpath='{.status.conditions[*].message}'='"Migrate down is not allowed"' AtlasMigration/mysql
+kubectl wait --timeout=500s --for=jsonpath='{.status.conditions[*].message}'='"Migrate down is not allowed"' AtlasMigration/mysql
 # Patch the migration to allow down migration
 kubectl patch AtlasMigration/mysql --type merge --patch-file ./migration-patch-down.yaml
-kubectl wait --timeout=120s --for=condition=ready AtlasMigration/mysql
+kubectl wait --timeout=500s --for=condition=ready AtlasMigration/mysql
 
 # Inspect the schema to ensure it's correct after down migration
 atlas schema inspect -u ${DB_URL} --exclude=atlas_schema_revisions
