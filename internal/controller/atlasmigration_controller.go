@@ -41,6 +41,8 @@ import (
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 //+kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=create;update;delete;get;list;watch
@@ -562,7 +564,15 @@ func (d *migrationData) render(w io.Writer) error {
 	default:
 		return errors.New("migration directory is empty")
 	}
-	return tmpl.ExecuteTemplate(w, "atlas_migration.tmpl", d)
+	f := hclwrite.NewFile()
+	fBody := f.Body()
+	for _, b := range d.asBlocks() {
+		fBody.AppendBlock(b)
+	}
+	if _, err := f.WriteTo(w); err != nil {
+		return err
+	}
+	return nil
 }
 
 // hasRemoteDir returns true if the given migration data has a remote directory
@@ -571,6 +581,49 @@ func (c *migrationData) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+// asBlocks returns the HCL blocks for the given migration data
+func (d *migrationData) asBlocks() []*hclwrite.Block {
+	var blocks []*hclwrite.Block
+	if d.Cloud != nil {
+		atlas := hclwrite.NewBlock("atlas", nil)
+		cloud := atlas.Body().AppendNewBlock("cloud", nil).Body()
+		if d.Cloud.Token != "" {
+			cloud.SetAttributeValue("token", cty.StringVal(d.Cloud.Token))
+		}
+		if d.Cloud.URL != "" {
+			cloud.SetAttributeValue("url", cty.StringVal(d.Cloud.URL))
+		}
+		if d.Cloud.Repo != "" {
+			cloud.SetAttributeValue("project", cty.StringVal(d.Cloud.Repo))
+		}
+		blocks = append(blocks, atlas)
+	}
+	env := hclwrite.NewBlock("env", []string{d.EnvName})
+	blocks = append(blocks, env)
+	envBody := env.Body()
+	if d.URL != nil {
+		envBody.SetAttributeValue("url", cty.StringVal(d.URL.String()))
+	}
+	if d.DevURL != "" {
+		envBody.SetAttributeValue("dev", cty.StringVal(d.DevURL))
+	}
+	migration := hclwrite.NewBlock("migration", nil)
+	envBody.AppendBlock(migration)
+	// env.migration
+	migrationBody := migration.Body()
+	migrationBody.SetAttributeValue("dir", cty.StringVal(d.DirURL()))
+	if d.ExecOrder != "" {
+		migrationBody.SetAttributeValue("exec_order", cty.StringVal(d.ExecOrder))
+	}
+	if d.Baseline != "" {
+		migrationBody.SetAttributeValue("baseline", cty.StringVal(d.Baseline))
+	}
+	if d.RevisionsSchema != "" {
+		migrationBody.SetAttributeValue("revisions_schema", cty.StringVal(d.RevisionsSchema))
+	}
+	return blocks
 }
 
 func makeKeyLatest(resName string) string {

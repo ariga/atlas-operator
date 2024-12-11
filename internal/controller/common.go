@@ -16,12 +16,10 @@ package controller
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
-	"text/template"
 	"time"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
@@ -96,42 +94,6 @@ func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
 }
 
 var (
-	//go:embed templates
-	tmpls embed.FS
-	tmpl  = template.Must(template.New("operator").
-		Funcs(template.FuncMap{
-			"hclValue": func(s string) string {
-				if s == "" {
-					return s
-				}
-				return strings.ReplaceAll(strings.ToUpper(s), "-", "_")
-			},
-			"slides": func(s []string) string {
-				b := &strings.Builder{}
-				b.WriteRune('[')
-				for i, v := range s {
-					if i > 0 {
-						b.WriteRune(',')
-					}
-					fmt.Fprintf(b, "%q", v)
-				}
-				b.WriteRune(']')
-				return b.String()
-			},
-			"removeSpecialChars": func(s interface{}) (string, error) {
-				r := regexp.MustCompile("[\t\r\n]")
-				switch s := s.(type) {
-				case string:
-					return r.ReplaceAllString(s, ""), nil
-				case fmt.Stringer:
-					return r.ReplaceAllString(s.String(), ""), nil
-				default:
-					return "", fmt.Errorf("unsupported type %T", s)
-				}
-			},
-		}).
-		ParseFS(tmpls, "templates/*.tmpl"),
-	)
 	sqlErrRegex = regexp.MustCompile(`sql/migrate: (execute: )?executing statement`)
 )
 
