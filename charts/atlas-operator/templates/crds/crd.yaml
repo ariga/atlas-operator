@@ -87,6 +87,41 @@ spec:
                   url:
                     type: string
                 type: object
+              config:
+                description: |-
+                  Config defines the project configuration.
+                  Should be a valid YAML string.
+                type: string
+              configFrom:
+                description: ConfigFrom defines the reference to the secret key that
+                  contains the project configuration.
+                properties:
+                  secretKeyRef:
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               credentials:
                 description: |-
                   Credentials defines the credentials to use when connecting to the database.
@@ -264,8 +299,9 @@ spec:
                     type: object
                 type: object
               envName:
-                description: EnvName sets the environment name used for reporting
-                  runs to Atlas Cloud.
+                description: |-
+                  EnvName defines the environment name that defined in the project configuration.
+                  If not defined, the default environment "k8s" will be used.
                 type: string
               execOrder:
                 default: linear
@@ -329,6 +365,72 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              vars:
+                description: Vars defines the input variables for the project configuration.
+                items:
+                  description: Variables defines the reference of secret/configmap
+                    to the input variables for the project configuration.
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                    valueFrom:
+                      description: ValueFrom defines the reference to the secret key
+                        that contains the value.
+                      properties:
+                        configMapKeyRef:
+                          description: ConfigMapKeyRef defines the configmap key reference
+                            to use for the value.
+                          properties:
+                            key:
+                              description: The key to select.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the ConfigMap or its key
+                                must be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        secretKeyRef:
+                          description: SecretKeyRef defines the secret key reference
+                            to use for the value.
+                          properties:
+                            key:
+                              description: The key of the secret to select from.  Must
+                                be a valid secret key.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the Secret or its key must
+                                be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
+                  type: object
+                type: array
             required:
             - dir
             type: object
@@ -507,6 +609,41 @@ spec:
                         x-kubernetes-map-type: atomic
                     type: object
                 type: object
+              config:
+                description: |-
+                  Config defines the project configuration.
+                  Should be a valid YAML string.
+                type: string
+              configFrom:
+                description: ConfigFrom defines the reference to the secret key that
+                  contains the project configuration.
+                properties:
+                  secretKeyRef:
+                    description: SecretKeyRef defines the secret key reference to
+                      use for the user.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               credentials:
                 description: |-
                   Credentials defines the credentials to use when connecting to the database.
@@ -651,6 +788,11 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              envName:
+                description: |-
+                  EnvName defines the environment name that defined in the project configuration.
+                  If not defined, the default environment "k8s" will be used.
+                type: string
               exclude:
                 description: Exclude a list of glob patterns used to filter existing
                   resources being taken into account.
@@ -809,6 +951,72 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              vars:
+                description: Vars defines the input variables for the project configuration.
+                items:
+                  description: Variables defines the reference of secret/configmap
+                    to the input variables for the project configuration.
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                    valueFrom:
+                      description: ValueFrom defines the reference to the secret key
+                        that contains the value.
+                      properties:
+                        configMapKeyRef:
+                          description: ConfigMapKeyRef defines the configmap key reference
+                            to use for the value.
+                          properties:
+                            key:
+                              description: The key to select.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the ConfigMap or its key
+                                must be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        secretKeyRef:
+                          description: SecretKeyRef defines the secret key reference
+                            to use for the value.
+                          properties:
+                            key:
+                              description: The key of the secret to select from.  Must
+                                be a valid secret key.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the Secret or its key must
+                                be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
+                  type: object
+                type: array
             type: object
           status:
             description: AtlasSchemaStatus defines the observed state of AtlasSchema

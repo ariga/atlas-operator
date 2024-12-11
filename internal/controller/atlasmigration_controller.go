@@ -41,6 +41,7 @@ import (
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -77,6 +78,8 @@ type (
 		MigrateDown     bool
 		ObservedHash    string
 		RemoteDir       *dbv1alpha1.Remote
+		Config          string
+		Vars            atlasexec.Vars2
 	}
 )
 
@@ -148,7 +151,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// TODO(giautm): Create DevDB and run linter for new migration
 	// files before applying it to the target database.
 
-	if data.DevURL == "" {
+	if data.URL != nil && data.DevURL == "" {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
@@ -264,7 +267,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	}
 	log.Info("reconciling migration", "env", data.EnvName)
 	// Check if there are any pending migration files
-	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: data.EnvName})
+	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: data.EnvName, Vars: data.Vars})
 	if err != nil {
 		res.SetNotReady("Migrating", err.Error())
 		if isChecksumErr(err) {
@@ -291,6 +294,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 				TriggerType:    atlasexec.TriggerTypeKubernetes,
 				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
 			},
+			Vars: data.Vars,
 		}
 		// Atlas needs all versions to be present in the directory
 		// to downgrade to a specific version.
@@ -364,6 +368,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 				TriggerType:    atlasexec.TriggerTypeKubernetes,
 				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
 			},
+			Vars: data.Vars,
 		})
 		if err != nil {
 			res.SetNotReady("Migrating", err.Error())
@@ -421,11 +426,22 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			MigrateDown:     false,
 		}
 	)
+	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
+	if err != nil {
+		return nil, transient(err)
+	}
+	hasConfig := data.Config != ""
+	if hasConfig && data.EnvName == "" {
+		return nil, errors.New("env name must be set when using custom atlas.hcl config")
+	}
 	if env := s.EnvName; env != "" {
 		data.EnvName = env
 	}
 	if data.URL, err = s.DatabaseURL(ctx, r, res.Namespace); err != nil {
 		return nil, transient(err)
+	}
+	if !hasConfig && data.URL == nil {
+		return nil, transient(errors.New("no target database defined"))
 	}
 	switch d := s.Dir; {
 	case d.Remote.Name != "":
@@ -495,6 +511,10 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if err != nil {
 		return nil, err
 	}
+	data.Vars, err = s.GetVars(ctx, r, res.Namespace)
+	if err != nil {
+		return nil, transient(err)
+	}
 	return data, nil
 }
 
@@ -516,7 +536,12 @@ func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration
 // Calculate the hash of the given data
 func hashMigrationData(d *migrationData) (string, error) {
 	h := sha256.New()
-	h.Write([]byte(d.URL.String()))
+	if d.URL != nil {
+		h.Write([]byte(d.URL.String()))
+	}
+	if d.Config != "" {
+		h.Write([]byte(d.Config))
+	}
 	if c := d.Cloud; c != nil {
 		h.Write([]byte(c.Token))
 		h.Write([]byte(c.URL))
@@ -552,25 +577,47 @@ func (d *migrationData) DirURL() string {
 // The template is used by the Atlas CLI to apply the migrations directory.
 // It also validates the data before rendering the template.
 func (d *migrationData) render(w io.Writer) error {
-	if d.URL == nil {
+	f := hclwrite.NewFile()
+	for _, b := range d.asBlocks() {
+		f.Body().AppendBlock(b)
+	}
+	// Merge the config block if it is set
+	if d.Config != "" {
+		cfg, diags := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
+		if diags.HasErrors() {
+			return diags
+		}
+		mergeBlocks(cfg.Body(), f.Body())
+		f = cfg
+	}
+	env := searchBlock(f.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return fmt.Errorf("env block %q is not found", d.EnvName)
+	}
+	b := env.Body()
+	if b.GetAttribute("url") == nil {
 		return errors.New("database URL is empty")
+	}
+	migrationblock := searchBlock(b, hclwrite.NewBlock("migration", nil))
+	var dirAttr *hclwrite.Attribute
+	if migrationblock != nil {
+		dirAttr = migrationblock.Body().GetAttribute("dir")
 	}
 	switch {
 	case d.hasRemoteDir():
-		if d.Dir != nil {
+		dirURL := dirAttr.Expr().BuildTokens(nil).Bytes()
+		if dirAttr != nil && !strings.Contains(string(dirURL), d.DirURL()) {
 			return errors.New("cannot use both remote and local directory")
 		}
-		if d.Cloud.Token == "" {
-			return errors.New("Atlas Cloud token is empty")
+		cloudBlock := searchBlock(f.Body(), hclwrite.NewBlock("atlas", nil))
+		if cloudBlock == nil {
+			if cloudBlock.Body().GetAttribute("token") == nil {
+				return errors.New("Atlas Cloud token is empty")
+			}
 		}
-	case d.Dir != nil:
+	case dirAttr != nil:
 	default:
 		return errors.New("migration directory is empty")
-	}
-	f := hclwrite.NewFile()
-	fBody := f.Body()
-	for _, b := range d.asBlocks() {
-		fBody.AppendBlock(b)
 	}
 	if _, err := f.WriteTo(w); err != nil {
 		return err

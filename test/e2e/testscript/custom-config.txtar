@@ -1,0 +1,273 @@
+env SCHEMA_DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+env SCHEMA_DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+env MIGRATE_DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5434/postgres?sslmode=disable
+env MIGRATE_DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5435/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic schema-db-creds --from-literal=url=${SCHEMA_DB_URL}
+kubectl create configmap schema-db-dev-creds --from-literal=url=${SCHEMA_DB_DEV_URL}
+kubectl create secret generic migrate-db-creds --from-literal=url=${MIGRATE_DB_URL}
+kubectl create configmap migrate-db-dev-creds --from-literal=url=${MIGRATE_DB_DEV_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=postgres pods
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+
+# Create the migration
+kubectl apply -f migration.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
+
+# Patch a invalid config of schema from secret
+kubectl create secret generic schema-config --from-file=config.hcl
+kubectl create secret generic migration-config --from-file=config.hcl
+kubectl patch -f schema.yaml --type merge --patch-file patch-schema-config-from-configmap.yaml
+kubectl patch -f migration.yaml --type merge --patch-file patch-migration-config-from-configmap.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
+
+# Ensure the operator priority the spec url over the config
+kubectl patch -f schema.yaml --type merge --patch-file patch-invalid-url.yaml
+kubectl patch -f migration.yaml --type merge --patch-file patch-invalid-url.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].message}'='"Error: postgres: scanning system variables: pq: Could not detect default username. Please provide one explicitly"' --timeout=500s AtlasSchemas/sample
+kubectl wait --for=jsonpath='{.status.conditions[*].message}'='"Error: postgres: scanning system variables: pq: Could not detect default username. Please provide one explicitly"' --timeout=500s AtlasMigrations/sample
+
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: sample
+spec:
+  envName: "test"
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        email varchar(255) unique not null,
+        short_bio varchar(255) not null,
+        primary key (id)
+      );
+  vars: 
+    - key: "db_url"
+      valueFrom: 
+        secretKeyRef:
+          name: schema-db-creds
+          key: url
+    - key: "dev_db_url"
+      valueFrom: 
+        configMapKeyRef:
+          name: schema-db-dev-creds
+          key: url
+  config: |
+    variable "db_url" {
+      type = string
+    }
+    variable "dev_db_url" {
+      type = string
+    }
+    env "test" {
+      url = var.db_url
+      dev = var.dev_db_url
+    }
+-- patch-schema-config-from-configmap.yaml --
+spec:
+  config:
+  configFrom:
+    secretKeyRef:
+      name: schema-config
+      key: config.hcl
+-- patch-migration-config-from-configmap.yaml --
+spec:
+  config:
+  configFrom:
+    secretKeyRef:
+      name: schema-config
+      key: config.hcl
+-- patch-invalid-url.yaml --
+spec:
+  url: "postgres://invalid"
+-- config.hcl --
+variable "db_url" {
+  type = string
+}
+variable "dev_db_url" {
+  type = string
+}
+env "test" {
+  url = var.db_url
+  dev = var.dev_db_url
+}
+-- migration.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: sample
+spec:
+  envName: "test"
+  vars: 
+    - key: "db_url"
+      valueFrom: 
+        secretKeyRef:
+          name: migrate-db-creds
+          key: url
+    - key: "dev_db_url"
+      valueFrom: 
+        configMapKeyRef:
+          name: migrate-db-dev-creds
+          key: url
+  config: |
+    variable "db_url" {
+      type = string
+    }
+    variable "dev_db_url" {
+      type = string
+    }
+    env "test" {
+      url = var.db_url
+      dev = var.dev_db_url
+    }
+  dir:
+    local:
+      20230316085611.sql: |
+        create sequence users_seq;
+        create table users (
+          id int not null default nextval ('users_seq'),
+          name varchar(255) not null,
+          email varchar(255) unique not null,
+          short_bio varchar(255) not null,
+          primary key (id)
+        );
+      atlas.sum: |
+        h1:FwM0ApKo8xhcZFrSlpa6dYjvi0fnDPo/aZSzajtbHLc=
+        20230316085611.sql h1:ldFr73m6ZQzNi8q9dVJsOU/ZHmkBo4Sax03AaL0VUUs=
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
+    - name: pg-migrate
+      port: 5434
+      targetPort: pg-migrate
+    - name: pg-migrate-dev
+      port: 5435
+      targetPort: pg-migrate-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: pg-migrate
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5434" 
+          ports:
+            - containerPort: 5434
+              name: pg-migrate
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: pg-migrate-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5435"
+          ports:
+            - containerPort: 5435
+              name: pg-migrate-dev
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

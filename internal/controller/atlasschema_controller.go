@@ -42,6 +42,7 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -76,8 +77,9 @@ type (
 		TxMode  dbv1alpha1.TransactionMode
 		Desired *url.URL
 		Cloud   *Cloud
-
-		schema []byte
+		Config  string
+		Vars    atlasexec.Vars2
+		schema  []byte
 	}
 )
 
@@ -149,7 +151,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Starting area to handle the heavy jobs.
 	// Below this line is the main logic of the controller.
 	// ====================================================
-	if data.DevURL == "" {
+	if data.URL != nil && data.DevURL == "" {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
@@ -217,6 +219,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Env:    data.EnvName,
 			To:     desiredURL,
 			TxMode: string(data.TxMode),
+			Vars:   data.Vars,
 		}
 		repo := data.repoURL()
 		if repo == nil {
@@ -237,6 +240,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					Env:    data.EnvName,
 					URL:    desiredURL,
 					Format: `{{ .Hash | base64url }}`,
+					Vars:   data.Vars,
 				})
 				if err != nil {
 					reason, msg := "SchemaPush", err.Error()
@@ -253,6 +257,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					Name: path.Join(repo.Host, repo.Path),
 					Tag:  fmt.Sprintf("operator-plan-%.8s", strings.ToLower(tag)),
 					URL:  []string{desiredURL},
+					Vars: data.Vars,
 				})
 				if err != nil {
 					reason, msg := "SchemaPush", err.Error()
@@ -274,6 +279,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				From:    []string{"env://url"},
 				To:      []string{desiredURL},
 				Pending: true,
+				Vars:    data.Vars,
 			})
 			switch {
 			case err != nil && strings.Contains(err.Error(), "no changes to be made"):
@@ -308,6 +314,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Repo: repo.String(),
 			From: []string{"env://url"},
 			To:   []string{desiredURL},
+			Vars: data.Vars,
 		}); {
 		case err != nil:
 			reason, msg := "ListingPlans", err.Error()
@@ -367,7 +374,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}); err != nil {
 			return result(err)
 		}
-		err = r.lint(ctx, wd, data, nil)
+		err = r.lint(ctx, wd, data, data.Vars)
 		switch d := (*destructiveErr)(nil); {
 		case errors.As(err, &d):
 			reason, msg := d.FirstRun()
@@ -396,6 +403,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
 			AutoApprove: true,
+			Vars:        data.Vars,
 		})
 	// Run the linting policy.
 	case data.shouldLint():
@@ -414,6 +422,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
 			AutoApprove: true,
+			Vars:        data.Vars,
 		})
 	// No linting policy is set.
 	default:
@@ -422,6 +431,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
 			AutoApprove: true,
+			Vars:        data.Vars,
 		})
 	}
 	if err != nil {
@@ -511,6 +521,17 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 			TxMode:  s.TxMode,
 		}
 	)
+	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
+	if err != nil {
+		return nil, transient(err)
+	}
+	hasConfig := data.Config != ""
+	if hasConfig && data.EnvName == "" {
+		return nil, errors.New("env name must be set when using custom atlas.hcl config")
+	}
+	if s := s.EnvName; s != "" {
+		data.EnvName = s
+	}
 	if s := c.TokenFrom.SecretKeyRef; s != nil {
 		token, err := getSecretValue(ctx, r, res.Namespace, s)
 		if err != nil {
@@ -529,6 +550,9 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	if err != nil {
 		return nil, transient(err)
 	}
+	if !hasConfig && data.URL == nil {
+		return nil, transient(errors.New("no target database defined"))
+	}
 	data.Desired, data.schema, err = s.Schema.DesiredState(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
@@ -540,6 +564,10 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 		if err != nil {
 			return nil, err
 		}
+	}
+	data.Vars, err = s.GetVars(ctx, r, res.Namespace)
+	if err != nil {
+		return nil, transient(err)
 	}
 	return data, nil
 }
@@ -556,6 +584,26 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err 
 func (d *managedData) shouldLint() bool {
 	p := d.Policy
 	if p == nil || p.Lint == nil || p.Lint.Destructive == nil {
+		// Check if the destructive policy is set to error in the custom config.
+		// This check won't work if the attribute value has expressions in it.
+		if d.Config != "" {
+			cfg, _ := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
+			env := searchBlock(cfg.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+			if env == nil {
+				return false
+			}
+			lint := searchBlock(env.Body(), hclwrite.NewBlock("lint", nil))
+			if lint == nil {
+				return false
+			}
+			if v := searchBlock(lint.Body(), hclwrite.NewBlock("destructive", nil)); v != nil {
+				destructiveErr := v.Body().GetAttribute("error")
+				if destructiveErr != nil {
+					attrValue := string(destructiveErr.Expr().BuildTokens(nil).Bytes())
+					return strings.Contains(attrValue, "true")
+				}
+			}
+		}
 		return false
 	}
 	return p.Lint.Destructive.Error
@@ -595,22 +643,35 @@ func (d *managedData) repoURL() *url.URL {
 // The template is used by the Atlas CLI to apply the schema.
 // It also validates the data before rendering the template.
 func (d *managedData) render(w io.Writer) error {
+	f := hclwrite.NewFile()
+	for _, b := range d.asBlocks() {
+		f.Body().AppendBlock(b)
+	}
+	// Merge config into the atlas.hcl file.
+	if d.Config != "" {
+		cfg, diags := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
+		if diags.HasErrors() {
+			return diags
+		}
+		mergeBlocks(cfg.Body(), f.Body())
+		f = cfg
+	}
 	if d.EnvName == "" {
 		return errors.New("env name is not set")
-	}
-	if d.URL == nil {
-		return errors.New("database url is not set")
-	}
-	if d.DevURL == "" {
-		return errors.New("dev url is not set")
 	}
 	if d.Desired == nil {
 		return errors.New("the desired state is not set")
 	}
-	f := hclwrite.NewFile()
-	fBody := f.Body()
-	for _, b := range d.asBlocks() {
-		fBody.AppendBlock(b)
+	env := searchBlock(f.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return fmt.Errorf("env block %q is not found", d.EnvName)
+	}
+	b := env.Body()
+	if b.GetAttribute("url") == nil {
+		return errors.New("database url is not set")
+	}
+	if b.GetAttribute("dev") == nil {
+		return errors.New("dev url is not set")
 	}
 	if _, err := f.WriteTo(w); err != nil {
 		return err
