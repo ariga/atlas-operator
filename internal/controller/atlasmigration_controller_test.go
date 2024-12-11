@@ -990,27 +990,28 @@ func TestWatcher_enabled(t *testing.T) {
 
 func TestDefaultTemplate(t *testing.T) {
 	migrate := &migrationData{
-		URL:    must(url.Parse("sqlite://file2/?mode=memory")),
-		DevURL: "sqlite://dev/?mode=memory",
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:  "sqlite://dev/?mode=memory",
 		Dir: must(memDir(map[string]string{
 			"1.sql": "CREATE TABLE foo (id INT PRIMARY KEY);",
 		})),
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
-	require.EqualValues(t, `
-env {
-  name = atlas.env
-  url  = "sqlite://file2/?mode=memory"
-  dev  = "sqlite://dev/?mode=memory"
+	require.EqualValues(t, `env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
   migration {
     dir = "file://migrations"
   }
-}`, fileContent.String())
+}
+`, fileContent.String())
 }
 
 func TestBaselineTemplate(t *testing.T) {
 	migrate := &migrationData{
+		EnvName:  defaultEnvName,
 		URL:      must(url.Parse("sqlite://file2/?mode=memory")),
 		DevURL:   "sqlite://dev/?mode=memory",
 		Dir:      must(memDir(map[string]string{})),
@@ -1018,22 +1019,22 @@ func TestBaselineTemplate(t *testing.T) {
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
-	require.EqualValues(t, `
-env {
-  name = atlas.env
-  url  = "sqlite://file2/?mode=memory"
-  dev  = "sqlite://dev/?mode=memory"
+	require.EqualValues(t, `env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
   migration {
-    dir = "file://migrations"
+    dir      = "file://migrations"
     baseline = "20230412003626"
   }
-}`, fileContent.String())
+}
+`, fileContent.String())
 }
 
 func TestCloudTemplate(t *testing.T) {
 	migrate := &migrationData{
-		URL:    must(url.Parse("sqlite://file2/?mode=memory")),
-		DevURL: "sqlite://dev/?mode=memory",
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:  "sqlite://dev/?mode=memory",
 		Cloud: &Cloud{
 			URL:   "https://atlasgo.io/",
 			Repo:  "my-project",
@@ -1046,22 +1047,21 @@ func TestCloudTemplate(t *testing.T) {
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
-	require.EqualValues(t, `
-atlas {
+	require.EqualValues(t, `atlas {
   cloud {
-    token = "my-token"
-    url = "https://atlasgo.io/"
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
     project = "my-project"
   }
 }
-env {
-  name = atlas.env
-  url  = "sqlite://file2/?mode=memory"
-  dev  = "sqlite://dev/?mode=memory"
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
   migration {
     dir = "atlas://my-remote-dir?tag=my-remote-tag"
   }
-}`, fileContent.String())
+}
+`, fileContent.String())
 }
 
 func TestMigrationWithDeploymentContext(t *testing.T) {
