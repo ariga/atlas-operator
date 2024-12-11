@@ -15,6 +15,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,7 +25,6 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +42,8 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete;get;list;watch;create;update;patch;delete
@@ -167,6 +169,16 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
 	wd, err := atlasexec.NewWorkingDir(opts...)
+	// This function will be used to edit and re-render the atlas.hcl file in the working directory.
+	editAtlasHCL := func(fn func(m *managedData)) error {
+		fn(data)
+		var buf bytes.Buffer
+		if err := data.render(&buf); err != nil {
+			return err
+		}
+		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
+		return err
+	}
 	if err != nil {
 		res.SetNotReady("CreatingWorkingDir", err.Error())
 		r.recordErrEvent(res, err)
@@ -194,21 +206,15 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	switch desiredURL := data.Desired.String(); {
 	// The resource is connected to Atlas Cloud.
 	case whoami != nil:
-		vars := atlasexec.Vars2{
-			"lint_destructive": "true",
-			"lint_review":      dbv1alpha1.LintReviewError,
-		}
-		if p := data.Policy; p != nil && p.Lint != nil {
-			if d := p.Lint.Destructive; d != nil {
-				vars["lint_destructive"] = strconv.FormatBool(d.Error)
-			}
-			if r := p.Lint.Review; r != "" {
-				vars["lint_review"] = r
-			}
+		err = editAtlasHCL(func(m *managedData) {
+			m.enableDestructive(false)
+			m.setLintReview(dbv1alpha1.LintReviewError, false)
+		})
+		if err != nil {
+			return result(err)
 		}
 		params := &atlasexec.SchemaApplyParams{
 			Env:    data.EnvName,
-			Vars:   vars,
 			To:     desiredURL,
 			TxMode: string(data.TxMode),
 		}
@@ -229,7 +235,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				// This ensures push is idempotent.
 				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 					Env:    data.EnvName,
-					Vars:   vars,
 					URL:    desiredURL,
 					Format: `{{ .Hash | base64url }}`,
 				})
@@ -245,7 +250,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 				state, err := cli.SchemaPush(ctx, &atlasexec.SchemaPushParams{
 					Env:  data.EnvName,
-					Vars: vars,
 					Name: path.Join(repo.Host, repo.Path),
 					Tag:  fmt.Sprintf("operator-plan-%.8s", strings.ToLower(tag)),
 					URL:  []string{desiredURL},
@@ -266,7 +270,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// Create a new plan for the pending changes.
 			plan, err := cli.SchemaPlan(ctx, &atlasexec.SchemaPlanParams{
 				Env:     data.EnvName,
-				Vars:    vars,
 				Repo:    repo.String(),
 				From:    []string{"env://url"},
 				To:      []string{desiredURL},
@@ -302,7 +305,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// List the schema plans to check if there are any plans.
 		switch plans, err := cli.SchemaPlanList(ctx, &atlasexec.SchemaPlanListParams{
 			Env:  data.EnvName,
-			Vars: vars,
 			Repo: repo.String(),
 			From: []string{"env://url"},
 			To:   []string{desiredURL},
@@ -330,7 +332,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recordErrEvent(res, err)
 			return result(err)
 		// There are no pending plans, but Atlas has been asked to review the changes ALWAYS.
-		case len(plans) == 0 && vars["lint_review"] == dbv1alpha1.LintReviewAlways:
+		case len(plans) == 0 && data.Policy.Lint.Review == dbv1alpha1.LintReviewAlways:
 			// Create a plan for the pending changes.
 			return createPlan()
 		// The plan is pending approval, show the plan to the user.
@@ -358,9 +360,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	// Verify the first run doesn't contain destructive changes.
 	case res.Status.LastApplied == 0:
-		err = r.lint(ctx, wd, data, atlasexec.Vars2{
-			"lint_destructive": "true",
-		})
+		// For the first run, force the destructive linting policy to true.
+		// Then revert it back to the original value after the linting is done.
+		if err = editAtlasHCL(func(m *managedData) {
+			m.enableDestructive(true)
+		}); err != nil {
+			return result(err)
+		}
+		err = r.lint(ctx, wd, data, nil)
 		switch d := (*destructiveErr)(nil); {
 		case errors.As(err, &d):
 			reason, msg := d.FirstRun()
@@ -378,6 +385,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recordErrEvent(res, err)
 			return result(err)
 		}
+		// Revert the destructive linting policy back to the original value.
+		if err = editAtlasHCL(func(m *managedData) {
+			m.Policy.Lint.Destructive.Error = false
+		}); err != nil {
+			return result(err)
+		}
 		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
@@ -386,13 +399,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	// Run the linting policy.
 	case data.shouldLint():
-		vars := atlasexec.Vars2{}
-		if p := data.Policy; p != nil && p.Lint != nil {
-			if d := p.Lint.Destructive; d != nil {
-				vars["lint_destructive"] = strconv.FormatBool(d.Error)
-			}
-		}
-		if err = r.lint(ctx, wd, data, vars); err != nil {
+		if err = r.lint(ctx, wd, data, nil); err != nil {
 			reason, msg := "LintPolicyError", err.Error()
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
@@ -404,7 +411,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
-			Vars:        vars,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
 			AutoApprove: true,
@@ -598,7 +604,83 @@ func (d *managedData) render(w io.Writer) error {
 	if d.Desired == nil {
 		return errors.New("the desired state is not set")
 	}
-	return tmpl.ExecuteTemplate(w, "atlas_schema.tmpl", d)
+	f := hclwrite.NewFile()
+	fBody := f.Body()
+	for _, b := range d.asBlocks() {
+		fBody.AppendBlock(b)
+	}
+	if _, err := f.WriteTo(w); err != nil {
+		return err
+	}
+	return nil
+}
+
+// enableDestructive enables the linting policy for destructive changes.
+// If the force is set to true, it will override the existing value.
+func (d *managedData) enableDestructive(force bool) {
+	check := &dbv1alpha1.CheckConfig{Error: true}
+	destructive := &dbv1alpha1.Lint{Destructive: check}
+	switch {
+	case d.Policy == nil:
+		d.Policy = &dbv1alpha1.Policy{Lint: destructive}
+	case d.Policy.Lint == nil:
+		d.Policy.Lint = destructive
+	case d.Policy.Lint.Destructive == nil, force:
+		d.Policy.Lint.Destructive = check
+	}
+}
+
+// setLintReview sets the lint review policy.
+// If the force is set to true, it will override the existing value.
+func (d *managedData) setLintReview(v dbv1alpha1.LintReview, force bool) {
+	lint := &dbv1alpha1.Lint{Review: v}
+	switch {
+	case d.Policy == nil:
+		d.Policy = &dbv1alpha1.Policy{Lint: lint}
+	case d.Policy.Lint == nil:
+		d.Policy.Lint = lint
+	case d.Policy.Lint.Review == "", force:
+		d.Policy.Lint.Review = v
+	}
+}
+
+// asBlocks returns the HCL block for the environment configuration.
+func (d *managedData) asBlocks() []*hclwrite.Block {
+	var blocks []*hclwrite.Block
+	env := hclwrite.NewBlock("env", []string{d.EnvName})
+	blocks = append(blocks, env)
+	envBody := env.Body()
+	if d.URL != nil {
+		envBody.SetAttributeValue("url", cty.StringVal(d.URL.String()))
+	}
+	if d.DevURL != "" {
+		envBody.SetAttributeValue("dev", cty.StringVal(d.DevURL))
+	}
+	if l := d.Schemas; len(l) > 0 {
+		envBody.SetAttributeValue("schemas", listStringVal(l))
+	}
+	if l := d.Exclude; len(l) > 0 {
+		envBody.SetAttributeValue("exclude", listStringVal(l))
+	}
+	if p := d.Policy; p != nil {
+		if d := p.Diff; d != nil {
+			envBody.AppendBlock(d.AsBlock())
+		}
+		if l := p.Lint; l != nil {
+			lint := envBody.AppendNewBlock("lint", nil).Body()
+			if v := l.Destructive; v != nil {
+				b := lint.AppendNewBlock("destructive", nil).Body()
+				b.SetAttributeValue("error", cty.BoolVal(v.Error))
+			}
+			if v := l.Review; v != "" {
+				lint.SetAttributeValue("review", cty.StringVal(string(v)))
+			}
+		}
+	}
+	if v := d.TxMode; v != "" {
+		envBody.SetAttributeValue("tx_mode", cty.StringVal(string(v)))
+	}
+	return blocks
 }
 
 func truncateSQL(s []string, size int) []string {

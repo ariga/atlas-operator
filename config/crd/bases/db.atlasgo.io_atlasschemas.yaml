@@ -308,9 +308,9 @@ spec:
                             type: boolean
                         type: object
                       review:
-                        default: ERROR
-                        description: Review defines the review policy to apply after
-                          linting the schema changes.
+                        description: |-
+                          Review defines the review policy to apply after linting the schema changes (default: "ERROR").
+                          Atlas Cloud login is required.
                         enum:
                         - ALWAYS
                         - WARNING
