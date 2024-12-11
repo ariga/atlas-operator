@@ -71,7 +71,8 @@ type (
 	}
 	// AtlasSchemaSpec defines the desired state of AtlasSchema
 	AtlasSchemaSpec struct {
-		TargetSpec `json:",inline"`
+		TargetSpec        `json:",inline"`
+		ProjectConfigSpec `json:",inline"`
 		// Desired Schema of the target.
 		Schema Schema `json:"schema,omitempty"`
 		// Cloud defines the Atlas Cloud configuration.

@@ -1030,7 +1030,107 @@ func TestBaselineTemplate(t *testing.T) {
 `, fileContent.String())
 }
 
+func TestCustomAtlasHCL(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		Config: `env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir      = "file://migrations"
+    baseline = "20230412003626"
+  }
+}
+`,
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir      = "file://migrations"
+    baseline = "20230412003626"
+  }
+}
+`, fileContent.String())
+}
+
 func TestCloudTemplate(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:  "sqlite://dev/?mode=memory",
+		Cloud: &Cloud{
+			URL:   "https://atlasgo.io/",
+			Repo:  "my-project",
+			Token: "my-token",
+		},
+		RemoteDir: &dbv1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
+		},
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}
+`, fileContent.String())
+}
+
+func TestCustomAtlasHCL_CloudTemplate(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		RemoteDir: &dbv1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
+		},
+		Config: `atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}`,
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}`, fileContent.String())
+}
+
+func TestCustomAtlasHCL_BaselineTemplate(t *testing.T) {
 	migrate := &migrationData{
 		EnvName: defaultEnvName,
 		URL:     must(url.Parse("sqlite://file2/?mode=memory")),

@@ -61,7 +61,8 @@ type (
 	}
 	// AtlasMigrationSpec defines the desired state of AtlasMigration
 	AtlasMigrationSpec struct {
-		TargetSpec `json:",inline"`
+		TargetSpec        `json:",inline"`
+		ProjectConfigSpec `json:",inline"`
 		// EnvName sets the environment name used for reporting runs to Atlas Cloud.
 		EnvName string `json:"envName,omitempty"`
 		// Cloud defines the Atlas Cloud configuration.
