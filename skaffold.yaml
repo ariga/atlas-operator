@@ -30,6 +30,7 @@ profiles:
       paths:
       - config/default
       - config/sqlserver
+      - config/dind
 - name: helm
   deploy:
     helm:
