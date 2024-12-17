@@ -82,9 +82,9 @@ func (m *mockAtlasExec) WhoAmI(context.Context) (*atlasexec.WhoAmI, error) {
 	return m.whoami.res, m.whoami.err
 }
 
-// SchemaApply implements AtlasExec.
-func (m *mockAtlasExec) SchemaApply(ctx context.Context, params *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error) {
-	return m.schemaApply.res, m.schemaApply.err
+// SchemaAppleSlice implements AtlasExec.
+func (m *mockAtlasExec) SchemaApplySlice(ctx context.Context, params *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error) {
+	return []*atlasexec.SchemaApply{m.schemaApply.res}, m.schemaApply.err
 }
 
 // SchemaInspect implements AtlasExec.
@@ -95,6 +95,11 @@ func (m *mockAtlasExec) SchemaInspect(ctx context.Context, params *atlasexec.Sch
 // MigrateApply implements AtlasExec.
 func (m *mockAtlasExec) MigrateApply(context.Context, *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error) {
 	return m.apply.res, m.apply.err
+}
+
+// MigrateApplySlice implements AtlasExec.
+func (m *mockAtlasExec) MigrateApplySlice(context.Context, *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error) {
+	return []*atlasexec.MigrateApply{m.apply.res}, m.apply.err
 }
 
 // MigrateDown implements AtlasExec.

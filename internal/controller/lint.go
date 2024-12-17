@@ -47,7 +47,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	if err != nil {
 		return err
 	}
-	plan, err := cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+	plans, err := cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 		Env:    data.EnvName,
 		Vars:   vars,
 		To:     data.Desired.String(),
@@ -63,9 +63,12 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 				"unable to remove temporary directory", "dir", dir)
 		}
 	}()
+	if len(plans) != 1 {
+		return fmt.Errorf("unexpected number of schema plans: %d", len(plans))
+	}
 	dir, err := memDir(map[string]string{
 		"1.sql": current,
-		"2.sql": strings.Join(plan.Changes.Pending, ";\n"),
+		"2.sql": strings.Join(plans[0].Changes.Pending, ";\n"),
 	})
 	if err != nil {
 		return err

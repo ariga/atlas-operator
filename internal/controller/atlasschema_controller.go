@@ -202,7 +202,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
-	var report *atlasexec.SchemaApply
+	var reports []*atlasexec.SchemaApply
 	switch desiredURL := data.Desired.String(); {
 	// The resource is connected to Atlas Cloud.
 	case whoami != nil:
@@ -221,7 +221,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		repo := data.repoURL()
 		if repo == nil {
 			// No repository is set, apply the changes directly.
-			report, err = cli.SchemaApply(ctx, params)
+			reports, err = cli.SchemaApplySlice(ctx, params)
 			break
 		}
 		createPlan := func() (ctrl.Result, error) {
@@ -352,7 +352,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Try to apply the schema changes with lint policies,
 		// if the changes are rejected by the review policy, create a plan
 		// for the pending changes.
-		report, err = cli.SchemaApply(ctx, params)
+		reports, err = cli.SchemaApplySlice(ctx, params)
 		// TODO: Better error handling for rejected changes.
 		if err != nil && strings.HasPrefix(err.Error(), "Rejected by review policy") {
 			log.Info("schema changes are rejected by the review policy, creating a new schema plan")
@@ -391,7 +391,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}); err != nil {
 			return result(err)
 		}
-		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -409,7 +409,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recordErrEvent(res, err)
 			return result(err)
 		}
-		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -417,7 +417,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	// No linting policy is set.
 	default:
-		report, err = cli.SchemaApply(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -433,20 +433,23 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	log.Info("schema changes are applied", "applied", len(report.Changes.Applied))
-	// Truncate the applied and pending changes to 1024 bytes.
-	report.Changes.Applied = truncateSQL(report.Changes.Applied, sqlLimitSize)
-	report.Changes.Pending = truncateSQL(report.Changes.Pending, sqlLimitSize)
 	s := dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
 		ObservedHash: hash,
 	}
+	if len(reports) != 1 {
+		return result(fmt.Errorf("unexpected number of schema reports: %d", len(reports)))
+	}
+	log.Info("schema changes are applied", "applied", len(reports[0].Changes.Applied))
+	// Truncate the applied and pending changes to 1024 bytes.
+	reports[0].Changes.Applied = truncateSQL(reports[0].Changes.Applied, sqlLimitSize)
+	reports[0].Changes.Pending = truncateSQL(reports[0].Changes.Pending, sqlLimitSize)
 	// Set the plan URL if it exists.
-	if p := report.Plan; p != nil {
+	if p := reports[0].Plan; p != nil {
 		s.PlanLink = p.File.Link
 		s.PlanURL = p.File.URL
 	}
-	res.SetReady(s, report)
+	res.SetReady(s, reports[0])
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
 }
