@@ -43,17 +43,16 @@ type (
 	}
 	// AtlasExec is the interface for the atlas exec client.
 	AtlasExec interface {
-		// MigrateApply runs the `migrate apply` command and returns the successful runs.
-		MigrateApply(context.Context, *atlasexec.MigrateApplyParams) (*atlasexec.MigrateApply, error)
+		// MigrateApplySlice runs the `migrate apply` command and returns the successful runs.
+		MigrateApplySlice(context.Context, *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error)
 		// MigrateDown runs the `migrate down` command.
 		MigrateDown(context.Context, *atlasexec.MigrateDownParams) (*atlasexec.MigrateDown, error)
 		// MigrateLint runs the `migrate lint` command.
 		MigrateLint(context.Context, *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error)
 		// MigrateStatus runs the `migrate status` command.
 		MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
-
-		// SchemaApply runs the `schema apply` command.
-		SchemaApply(context.Context, *atlasexec.SchemaApplyParams) (*atlasexec.SchemaApply, error)
+		// SchemaApplySlice runs the `schema apply` command and returns the successful runs.
+		SchemaApplySlice(context.Context, *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error)
 		// SchemaInspect runs the `schema inspect` command.
 		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
 		// SchemaPush runs the `schema push` command.

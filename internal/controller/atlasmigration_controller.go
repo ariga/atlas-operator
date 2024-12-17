@@ -358,7 +358,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		log.Info("applying pending migrations", "count", len(status.Pending))
 		// There are pending migrations
 		// Execute Atlas CLI migrate command
-		report, err := c.MigrateApply(ctx, &atlasexec.MigrateApplyParams{
+		reports, err := c.MigrateApplySlice(ctx, &atlasexec.MigrateApplyParams{
 			Env: data.EnvName,
 			Context: &atlasexec.DeployRunContext{
 				TriggerType:    atlasexec.TriggerTypeKubernetes,
@@ -372,12 +372,15 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 			}
 			return err
 		}
+		if len(reports) != 1 {
+			return fmt.Errorf("unexpected number of reports: %d", len(reports))
+		}
 		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
 			ObservedHash:       data.ObservedHash,
-			LastApplied:        report.End.Unix(),
-			LastAppliedVersion: report.Target,
+			LastApplied:        reports[0].End.Unix(),
+			LastAppliedVersion: reports[0].Target,
 		})
-		r.recordApplied(res, report.Target)
+		r.recordApplied(res, reports[0].Target)
 	}
 	if data.Dir != nil {
 		// Compress the migration directory then store it in the secret
