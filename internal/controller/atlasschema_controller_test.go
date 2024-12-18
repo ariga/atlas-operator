@@ -453,6 +453,61 @@ func TestConfigTemplate(t *testing.T) {
 	require.EqualValues(t, expected, buf.String())
 }
 
+func TestCustomAtlasHCL_PolicyTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	data := &managedData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
+		DevURL:  "mysql://root:password@localhost:3306/dev",
+		Schemas: []string{"foo", "bar"},
+		Desired: must(url.Parse("file://schema.sql")),
+		Config: `
+env "kubernetes" {
+  diff {
+    concurrent_index {
+      create = true
+      drop   = true
+    }
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  lint {
+    destructive {
+      error = true
+	}
+  }
+}
+		`,
+	}
+	err := data.render(&buf)
+	require.NoError(t, err)
+	expected := `
+env "kubernetes" {
+  diff {
+    concurrent_index {
+      create = true
+      drop   = true
+    }
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  lint {
+    destructive {
+      error = true
+    }
+  }
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
+  url     = "mysql://root:password@localhost:3306/test"
+}
+  `
+	require.EqualValues(t, expected, buf.String())
+}
+
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),

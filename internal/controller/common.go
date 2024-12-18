@@ -15,15 +15,21 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -193,4 +199,79 @@ func listStringVal(s []string) cty.Value {
 		v[i] = cty.StringVal(s)
 	}
 	return cty.ListVal(v)
+}
+
+// mergeBlocks merges the given block with the env block with the given name.
+func mergeBlocks(dst *hclwrite.Body, src *hclwrite.Body) {
+	for _, srcBlk := range src.Blocks() {
+		distBlk := searchBlock(dst, srcBlk)
+		// If there is no block with the same type and name, append it.
+		if distBlk == nil {
+			appendBlock(dst, srcBlk)
+			continue
+		}
+		mergeBlock(distBlk, srcBlk)
+	}
+}
+
+// searchBlock searches for a block with the given type and name in the parent block.
+func searchBlock(parent *hclwrite.Body, target *hclwrite.Block) *hclwrite.Block {
+	blocks := parent.Blocks()
+	typBlocks := make([]*hclwrite.Block, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type() == target.Type() {
+			typBlocks = append(typBlocks, b)
+		}
+	}
+	if len(typBlocks) == 0 {
+		// No things here, return nil.
+		return nil
+	}
+	// Check if there is a block with the given name.
+	idx := slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
+		return slices.Compare(b.Labels(), target.Labels()) == 0
+	})
+	if idx == -1 {
+		// No block matched, check if there is an unnamed env block.
+		idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
+			return len(b.Labels()) == 0
+		})
+		if idx == -1 {
+			return nil
+		}
+	}
+	return typBlocks[idx]
+}
+
+// mergeBlock merges the source block into the destination block.
+func mergeBlock(dst, src *hclwrite.Block) {
+	for name, attr := range mapsSorted(src.Body().Attributes()) {
+		dst.Body().SetAttributeRaw(name, attr.Expr().BuildTokens(nil))
+	}
+	// Traverse to the nested blocks.
+	mergeBlocks(dst.Body(), src.Body())
+}
+
+// appendBlock appends a block to the body and ensures there is a newline before the block.
+// It returns the appended block.
+//
+// There is a bug in hclwrite that causes the block to be appended without a newline
+// https://github.com/hashicorp/hcl/issues/687
+func appendBlock(body *hclwrite.Body, blk *hclwrite.Block) *hclwrite.Block {
+	t := body.BuildTokens(nil)
+	if len(t) == 0 || t[len(t)-1].Type != hclsyntax.TokenNewline {
+		body.AppendNewline()
+	}
+	return body.AppendBlock(blk)
+}
+
+// mapsSorted return a sequence of key-value pairs sorted by key.
+func mapsSorted[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			if !yield(k, m[k]) {
+				return
+			}
+		}
+	}
 }
