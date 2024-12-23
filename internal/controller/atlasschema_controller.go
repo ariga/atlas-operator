@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,7 +43,6 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
-	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -77,7 +77,7 @@ type (
 		TxMode  dbv1alpha1.TransactionMode
 		Desired *url.URL
 		Cloud   *Cloud
-		Config  string
+		Config  *hclwrite.File
 		Vars    atlasexec.Vars2
 		schema  []byte
 	}
@@ -133,6 +133,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		res.SetNotReady("ReadSchema", err.Error())
 		r.recordErrEvent(res, err)
 		return result(err)
+	}
+	if data.hasTargets() {
+		res.SetNotReady("MultipleTargets", "Multiple targets are not supported")
+		return ctrl.Result{}, nil
 	}
 	hash, err := data.hash()
 	if err != nil {
@@ -205,6 +209,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
 	var reports []*atlasexec.SchemaApply
+	shouldLint, err := data.shouldLint()
+	if err != nil {
+		res.SetNotReady("LintPolicyError", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
 	switch desiredURL := data.Desired.String(); {
 	// The resource is connected to Atlas Cloud.
 	case whoami != nil:
@@ -406,7 +416,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Vars:        data.Vars,
 		})
 	// Run the linting policy.
-	case data.shouldLint():
+	case shouldLint:
 		if err = r.lint(ctx, wd, data, nil); err != nil {
 			reason, msg := "LintPolicyError", err.Error()
 			res.SetNotReady(reason, msg)
@@ -525,7 +535,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	if err != nil {
 		return nil, transient(err)
 	}
-	hasConfig := data.Config != ""
+	hasConfig := data.Config != nil
 	if hasConfig && data.EnvName == "" {
 		return nil, errors.New("env name must be set when using custom atlas.hcl config")
 	}
@@ -581,32 +591,48 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err 
 }
 
 // ShouldLint returns true if the linting policy is set to error.
-func (d *managedData) shouldLint() bool {
+func (d *managedData) shouldLint() (bool, error) {
 	p := d.Policy
 	if p == nil || p.Lint == nil || p.Lint.Destructive == nil {
 		// Check if the destructive policy is set to error in the custom config.
 		// This check won't work if the attribute value has expressions in it.
-		if d.Config != "" {
-			cfg, _ := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
-			env := searchBlock(cfg.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+		if d.Config != nil {
+			env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
 			if env == nil {
-				return false
+				return false, nil
 			}
 			lint := searchBlock(env.Body(), hclwrite.NewBlock("lint", nil))
 			if lint == nil {
-				return false
+				return false, nil
 			}
 			if v := searchBlock(lint.Body(), hclwrite.NewBlock("destructive", nil)); v != nil {
 				destructiveErr := v.Body().GetAttribute("error")
 				if destructiveErr != nil {
-					attrValue := string(destructiveErr.Expr().BuildTokens(nil).Bytes())
-					return strings.Contains(attrValue, "true")
+					attrValue := strings.TrimSpace(string(destructiveErr.Expr().BuildTokens(nil).Bytes()))
+					attrValue = strings.Trim(attrValue, "\"")
+					b, err := strconv.ParseBool(attrValue)
+					if err != nil {
+						return b, errors.New("cannot determine the value of the destructive.error attribute")
+					}
+					return b, nil
 				}
 			}
 		}
+		return false, nil
+	}
+	return p.Lint.Destructive.Error, nil
+}
+
+// hasTargets returns true if the environment has multiple targets/ multi-tenancy.
+func (d *managedData) hasTargets() bool {
+	if d.Config == nil {
 		return false
 	}
-	return p.Lint.Destructive.Error
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return false
+	}
+	return env.Body().GetAttribute("for_each") != nil
 }
 
 // hash returns the sha256 hash of the desired.
@@ -648,13 +674,9 @@ func (d *managedData) render(w io.Writer) error {
 		f.Body().AppendBlock(b)
 	}
 	// Merge config into the atlas.hcl file.
-	if d.Config != "" {
-		cfg, diags := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
-		if diags.HasErrors() {
-			return diags
-		}
-		mergeBlocks(cfg.Body(), f.Body())
-		f = cfg
+	if d.Config != nil {
+		mergeBlocks(d.Config.Body(), f.Body())
+		f = d.Config
 	}
 	if d.EnvName == "" {
 		return errors.New("env name is not set")

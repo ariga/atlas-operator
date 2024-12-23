@@ -202,6 +202,43 @@ func TestExtractData_CustomDevURL_Secret(t *testing.T) {
 	require.EqualValues(t, "mysql://dev", data.DevURL)
 }
 
+func TestExtractData_LintExpression(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {
+	lint {
+		destructive {
+			error = 1 == 1
+		}
+	}
+}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	_, err = data.shouldLint()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot determine the value of the destructive.error attribute")
+}
+
+func TestExtractData_MultiTargets(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {
+	for_each = ["foo", "bar"]
+}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	hasTargets := data.hasTargets()
+	require.True(t, hasTargets)
+}
+
 func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	tt := newTest(t)
 	sc := conditionReconciling()
@@ -461,7 +498,7 @@ func TestCustomAtlasHCL_PolicyTemplate(t *testing.T) {
 		DevURL:  "mysql://root:password@localhost:3306/dev",
 		Schemas: []string{"foo", "bar"},
 		Desired: must(url.Parse("file://schema.sql")),
-		Config: `
+		Config: mustParseHCL(`
 env "kubernetes" {
   diff {
     concurrent_index {
@@ -479,7 +516,7 @@ env "kubernetes" {
 	}
   }
 }
-		`,
+		`),
 	}
 	err := data.render(&buf)
 	require.NoError(t, err)

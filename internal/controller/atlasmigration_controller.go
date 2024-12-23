@@ -41,7 +41,6 @@ import (
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
-	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -78,7 +77,7 @@ type (
 		MigrateDown     bool
 		ObservedHash    string
 		RemoteDir       *dbv1alpha1.Remote
-		Config          string
+		Config          *hclwrite.File
 		Vars            atlasexec.Vars2
 	}
 )
@@ -430,7 +429,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if err != nil {
 		return nil, transient(err)
 	}
-	hasConfig := data.Config != ""
+	hasConfig := data.Config != nil
 	if hasConfig && data.EnvName == "" {
 		return nil, errors.New("env name must be set when using custom atlas.hcl config")
 	}
@@ -539,8 +538,8 @@ func hashMigrationData(d *migrationData) (string, error) {
 	if d.URL != nil {
 		h.Write([]byte(d.URL.String()))
 	}
-	if d.Config != "" {
-		h.Write([]byte(d.Config))
+	if d.Config != nil {
+		h.Write([]byte(d.Config.Bytes()))
 	}
 	if c := d.Cloud; c != nil {
 		h.Write([]byte(c.Token))
@@ -582,13 +581,9 @@ func (d *migrationData) render(w io.Writer) error {
 		f.Body().AppendBlock(b)
 	}
 	// Merge the config block if it is set
-	if d.Config != "" {
-		cfg, diags := hclwrite.ParseConfig([]byte(d.Config), "", hcl.InitialPos)
-		if diags.HasErrors() {
-			return diags
-		}
-		mergeBlocks(cfg.Body(), f.Body())
-		f = cfg
+	if d.Config != nil {
+		mergeBlocks(d.Config.Body(), f.Body())
+		f = d.Config
 	}
 	env := searchBlock(f.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
 	if env == nil {

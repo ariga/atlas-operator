@@ -33,6 +33,8 @@ import (
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1033,7 +1035,7 @@ func TestBaselineTemplate(t *testing.T) {
 func TestCustomAtlasHCL(t *testing.T) {
 	migrate := &migrationData{
 		EnvName: defaultEnvName,
-		Config: `env "kubernetes" {
+		Config: mustParseHCL(`env "kubernetes" {
   url = "sqlite://file2/?mode=memory"
   dev = "sqlite://dev/?mode=memory"
   migration {
@@ -1041,7 +1043,7 @@ func TestCustomAtlasHCL(t *testing.T) {
     baseline = "20230412003626"
   }
 }
-`,
+`),
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
@@ -1097,7 +1099,7 @@ func TestCustomAtlasHCL_CloudTemplate(t *testing.T) {
 			Name: "my-remote-dir",
 			Tag:  "my-remote-tag",
 		},
-		Config: `atlas {
+		Config: mustParseHCL(`atlas {
   cloud {
     token   = "my-token"
     url     = "https://atlasgo.io/"
@@ -1110,7 +1112,7 @@ env "kubernetes" {
   migration {
     dir = "atlas://my-remote-dir?tag=my-remote-tag"
   }
-}`,
+}`),
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
@@ -1390,4 +1392,12 @@ func writeDir(t *testing.T, dir migrate.Dir, w io.Writer) {
 	require.NoError(t, err)
 	_, err = fmt.Fprintf(w, `{"data":{"dirState":{"content":%q}}}`, base64.StdEncoding.EncodeToString(arc))
 	require.NoError(t, err)
+}
+
+func mustParseHCL(content string) *hclwrite.File {
+	f, err := hclwrite.ParseConfig([]byte(content), "", hcl.InitialPos)
+	if err != nil {
+		panic(err)
+	}
+	return f
 }

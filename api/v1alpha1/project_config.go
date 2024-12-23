@@ -19,6 +19,8 @@ import (
 	"fmt"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -54,14 +56,23 @@ type (
 
 // GetConfig returns the project configuration.
 // The configuration is resolved from the secret reference.
-func (s ProjectConfigSpec) GetConfig(ctx context.Context, r client.Reader, ns string) (string, error) {
-	if s.Config != "" {
-		return s.Config, nil
-	}
+func (s ProjectConfigSpec) GetConfig(ctx context.Context, r client.Reader, ns string) (*hclwrite.File, error) {
+	rawConfig := s.Config
 	if s.ConfigFrom.SecretKeyRef != nil {
-		return getSecretValue(ctx, r, ns, s.ConfigFrom.SecretKeyRef)
+		cfgFromSecret, err := getSecretValue(ctx, r, ns, s.ConfigFrom.SecretKeyRef)
+		if err != nil {
+			return nil, err
+		}
+		rawConfig = cfgFromSecret
 	}
-	return "", nil
+	if rawConfig == "" {
+		return nil, nil
+	}
+	config, diags := hclwrite.ParseConfig([]byte(rawConfig), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("failed to parse project configuration: %v", diags)
+	}
+	return config, nil
 }
 
 // GetVars returns the input variables for the project configuration.
