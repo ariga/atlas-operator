@@ -239,6 +239,20 @@ env "kubernetes" {
 	require.True(t, hasTargets)
 }
 
+func TestExtractData_DisabledCustomConfig(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {}
+	`
+	tt := newTest(t)
+	tt.r.allowCustomConfig = false
+	_, err := tt.r.extractData(context.Background(), sc)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+}
+
 func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	tt := newTest(t)
 	sc := conditionReconciling()
@@ -635,6 +649,7 @@ func newTest(t *testing.T) *test {
 				scheme:   scheme,
 				recorder: r,
 			},
+			allowCustomConfig: true,
 		},
 	}
 }

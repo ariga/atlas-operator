@@ -58,6 +58,8 @@ const (
 	vercheckURL = "https://vercheck.ariga.io"
 	// prewarmDevDB when disabled it deletes the devDB pods after the schema is created
 	prewarmDevDB = "PREWARM_DEVDB"
+	// allowCustomConfig when enabled it allows the use of custom config
+	allowsCustomConfig = "ALLOW_CUSTOM_CONFIG"
 )
 
 func init() {
@@ -141,13 +143,24 @@ func main() {
 		os.Exit(1)
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
-	if err = controller.NewAtlasSchemaReconciler(mgr, controller.NewAtlasExec, prewarmDevDB).
-		SetupWithManager(mgr); err != nil {
+	allowCustomConfig := getAllowCustomConfigEnv()
+	// Setup controller for AtlasSchema
+	schemaController := controller.NewAtlasSchemaReconciler(mgr, prewarmDevDB)
+	schemaController.SetAtlasClient(controller.NewAtlasExec)
+	if allowCustomConfig {
+		schemaController.AllowCustomConfig()
+	}
+	if err := schemaController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
 		os.Exit(1)
 	}
-	if err = controller.NewAtlasMigrationReconciler(mgr, controller.NewAtlasExec, prewarmDevDB).
-		SetupWithManager(mgr); err != nil {
+	// Setup controller for AtlasMigration
+	migrationController := controller.NewAtlasMigrationReconciler(mgr, prewarmDevDB)
+	migrationController.SetAtlasClient(controller.NewAtlasExec)
+	if allowCustomConfig {
+		migrationController.AllowCustomConfig()
+	}
+	if err = migrationController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
 		os.Exit(1)
 	}
@@ -218,4 +231,19 @@ func getPrewarmDevDBEnv() bool {
 		os.Exit(1)
 	}
 	return prewarmDevDB
+}
+
+// getAllowCustomConfigEnv returns the value of the env var ALLOW_CUSTOM_CONFIG.
+// if the env var is not set, it returns false.
+func getAllowCustomConfigEnv() bool {
+	env := os.Getenv(allowsCustomConfig)
+	if env == "" {
+		return false
+	}
+	allowsCustomConfig, err := strconv.ParseBool(env)
+	if err != nil {
+		setupLog.Error(err, "invalid value for env var ALLOW_CUSTOM_CONFIG, expected true or false")
+		os.Exit(1)
+	}
+	return allowsCustomConfig
 }

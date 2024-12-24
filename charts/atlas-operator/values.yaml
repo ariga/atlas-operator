@@ -48,6 +48,10 @@ affinity: {}
 # Set this to true to keep the devdb pods around.
 prewarmDevDB: true
 
+# Enable this to allow custom project configuration
+# Warning: This action will elevate the privileges of the operator
+allowCustomConfig: false
+
 # -- Additional environment variables to set
 extraEnvs: []
 # extraEnvs:

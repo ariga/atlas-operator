@@ -990,6 +990,23 @@ func TestWatcher_enabled(t *testing.T) {
 	}, watched)
 }
 
+func TestCustomConfig_disabled(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.r.allowCustomConfig = false
+	_, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    "test",
+			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{
+				Config: `env "test" {}`,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+}
+
 func TestDefaultTemplate(t *testing.T) {
 	migrate := &migrationData{
 		EnvName: defaultEnvName,
@@ -1276,6 +1293,7 @@ func newMigrationTest(t *testing.T) *migrationTest {
 				scheme:   scheme,
 				recorder: r,
 			},
+			allowCustomConfig: true,
 		},
 	}
 }

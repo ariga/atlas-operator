@@ -118,7 +118,10 @@ func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusP
 }
 
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
-func newRunner[T reconcile.Reconciler](fn func(Manager, AtlasExecFn, bool) T, modify func(*fake.ClientBuilder), mock *mockAtlasExec) (*helper, runner) {
+func newRunner[T interface {
+	Reconcile(context.Context, reconcile.Request) (reconcile.Result, error)
+	SetAtlasClient(AtlasExecFn)
+}](fn func(Manager, bool) T, modify func(*fake.ClientBuilder), mock *mockAtlasExec) (*helper, runner) {
 	scheme := runtime.NewScheme()
 	clientgoscheme.AddToScheme(scheme)
 	dbv1alpha1.AddToScheme(scheme)
@@ -132,12 +135,13 @@ func newRunner[T reconcile.Reconciler](fn func(Manager, AtlasExecFn, bool) T, mo
 		client:   c,
 		recorder: r,
 		scheme:   scheme,
-	}, func(s string, c *Cloud) (AtlasExec, error) {
+	}, true)
+	a.SetAtlasClient(func(s string, c *Cloud) (AtlasExec, error) {
 		if mock == nil {
 			return NewAtlasExec(s, c)
 		}
 		return mock, nil
-	}, true)
+	})
 	h := &helper{client: c, recorder: r}
 	return h, func(obj client.Object, fn check) {
 		fn(a.Reconcile(context.Background(), request(obj)))

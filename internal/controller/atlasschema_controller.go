@@ -65,6 +65,8 @@ type (
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
 		devDB            *devDBReconciler
+		// AllowCustomConfig allows the controller to use custom atlas.hcl config.
+		allowCustomConfig bool
 	}
 	// managedData contains information about the managed database and its desired state.
 	managedData struct {
@@ -85,17 +87,17 @@ type (
 
 const sqlLimitSize = 1024
 
-func NewAtlasSchemaReconciler(mgr Manager, atlas AtlasExecFn, prewarmDevDB bool) *AtlasSchemaReconciler {
-	r := mgr.GetEventRecorderFor("atlasschema-controller")
-	return &AtlasSchemaReconciler{
+func NewAtlasSchemaReconciler(mgr Manager, prewarmDevDB bool) *AtlasSchemaReconciler {
+	rec := mgr.GetEventRecorderFor("atlasschema-controller")
+	r := &AtlasSchemaReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		atlasClient:      atlas,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
-		recorder:         r,
-		devDB:            newDevDB(mgr, r, prewarmDevDB),
+		recorder:         rec,
+		devDB:            newDevDB(mgr, rec, prewarmDevDB),
 	}
+	return r
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -517,6 +519,16 @@ func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	}
 }
 
+// SetAtlasClient sets the Atlas client function.
+func (r *AtlasSchemaReconciler) SetAtlasClient(fn AtlasExecFn) {
+	r.atlasClient = fn
+}
+
+// AllowCustomConfig allows the controller to use custom atlas.hcl config.
+func (r *AtlasSchemaReconciler) AllowCustomConfig() {
+	r.allowCustomConfig = true
+}
+
 // extractData extracts the info about the managed database and its desired state.
 func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasSchema) (_ *managedData, err error) {
 	var (
@@ -534,6 +546,9 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
+	}
+	if !r.allowCustomConfig && data.Config != nil {
+		return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
 	}
 	hasConfig := data.Config != nil
 	if hasConfig && data.EnvName == "" {

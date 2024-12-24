@@ -61,6 +61,8 @@ type (
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
 		devDB            *devDBReconciler
+		// AllowCustomConfig allows the controller to use custom atlas.hcl config.
+		allowCustomConfig bool
 	}
 	// migrationData is the data used to render the HCL template
 	// that will be used for Atlas CLI
@@ -82,12 +84,11 @@ type (
 	}
 )
 
-func NewAtlasMigrationReconciler(mgr Manager, atlas AtlasExecFn, prewarmDevDB bool) *AtlasMigrationReconciler {
+func NewAtlasMigrationReconciler(mgr Manager, prewarmDevDB bool) *AtlasMigrationReconciler {
 	r := mgr.GetEventRecorderFor("atlasmigration-controller")
 	return &AtlasMigrationReconciler{
 		Client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
-		atlasClient:      atlas,
 		configMapWatcher: watch.New(),
 		secretWatcher:    watch.New(),
 		recorder:         r,
@@ -209,6 +210,16 @@ func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, r.secretWatcher).
 		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
 		Complete(r)
+}
+
+// SetAtlasClient sets the Atlas client for the reconciler.
+func (r *AtlasMigrationReconciler) SetAtlasClient(fn AtlasExecFn) {
+	r.atlasClient = fn
+}
+
+// AllowCustomConfig allows the controller to use custom atlas.hcl config.
+func (r *AtlasMigrationReconciler) AllowCustomConfig() {
+	r.allowCustomConfig = true
 }
 
 func (r *AtlasMigrationReconciler) watchRefs(res *dbv1alpha1.AtlasMigration) {
@@ -428,6 +439,9 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
+	}
+	if !r.allowCustomConfig && data.Config != nil {
+		return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
 	}
 	hasConfig := data.Config != nil
 	if hasConfig && data.EnvName == "" {
