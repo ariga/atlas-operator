@@ -203,6 +203,12 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	switch whoami, err = cli.WhoAmI(ctx); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
+		if data.Config != nil {
+			err = errors.New("login is required to use custom atlas.hcl config")
+			res.SetNotReady("WhoAmI", err.Error())
+			r.recordErrEvent(res, err)
+			return result(err)
+		}
 	case err != nil:
 		res.SetNotReady("WhoAmI", err.Error())
 		r.recordErrEvent(res, err)

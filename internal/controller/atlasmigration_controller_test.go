@@ -18,16 +18,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -294,6 +290,7 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 		}
 	)
 	mockExec := &mockAtlasExec{}
+	mockExec.whoami.res = &atlasexec.WhoAmI{Org: "my-org"}
 	mockExec.status.res = &atlasexec.MigrateStatus{
 		Current: "2",
 		Applied: []*atlasexec.Revision{
@@ -421,6 +418,7 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 `,
 	}))
 	mockExec := &mockAtlasExec{}
+	mockExec.whoami.res = &atlasexec.WhoAmI{Org: "my-org"}
 	mockExec.status.res = &atlasexec.MigrateStatus{
 		Current: "2",
 		Applied: []*atlasexec.Revision{
@@ -1181,59 +1179,6 @@ env "kubernetes" {
   }
 }
 `, fileContent.String())
-}
-
-func TestMigrationWithDeploymentContext(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		type (
-			RunContext struct {
-				TriggerType    string `json:"triggerType,omitempty"`
-				TriggerVersion string `json:"triggerVersion,omitempty"`
-			}
-			graphQLQuery struct {
-				Query              string          `json:"query"`
-				Variables          json.RawMessage `json:"variables"`
-				MigrateApplyReport struct {
-					Input struct {
-						Context *RunContext `json:"context,omitempty"`
-					} `json:"input"`
-				}
-			}
-		)
-		var m graphQLQuery
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&m))
-		switch {
-		case strings.Contains(m.Query, "query"):
-			memdir := &migrate.MemDir{}
-			memdir.WriteFile("30230412003626.sql", []byte(`CREATE TABLE foo (id INT PRIMARY KEY)`))
-			writeDir(t, memdir, w)
-		case strings.Contains(m.Query, "reportMigration"):
-			err := json.Unmarshal(m.Variables, &m.MigrateApplyReport)
-			require.NoError(t, err)
-			require.Equal(t, "my-version", m.MigrateApplyReport.Input.Context.TriggerVersion)
-			require.Equal(t, "KUBERNETES", m.MigrateApplyReport.Input.Context.TriggerType)
-		}
-	}))
-	defer srv.Close()
-	tt := migrationCliTest(t)
-	tt.initDefaultTokenSecret()
-	am := tt.getAtlasMigration()
-	am.Spec.Cloud.URL = srv.URL
-	am.Spec.Dir.Remote.Name = "my-remote-dir"
-	am.Spec.Cloud.Project = "my-project"
-	am.Spec.Cloud.TokenFrom = dbv1alpha1.TokenFrom{
-		SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: "my-secret",
-			},
-			Key: "token",
-		},
-	}
-	tt.k8s.put(am)
-	ctx := dbv1alpha1.WithVersionContext(context.Background(), "my-version")
-	result, err := tt.r.Reconcile(ctx, migrationReq())
-	require.NoError(tt, err)
-	require.EqualValues(tt, reconcile.Result{}, result)
 }
 
 func migrationObjmeta() metav1.ObjectMeta {

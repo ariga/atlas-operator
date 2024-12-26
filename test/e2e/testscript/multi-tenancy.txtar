@@ -3,6 +3,7 @@ env DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 kubectl create configmap db-dev-creds --from-literal=url=${DB_DEV_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 # Wait for the first pod created
 kubectl-wait-available deploy/postgres
@@ -36,6 +37,12 @@ spec:
         short_bio varchar(255) not null,
         primary key (id)
       );
+  cloud:
+    repo: atlas-operator
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
   vars: 
     - key: "db_url"
       valueFrom: 

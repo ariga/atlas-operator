@@ -7,6 +7,8 @@ kubectl create secret generic schema-db-creds --from-literal=url=${SCHEMA_DB_URL
 kubectl create configmap schema-db-dev-creds --from-literal=url=${SCHEMA_DB_DEV_URL}
 kubectl create secret generic migrate-db-creds --from-literal=url=${MIGRATE_DB_URL}
 kubectl create configmap migrate-db-dev-creds --from-literal=url=${MIGRATE_DB_DEV_URL}
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 # Wait for the first pod created
 kubectl-wait-available deploy/postgres
@@ -51,6 +53,12 @@ spec:
         short_bio varchar(255) not null,
         primary key (id)
       );
+  cloud:
+    repo: atlas-operator
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
   vars: 
     - key: "db_url"
       valueFrom: 
@@ -119,6 +127,11 @@ spec:
         configMapKeyRef:
           name: migrate-db-dev-creds
           key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
   config: |
     variable "db_url" {
       type = string

@@ -271,9 +271,26 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return err
 	}
 	defer wd.Close()
-	c, err := r.atlasClient(wd.Path(), nil)
+	c, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
 		return err
+	}
+	var whoami *atlasexec.WhoAmI
+	switch whoami, err = c.WhoAmI(ctx); {
+	case errors.Is(err, atlasexec.ErrRequireLogin):
+		log.Info("the resource is not connected to Atlas Cloud")
+		if data.Config != nil {
+			err = errors.New("login is required to use custom atlas.hcl config")
+			res.SetNotReady("WhoAmI", err.Error())
+			r.recordErrEvent(res, err)
+			return err
+		}
+	case err != nil:
+		res.SetNotReady("WhoAmI", err.Error())
+		r.recordErrEvent(res, err)
+		return err
+	default:
+		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
 	log.Info("reconciling migration", "env", data.EnvName)
 	// Check if there are any pending migration files
@@ -456,10 +473,24 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if !hasConfig && data.URL == nil {
 		return nil, transient(errors.New("no target database defined"))
 	}
+	if s := s.Cloud.TokenFrom.SecretKeyRef; s != nil {
+		token, err := getSecretValue(ctx, r, res.Namespace, s)
+		if err != nil {
+			return nil, err
+		}
+		data.Cloud = &Cloud{Token: token}
+	}
+	if s.Cloud.Project != "" || s.Cloud.URL != "" {
+		if data.Cloud == nil {
+			data.Cloud = &Cloud{}
+		}
+		data.Cloud.Repo = s.Cloud.Project
+		data.Cloud.URL = s.Cloud.URL
+	}
 	switch d := s.Dir; {
 	case d.Remote.Name != "":
 		c := s.Cloud
-		if c.TokenFrom.SecretKeyRef == nil {
+		if c.TokenFrom.SecretKeyRef == nil && !hasConfig {
 			return nil, errors.New("cannot use remote directory without Atlas Cloud token")
 		}
 		if f := s.ProtectedFlows; f != nil {
@@ -469,15 +500,6 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 				}
 				data.MigrateDown = d.Allow
 			}
-		}
-		token, err := getSecretValue(ctx, r, res.Namespace, c.TokenFrom.SecretKeyRef)
-		if err != nil {
-			return nil, err
-		}
-		data.Cloud = &Cloud{
-			Token: token,
-			Repo:  c.Project,
-			URL:   c.URL,
 		}
 		data.RemoteDir = &d.Remote
 	case d.Local != nil || d.ConfigMapRef != nil:
