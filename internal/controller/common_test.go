@@ -100,6 +100,28 @@ env "example" {
   key = "value2"
 }`,
 		},
+		{
+			name: "merge unnamed blocks",
+			args: args{
+				dst: `
+env {
+    name = atlas.env
+	key = "value"
+}`,
+				src: `
+env {
+	name = atlas.env
+	key2 = "value2"
+}
+`,
+			},
+			expected: `
+env {
+  name = atlas.env
+  key  = "value"
+  key2 = "value2"
+}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

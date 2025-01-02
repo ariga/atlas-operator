@@ -78,7 +78,7 @@ func (s ProjectConfigSpec) GetConfig(ctx context.Context, r client.Reader, ns st
 // GetVars returns the input variables for the project configuration.
 // The variables are resolved from the secret or configmap reference.
 func (s ProjectConfigSpec) GetVars(ctx context.Context, r client.Reader, ns string) (atlasexec.Vars2, error) {
-	vars := make(map[string]any)
+	vars := atlasexec.Vars2{}
 	for _, variable := range s.Vars {
 		var (
 			value string

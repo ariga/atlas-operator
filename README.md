@@ -106,7 +106,7 @@ To use variables in the `config` field:
       }
 ```
 
-> Note: Allowing custom configuration can elevate privileges of the operator. Use this feature with caution.
+> Note: Allowing custom configuration enables executing arbitrary commands using the `external` data source as well as arbitrary SQL using the `sql` data source. Use this feature with caution.
 
 - `extraEnvs`: Used to set environment variables for the operator
 

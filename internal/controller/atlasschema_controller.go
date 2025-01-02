@@ -137,7 +137,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return result(err)
 	}
 	if data.hasTargets() {
-		res.SetNotReady("MultipleTargets", "Multiple targets are not supported")
+		res.SetNotReady("ReadSchema", "Multiple targets are not supported")
 		return ctrl.Result{}, nil
 	}
 	hash, err := data.hash()
@@ -157,7 +157,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Starting area to handle the heavy jobs.
 	// Below this line is the main logic of the controller.
 	// ====================================================
-	if data.URL != nil && data.DevURL == "" {
+	if !data.hasDevURL() && data.URL != nil {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
@@ -553,12 +553,14 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	if err != nil {
 		return nil, transient(err)
 	}
-	if !r.allowCustomConfig && data.Config != nil {
-		return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
-	}
 	hasConfig := data.Config != nil
-	if hasConfig && data.EnvName == "" {
-		return nil, errors.New("env name must be set when using custom atlas.hcl config")
+	if hasConfig {
+		if !r.allowCustomConfig {
+			return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+		}
+		if s.EnvName == "" {
+			return nil, errors.New("env name must be set when using custom atlas.hcl config")
+		}
 	}
 	if s := s.EnvName; s != "" {
 		data.EnvName = s
@@ -624,7 +626,11 @@ func (d *managedData) shouldLint() (bool, error) {
 			}
 			lint := searchBlock(env.Body(), hclwrite.NewBlock("lint", nil))
 			if lint == nil {
-				return false, nil
+				// search global lint block
+				lint = searchBlock(d.Config.Body(), hclwrite.NewBlock("lint", nil))
+				if lint == nil {
+					return false, nil
+				}
 			}
 			if v := searchBlock(lint.Body(), hclwrite.NewBlock("destructive", nil)); v != nil {
 				destructiveErr := v.Body().GetAttribute("error")
@@ -642,6 +648,24 @@ func (d *managedData) shouldLint() (bool, error) {
 		return false, nil
 	}
 	return p.Lint.Destructive.Error, nil
+}
+
+// hasDevURL returns true if the environment has a dev URL.
+func (d *managedData) hasDevURL() bool {
+	if d.DevURL != "" {
+		return true
+	}
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env != nil {
+		dev := env.Body().GetAttribute("dev")
+		if dev != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // hasTargets returns true if the environment has multiple targets/ multi-tenancy.

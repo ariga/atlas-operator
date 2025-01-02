@@ -223,6 +223,26 @@ env "kubernetes" {
 	require.Contains(t, err.Error(), "cannot determine the value of the destructive.error attribute")
 }
 
+func TestExtractData_GlobalLintBlock(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+lint {
+	destructive {
+		error = true
+	}
+}
+env "kubernetes" {}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	lint, err := data.shouldLint()
+	require.NoError(t, err)
+	require.True(t, lint)
+}
+
 func TestExtractData_MultiTargets(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.DevURL = "mysql://dev"
@@ -556,6 +576,31 @@ env "kubernetes" {
   url     = "mysql://root:password@localhost:3306/test"
 }
   `
+	require.EqualValues(t, expected, buf.String())
+}
+
+func TestCustomAtlasHCL_UnnamedBlock(t *testing.T) {
+	var buf bytes.Buffer
+	data := &managedData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
+		Desired: must(url.Parse("file://schema.sql")),
+		Schemas: []string{"foo", "bar"},
+		Config: mustParseHCL(`
+env {
+  name = atlas.env
+  dev  = "mysql://root:password@localhost:3306/dev"
+}`),
+	}
+	err := data.render(&buf)
+	require.NoError(t, err)
+	expected := `
+env {
+  name    = atlas.env
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
+  url     = "mysql://root:password@localhost:3306/test"
+}`
 	require.EqualValues(t, expected, buf.String())
 }
 

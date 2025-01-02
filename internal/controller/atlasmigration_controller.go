@@ -150,8 +150,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// TODO(giautm): Create DevDB and run linter for new migration
 	// files before applying it to the target database.
-
-	if data.URL != nil && data.DevURL == "" {
+	if !data.hasDevURL() && data.URL != nil {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
@@ -457,12 +456,14 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if err != nil {
 		return nil, transient(err)
 	}
-	if !r.allowCustomConfig && data.Config != nil {
-		return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
-	}
 	hasConfig := data.Config != nil
-	if hasConfig && data.EnvName == "" {
-		return nil, errors.New("env name must be set when using custom atlas.hcl config")
+	if hasConfig {
+		if !r.allowCustomConfig {
+			return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+		}
+		if s.EnvName == "" {
+			return nil, errors.New("env name must be set when using custom atlas.hcl config")
+		}
 	}
 	if env := s.EnvName; env != "" {
 		data.EnvName = env
@@ -662,6 +663,24 @@ func (c *migrationData) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+// hasDevURL returns true if the given migration data has a dev URL
+func (d *migrationData) hasDevURL() bool {
+	if d.DevURL != "" {
+		return true
+	}
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env != nil {
+		dev := env.Body().GetAttribute("dev")
+		if dev != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // asBlocks returns the HCL blocks for the given migration data
