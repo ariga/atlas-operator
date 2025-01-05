@@ -202,6 +202,77 @@ func TestExtractData_CustomDevURL_Secret(t *testing.T) {
 	require.EqualValues(t, "mysql://dev", data.DevURL)
 }
 
+func TestExtractData_LintExpression(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {
+	lint {
+		destructive {
+			error = 1 == 1
+		}
+	}
+}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	_, err = data.shouldLint()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot determine the value of the destructive.error attribute")
+}
+
+func TestExtractData_GlobalLintBlock(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+lint {
+	destructive {
+		error = true
+	}
+}
+env "kubernetes" {}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	lint, err := data.shouldLint()
+	require.NoError(t, err)
+	require.True(t, lint)
+}
+
+func TestExtractData_MultiTargets(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {
+	for_each = ["foo", "bar"]
+}
+	`
+	tt := newTest(t)
+	data, err := tt.r.extractData(context.Background(), sc)
+	require.NoError(t, err)
+	hasTargets := data.hasTargets()
+	require.True(t, hasTargets)
+}
+
+func TestExtractData_DisabledCustomConfig(t *testing.T) {
+	sc := conditionReconciling()
+	sc.Spec.DevURL = "mysql://dev"
+	sc.Spec.EnvName = "kubernetes"
+	sc.Spec.Config = `
+env "kubernetes" {}
+	`
+	tt := newTest(t)
+	tt.r.allowCustomConfig = false
+	_, err := tt.r.extractData(context.Background(), sc)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+}
+
 func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	tt := newTest(t)
 	sc := conditionReconciling()
@@ -453,6 +524,86 @@ func TestConfigTemplate(t *testing.T) {
 	require.EqualValues(t, expected, buf.String())
 }
 
+func TestCustomAtlasHCL_PolicyTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	data := &managedData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
+		DevURL:  "mysql://root:password@localhost:3306/dev",
+		Schemas: []string{"foo", "bar"},
+		Desired: must(url.Parse("file://schema.sql")),
+		Config: mustParseHCL(`
+env "kubernetes" {
+  diff {
+    concurrent_index {
+      create = true
+      drop   = true
+    }
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  lint {
+    destructive {
+      error = true
+	}
+  }
+}
+		`),
+	}
+	err := data.render(&buf)
+	require.NoError(t, err)
+	expected := `
+env "kubernetes" {
+  diff {
+    concurrent_index {
+      create = true
+      drop   = true
+    }
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  lint {
+    destructive {
+      error = true
+    }
+  }
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
+  url     = "mysql://root:password@localhost:3306/test"
+}
+  `
+	require.EqualValues(t, expected, buf.String())
+}
+
+func TestCustomAtlasHCL_UnnamedBlock(t *testing.T) {
+	var buf bytes.Buffer
+	data := &managedData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
+		Desired: must(url.Parse("file://schema.sql")),
+		Schemas: []string{"foo", "bar"},
+		Config: mustParseHCL(`
+env {
+  name = atlas.env
+  dev  = "mysql://root:password@localhost:3306/dev"
+}`),
+	}
+	err := data.render(&buf)
+	require.NoError(t, err)
+	expected := `
+env {
+  name    = atlas.env
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
+  url     = "mysql://root:password@localhost:3306/test"
+}`
+	require.EqualValues(t, expected, buf.String())
+}
+
 func conditionReconciling() *dbv1alpha1.AtlasSchema {
 	return &dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
@@ -543,6 +694,7 @@ func newTest(t *testing.T) *test {
 				scheme:   scheme,
 				recorder: r,
 			},
+			allowCustomConfig: true,
 		},
 	}
 }

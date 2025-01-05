@@ -53,9 +53,6 @@ func TestTargetSpec_DatabaseURL(t *testing.T) {
 			require.Equal(t, a, u.String())
 		}
 	)
-	// error
-	_, err := target.DatabaseURL(ctx, nil, "default")
-	require.ErrorContains(t, err, "no target database defined")
 
 	// Should return the URL from the credentials
 	target.Credentials = v1alpha1.Credentials{

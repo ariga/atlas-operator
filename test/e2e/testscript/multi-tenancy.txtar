@@ -1,0 +1,161 @@
+env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+env DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create configmap db-dev-creds --from-literal=url=${DB_DEV_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=postgres pods
+
+# Create the schema
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE SCHEMA tenant_1;'
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE SCHEMA tenant_2;'
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema.hcl
+
+kubectl apply -f multi-tenancy.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ReadSchema --timeout=500s AtlasSchemas/multi-tenancy
+
+-- multi-tenancy.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: multi-tenancy
+spec:
+  envName: "test"
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        email varchar(255) unique not null,
+        short_bio varchar(255) not null,
+        primary key (id)
+      );
+  cloud:
+    repo: atlas-operator
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  vars: 
+    - key: "db_url"
+      valueFrom: 
+        secretKeyRef:
+          name: db-creds
+          key: url
+    - key: "dev_db_url"
+      valueFrom: 
+        configMapKeyRef:
+          name: db-dev-creds
+          key: url
+  config: |
+    variable "db_url" {
+      type = string
+    }
+    variable "dev_db_url" {
+      type = string
+    }
+    data "sql" "tenants" {
+      url   = var.db_url
+      query = <<EOS
+        SELECT nspname
+        FROM pg_catalog.pg_namespace WHERE nspname LIKE 'tenant_%'
+      EOS
+    }
+    env "test" {
+      for_each = toset(data.sql.tenants.values)
+      url      = format("%s&search_path=%s", var.db_url, each.value)
+      dev      = format("%s&search_path=%s", var.dev_db_url, "public")
+    }
+
+-- schema.hcl --
+schema "public" {
+  comment = "standard public schema"
+}
+schema "tenant_1" {
+}
+schema "tenant_2" {
+}
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

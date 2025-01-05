@@ -63,6 +63,51 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 - `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
 
+- `allowCustomConfig`: Enable this to allow custom `atlas.hcl` configuration. To use this feature, you can set the `config` field in the `AtlasSchema` or `AtlasMigration` resource.
+
+```yaml
+  spec:
+    envName: myenv
+    config: |
+      env myenv {}
+    # config from secretKeyRef
+    # configFrom:
+    #   secretKeyRef:
+    #     key: config
+    #     name: my-secret
+```
+
+To use variables in the `config` field:
+
+```yaml
+  spec:
+    envName: myenv
+    variables:
+      - name: db_url
+        value: "mysql://root"
+      # variables from secretKeyRef
+      # - name: db_url
+      #   valueFrom:
+      #     secretKeyRef:
+      #       key: db_url
+      #       name: my-secret
+      # variables from configMapKeyRef
+      # - name: db_url
+      #   valueFrom:
+      #     configMapKeyRef:
+      #       key: db_url
+      #       name: my-configmap
+    config: |
+      variable "db_url" {
+        type = string
+      }
+      env myenv {
+        url = var.db_url
+      }
+```
+
+> Note: Allowing custom configuration enables executing arbitrary commands using the `external` data source as well as arbitrary SQL using the `sql` data source. Use this feature with caution.
+
 - `extraEnvs`: Used to set environment variables for the operator
 
 ```yaml

@@ -66,7 +66,7 @@ type (
 // DatabaseURL returns the database url.
 func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string) (*url.URL, error) {
 	if s.URLFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.URLFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.URLFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
@@ -76,21 +76,21 @@ func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string)
 		return url.Parse(s.URL)
 	}
 	if s.Credentials.UserFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.UserFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.UserFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
 		s.Credentials.User = val
 	}
 	if s.Credentials.PasswordFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.PasswordFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.PasswordFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
 		s.Credentials.Password = val
 	}
 	if s.Credentials.HostFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.HostFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.HostFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string)
 	if s.Credentials.Host != "" {
 		return s.Credentials.URL(), nil
 	}
-	return nil, fmt.Errorf("no target database defined")
+	return nil, nil
 }
 
 // URL returns the URL for the database.
@@ -133,13 +133,27 @@ func (c *Credentials) URL() *url.URL {
 	return u
 }
 
-func getSecrectValue(
+func getSecretValue(
 	ctx context.Context,
 	r client.Reader,
 	ns string,
 	ref *corev1.SecretKeySelector,
 ) (string, error) {
 	val := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
+	if err != nil {
+		return "", err
+	}
+	return string(val.Data[ref.Key]), nil
+}
+
+func getConfigMapValue(
+	ctx context.Context,
+	r client.Reader,
+	ns string,
+	ref *corev1.ConfigMapKeySelector,
+) (string, error) {
+	val := &corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
 	if err != nil {
 		return "", err

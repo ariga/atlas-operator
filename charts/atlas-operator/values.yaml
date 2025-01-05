@@ -48,6 +48,11 @@ affinity: {}
 # Set this to true to keep the devdb pods around.
 prewarmDevDB: true
 
+# Enable this to allow custom project configuration
+# Warning: This setting enables users to use the `external` and `sql` data sources
+# which can be used to execute arbitrary commands and queries. Use with caution.
+allowCustomConfig: false
+
 # -- Additional environment variables to set
 extraEnvs: []
 # extraEnvs:

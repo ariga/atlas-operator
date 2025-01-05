@@ -18,21 +18,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
 	"ariga.io/atlas/sql/migrate"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -292,6 +290,7 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 		}
 	)
 	mockExec := &mockAtlasExec{}
+	mockExec.whoami.res = &atlasexec.WhoAmI{Org: "my-org"}
 	mockExec.status.res = &atlasexec.MigrateStatus{
 		Current: "2",
 		Applied: []*atlasexec.Revision{
@@ -419,6 +418,7 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 `,
 	}))
 	mockExec := &mockAtlasExec{}
+	mockExec.whoami.res = &atlasexec.WhoAmI{Org: "my-org"}
 	mockExec.status.res = &atlasexec.MigrateStatus{
 		Current: "2",
 		Applied: []*atlasexec.Revision{
@@ -988,6 +988,23 @@ func TestWatcher_enabled(t *testing.T) {
 	}, watched)
 }
 
+func TestCustomConfig_disabled(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.r.allowCustomConfig = false
+	_, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    "test",
+			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{
+				Config: `env "test" {}`,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
+}
+
 func TestDefaultTemplate(t *testing.T) {
 	migrate := &migrationData{
 		EnvName: defaultEnvName,
@@ -1016,6 +1033,32 @@ func TestBaselineTemplate(t *testing.T) {
 		DevURL:   "sqlite://dev/?mode=memory",
 		Dir:      must(memDir(map[string]string{})),
 		Baseline: "20230412003626",
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir      = "file://migrations"
+    baseline = "20230412003626"
+  }
+}
+`, fileContent.String())
+}
+
+func TestCustomAtlasHCL(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		Config: mustParseHCL(`env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir      = "file://migrations"
+    baseline = "20230412003626"
+  }
+}
+`),
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
@@ -1064,57 +1107,78 @@ env "kubernetes" {
 `, fileContent.String())
 }
 
-func TestMigrationWithDeploymentContext(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		type (
-			RunContext struct {
-				TriggerType    string `json:"triggerType,omitempty"`
-				TriggerVersion string `json:"triggerVersion,omitempty"`
-			}
-			graphQLQuery struct {
-				Query              string          `json:"query"`
-				Variables          json.RawMessage `json:"variables"`
-				MigrateApplyReport struct {
-					Input struct {
-						Context *RunContext `json:"context,omitempty"`
-					} `json:"input"`
-				}
-			}
-		)
-		var m graphQLQuery
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&m))
-		switch {
-		case strings.Contains(m.Query, "query"):
-			memdir := &migrate.MemDir{}
-			memdir.WriteFile("30230412003626.sql", []byte(`CREATE TABLE foo (id INT PRIMARY KEY)`))
-			writeDir(t, memdir, w)
-		case strings.Contains(m.Query, "reportMigration"):
-			err := json.Unmarshal(m.Variables, &m.MigrateApplyReport)
-			require.NoError(t, err)
-			require.Equal(t, "my-version", m.MigrateApplyReport.Input.Context.TriggerVersion)
-			require.Equal(t, "KUBERNETES", m.MigrateApplyReport.Input.Context.TriggerType)
-		}
-	}))
-	defer srv.Close()
-	tt := migrationCliTest(t)
-	tt.initDefaultTokenSecret()
-	am := tt.getAtlasMigration()
-	am.Spec.Cloud.URL = srv.URL
-	am.Spec.Dir.Remote.Name = "my-remote-dir"
-	am.Spec.Cloud.Project = "my-project"
-	am.Spec.Cloud.TokenFrom = dbv1alpha1.TokenFrom{
-		SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: "my-secret",
-			},
-			Key: "token",
+func TestCustomAtlasHCL_CloudTemplate(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		RemoteDir: &dbv1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
+		},
+		Config: mustParseHCL(`atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}`),
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}`, fileContent.String())
+}
+
+func TestCustomAtlasHCL_BaselineTemplate(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:  "sqlite://dev/?mode=memory",
+		Cloud: &Cloud{
+			URL:   "https://atlasgo.io/",
+			Repo:  "my-project",
+			Token: "my-token",
+		},
+		RemoteDir: &dbv1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
 		},
 	}
-	tt.k8s.put(am)
-	ctx := dbv1alpha1.WithVersionContext(context.Background(), "my-version")
-	result, err := tt.r.Reconcile(ctx, migrationReq())
-	require.NoError(tt, err)
-	require.EqualValues(tt, reconcile.Result{}, result)
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token   = "my-token"
+    url     = "https://atlasgo.io/"
+    project = "my-project"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}
+`, fileContent.String())
 }
 
 func migrationObjmeta() metav1.ObjectMeta {
@@ -1174,6 +1238,7 @@ func newMigrationTest(t *testing.T) *migrationTest {
 				scheme:   scheme,
 				recorder: r,
 			},
+			allowCustomConfig: true,
 		},
 	}
 }
@@ -1290,4 +1355,12 @@ func writeDir(t *testing.T, dir migrate.Dir, w io.Writer) {
 	require.NoError(t, err)
 	_, err = fmt.Fprintf(w, `{"data":{"dirState":{"content":%q}}}`, base64.StdEncoding.EncodeToString(arc))
 	require.NoError(t, err)
+}
+
+func mustParseHCL(content string) *hclwrite.File {
+	f, err := hclwrite.ParseConfig([]byte(content), "", hcl.InitialPos)
+	if err != nil {
+		panic(err)
+	}
+	return f
 }
