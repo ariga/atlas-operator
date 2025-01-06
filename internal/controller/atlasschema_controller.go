@@ -25,17 +25,19 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -60,7 +62,7 @@ type (
 	AtlasSchemaReconciler struct {
 		client.Client
 		atlasClient      AtlasExecFn
-		scheme           *runtime.Scheme
+		scheme           *k8sruntime.Scheme
 		configMapWatcher *watch.ResourceWatcher
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
@@ -485,6 +487,9 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: runtime.NumCPU(),
+		}).
 		For(&dbv1alpha1.AtlasSchema{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasSchema{}).
 		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
