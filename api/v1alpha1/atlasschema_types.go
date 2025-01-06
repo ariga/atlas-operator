@@ -329,3 +329,19 @@ func (d Diff) AsBlock() *hclwrite.Block {
 	}
 	return blk
 }
+
+func (p *Policy) HasLint() bool {
+	return p != nil && p.Lint != nil
+}
+
+func (p *Policy) HasDiff() bool {
+	return p != nil && p.Diff != nil
+}
+
+func (p *Policy) HasLintDestructive() bool {
+	return p.HasLint() && p.Lint.Destructive != nil
+}
+
+func (p *Policy) HasLintReview() bool {
+	return p.HasLint() && p.Lint.Review != ""
+}

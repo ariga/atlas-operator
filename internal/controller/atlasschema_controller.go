@@ -680,6 +680,70 @@ func (d *managedData) hasTargets() bool {
 	return env.Body().GetAttribute("for_each") != nil
 }
 
+// hasLint returns true if the environment has multiple targets/ multi-tenancy.
+func (d *managedData) hasLint() bool {
+	if d.Policy != nil && d.Policy.HasLint() {
+		return true
+	}
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return false
+	}
+	return searchBlock(env.Body(), hclwrite.NewBlock("lint", nil)) != nil
+}
+
+// hasLintDestructive returns true if the environment has a lint destructive policy.
+func (d *managedData) hasLintDestructive() bool {
+	if d.Policy != nil && d.Policy.HasLintDestructive() {
+		return true
+	}
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return false
+	}
+	lint := searchBlock(env.Body(), hclwrite.NewBlock("lint", nil))
+	if lint == nil {
+		// search global lint block
+		lint = searchBlock(d.Config.Body(), hclwrite.NewBlock("lint", nil))
+		if lint == nil {
+			return false
+		}
+		return false
+	}
+	destructive := searchBlock(lint.Body(), hclwrite.NewBlock("destructive", nil))
+	return destructive != nil && destructive.Body().GetAttribute("error") != nil
+}
+
+// hasLintReview returns true if the environment has a lint review policy.
+func (d *managedData) hasLintReview() bool {
+	if d.Policy != nil && d.Policy.HasLintReview() {
+		return true
+	}
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return false
+	}
+	lint := searchBlock(env.Body(), hclwrite.NewBlock("lint", nil))
+	if lint == nil {
+		// search global lint block
+		lint = searchBlock(d.Config.Body(), hclwrite.NewBlock("lint", nil))
+		if lint == nil {
+			return false
+		}
+		return false
+	}
+	return lint.Body().GetAttribute("review") != nil
+}
+
 // hash returns the sha256 hash of the desired.
 func (d *managedData) hash() (string, error) {
 	h := sha256.New()
@@ -749,29 +813,41 @@ func (d *managedData) render(w io.Writer) error {
 // enableDestructive enables the linting policy for destructive changes.
 // If the force is set to true, it will override the existing value.
 func (d *managedData) enableDestructive(force bool) {
-	check := &dbv1alpha1.CheckConfig{Error: true}
-	destructive := &dbv1alpha1.Lint{Destructive: check}
-	switch {
-	case d.Policy == nil:
-		d.Policy = &dbv1alpha1.Policy{Lint: destructive}
-	case d.Policy.Lint == nil:
-		d.Policy.Lint = destructive
-	case d.Policy.Lint.Destructive == nil, force:
+	override := func() {
+		check := &dbv1alpha1.CheckConfig{Error: true}
+		destructive := &dbv1alpha1.Lint{Destructive: check}
+		if d.Policy == nil {
+			d.Policy = &dbv1alpha1.Policy{Lint: destructive}
+			return
+		}
+		if d.Policy.Lint == nil {
+			d.Policy.Lint = destructive
+			return
+		}
 		d.Policy.Lint.Destructive = check
+	}
+	if !d.hasLint() || !d.hasLintDestructive() || force {
+		override()
 	}
 }
 
 // setLintReview sets the lint review policy.
 // If the force is set to true, it will override the existing value.
 func (d *managedData) setLintReview(v dbv1alpha1.LintReview, force bool) {
-	lint := &dbv1alpha1.Lint{Review: v}
-	switch {
-	case d.Policy == nil:
-		d.Policy = &dbv1alpha1.Policy{Lint: lint}
-	case d.Policy.Lint == nil:
-		d.Policy.Lint = lint
-	case d.Policy.Lint.Review == "", force:
+	override := func() {
+		lint := &dbv1alpha1.Lint{Review: v}
+		if d.Policy == nil {
+			d.Policy = &dbv1alpha1.Policy{Lint: lint}
+			return
+		}
+		if d.Policy.Lint == nil {
+			d.Policy.Lint = lint
+			return
+		}
 		d.Policy.Lint.Review = v
+	}
+	if !d.hasLint() || !d.hasLintReview() || force {
+		override()
 	}
 }
 
