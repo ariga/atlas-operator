@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/internal/controller/watch"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,9 +41,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
-	"github.com/ariga/atlas-operator/internal/controller/watch"
 )
 
 const (
