@@ -152,6 +152,15 @@ func isChecksumErr(err error) bool {
 	return strings.Contains(err.Error(), "checksum mismatch")
 }
 
+// isConnectionErr returns true if the error is a connection error.
+func isConnectionErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "connection timed out") ||
+		strings.Contains(err.Error(), "connection refused")
+}
+
 // transientError is an error that should be retried.
 type transientError struct {
 	err   error

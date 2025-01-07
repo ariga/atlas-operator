@@ -17,8 +17,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -140,10 +138,61 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		res.SetNotReady("ReadSchema", "Multiple targets are not supported")
 		return ctrl.Result{}, nil
 	}
-	hash, err := data.hash()
+	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
+	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
+		// Write the schema file to the working directory.
+		opts = append(opts, func(ce *atlasexec.WorkingDir) error {
+			_, err := ce.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
+			return err
+		})
+	}
+	if !data.hasDevURL() && data.URL != nil {
+		// The user has not specified an URL for dev-db,
+		// spin up a dev-db and get the connection string.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
+		if err != nil {
+			res.SetNotReady("GettingDevDB", err.Error())
+			return result(err)
+		}
+	}
+	// Create a working directory for the Atlas CLI
+	// The working directory contains the atlas.hcl config.
+	wd, err := atlasexec.NewWorkingDir(opts...)
+	if err != nil {
+		res.SetNotReady("CreatingWorkingDir", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	defer wd.Close()
+	// This function will be used to edit and re-render the atlas.hcl file in the working directory.
+	editAtlasHCL := func(fn func(m *managedData)) error {
+		fn(data)
+		var buf bytes.Buffer
+		if err := data.render(&buf); err != nil {
+			return err
+		}
+		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
+		return err
+	}
+	cli, err := r.atlasClient(wd.Path(), data.Cloud)
+	if err != nil {
+		res.SetNotReady("CreatingAtlasClient", err.Error())
+		r.recordErrEvent(res, err)
+		return result(err)
+	}
+	// Calculate the hash of the current schema.
+	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
+		Env:    data.EnvName,
+		URL:    data.targetURL(),
+		Format: `{{ .Hash }}`,
+		Vars:   data.Vars,
+	})
 	if err != nil {
 		res.SetNotReady("CalculatingHash", err.Error())
 		r.recordErrEvent(res, err)
+		if isConnectionErr(err) {
+			err = transient(err)
+		}
 		return result(err)
 	}
 	// We need to update the ready condition immediately before doing
@@ -157,48 +206,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Starting area to handle the heavy jobs.
 	// Below this line is the main logic of the controller.
 	// ====================================================
-	if !data.hasDevURL() && data.URL != nil {
-		// The user has not specified an URL for dev-db,
-		// spin up a dev-db and get the connection string.
-		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
-		if err != nil {
-			res.SetNotReady("GettingDevDB", err.Error())
-			return result(err)
-		}
-	}
-	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
-	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
-		// Write the schema file to the working directory.
-		opts = append(opts, func(ce *atlasexec.WorkingDir) error {
-			_, err := ce.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
-			return err
-		})
-	}
-	// Create a working directory for the Atlas CLI
-	// The working directory contains the atlas.hcl config.
-	wd, err := atlasexec.NewWorkingDir(opts...)
-	// This function will be used to edit and re-render the atlas.hcl file in the working directory.
-	editAtlasHCL := func(fn func(m *managedData)) error {
-		fn(data)
-		var buf bytes.Buffer
-		if err := data.render(&buf); err != nil {
-			return err
-		}
-		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
-		return err
-	}
-	if err != nil {
-		res.SetNotReady("CreatingWorkingDir", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
-	}
-	defer wd.Close()
-	cli, err := r.atlasClient(wd.Path(), data.Cloud)
-	if err != nil {
-		res.SetNotReady("CreatingAtlasClient", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
-	}
 	var whoami *atlasexec.WhoAmI
 	switch whoami, err = cli.WhoAmI(ctx); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
@@ -251,9 +258,6 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// And the schema is available for the Atlas CLI (on local machine)
 			// to modify or approve the changes.
 			if data.Desired.Scheme == dbv1alpha1.SchemaTypeFile {
-				log.Info("schema is a file, pushing the schema to Atlas Cloud")
-				// Using hash of desired state as the tag for the schema.
-				// This ensures push is idempotent.
 				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 					Env:    data.EnvName,
 					URL:    desiredURL,
@@ -270,6 +274,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					r.recordErrEvent(res, err)
 					return result(err)
 				}
+				log.Info("schema is a file, pushing the schema to Atlas Cloud")
 				state, err := cli.SchemaPush(ctx, &atlasexec.SchemaPushParams{
 					Env:  data.EnvName,
 					Name: path.Join(repo.Host, repo.Path),
@@ -744,17 +749,6 @@ func (d *managedData) hasLintReview() bool {
 	return lint.Body().GetAttribute("review") != nil
 }
 
-// hash returns the sha256 hash of the desired.
-func (d *managedData) hash() (string, error) {
-	h := sha256.New()
-	if len(d.schema) > 0 {
-		h.Write([]byte(d.schema))
-	} else {
-		h.Write([]byte(d.Desired.String()))
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
 func (d *managedData) repoURL() *url.URL {
 	switch {
 	// The user has provided the repository name.
@@ -771,6 +765,17 @@ func (d *managedData) repoURL() *url.URL {
 	default:
 		return nil
 	}
+}
+
+// targetURL returns the target URL for the environment.
+func (d *managedData) targetURL() string {
+	if d.Config != nil {
+		env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+		if env != nil && env.Body().GetAttribute("src") != nil {
+			return "env://src"
+		}
+	}
+	return "env://schema.src"
 }
 
 // render renders the atlas.hcl template.
@@ -857,6 +862,10 @@ func (d *managedData) asBlocks() []*hclwrite.Block {
 	env := hclwrite.NewBlock("env", []string{d.EnvName})
 	blocks = append(blocks, env)
 	envBody := env.Body()
+	if d.Desired != nil {
+		schema := envBody.AppendNewBlock("schema", nil).Body()
+		schema.SetAttributeValue("src", cty.StringVal(d.Desired.String()))
+	}
 	if d.URL != nil {
 		envBody.SetAttributeValue("url", cty.StringVal(d.URL.String()))
 	}

@@ -77,7 +77,7 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			Schema: dbv1alpha1.Schema{SQL: "create table foo (id int primary key);"},
 			TargetSpec: dbv1alpha1.TargetSpec{
-				URL: "mysql://root:password@localhost:3306/test",
+				URL: "sqlite://file?mode=memory",
 			},
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{
@@ -442,7 +442,7 @@ func TestBadSQL(t *testing.T) {
 	cont := tt.cond()
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
-	require.EqualValues(t, "LintPolicyError", cont.Reason)
+	require.EqualValues(t, "CalculatingHash", cont.Reason)
 	require.Contains(t, cont.Message, "executing statement:")
 }
 
@@ -500,6 +500,9 @@ func TestConfigTemplate(t *testing.T) {
 	err := data.render(&buf)
 	require.NoError(t, err)
 	expected := `env "kubernetes" {
+  schema {
+    src = "file://schema.sql"
+  }
   url     = "mysql://root:password@localhost:3306/test"
   dev     = "mysql://root:password@localhost:3306/dev"
   schemas = ["foo", "bar"]
@@ -573,6 +576,9 @@ env "kubernetes" {
   dev     = "mysql://root:password@localhost:3306/dev"
   schemas = ["foo", "bar"]
   url     = "mysql://root:password@localhost:3306/test"
+  schema {
+    src = "file://schema.sql"
+  }
 }
   `
 	require.EqualValues(t, expected, buf.String())
@@ -599,6 +605,9 @@ env {
   dev     = "mysql://root:password@localhost:3306/dev"
   schemas = ["foo", "bar"]
   url     = "mysql://root:password@localhost:3306/test"
+  schema {
+    src = "file://schema.sql"
+  }
 }`
 	require.EqualValues(t, expected, buf.String())
 }
