@@ -30,6 +30,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -43,6 +44,8 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/ariga/atlas-operator/internal/result"
+	"github.com/ariga/atlas-operator/internal/status"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -108,7 +111,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		res = &dbv1alpha1.AtlasSchema{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			return result.OK()
+		}
+		return result.Failed()
 	}
 	defer func() {
 		// At the end of reconcile, update the status of the resource base on the error
@@ -127,31 +133,29 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
-		return ctrl.Result{Requeue: true}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withReconciling("Reconciling"))
 	}
 	data, err := r.extractData(ctx, res)
 	if err != nil {
-		res.SetNotReady("ReadSchema", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("ReadSchema", err))
 	}
 	if data.hasTargets() {
-		res.SetNotReady("ReadSchema", "Multiple targets are not supported")
-		return ctrl.Result{}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("ReadSchema", errors.New("multiple targets are not supported")))
 	}
 	hash, err := data.hash()
 	if err != nil {
-		res.SetNotReady("CalculatingHash", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CalculatingHash", err))
 	}
 	// We need to update the ready condition immediately before doing
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
-		res.SetNotReady("Reconciling", "current schema does not match last applied")
-		return ctrl.Result{Requeue: true}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withReconciling("current schema does not match last applied"))
 	}
 	// ====================================================
 	// Starting area to handle the heavy jobs.
@@ -162,8 +166,8 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			res.SetNotReady("GettingDevDB", err.Error())
-			return xresult(err)
+			return status.Update(ctx, r.Client.Status(), res, statusOptions().
+				withNotReady("GettingDevDB", err))
 		}
 	}
 	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
@@ -188,40 +192,34 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return err
 	}
 	if err != nil {
-		res.SetNotReady("CreatingWorkingDir", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CreatingWorkingDir", err))
 	}
 	defer wd.Close()
 	cli, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
-		res.SetNotReady("CreatingAtlasClient", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CreatingAtlasClient", err))
 	}
 	var whoami *atlasexec.WhoAmI
 	switch whoami, err = cli.WhoAmI(ctx); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
-			err = errors.New("login is required to use custom atlas.hcl config")
-			res.SetNotReady("WhoAmI", err.Error())
-			r.recordErrEvent(res, err)
-			return xresult(err)
+			return status.Update(ctx, r.Client.Status(), res, statusOptions().
+				withNotReady("WhoAmI", errors.New("login is required to use custom atlas.hcl config")))
 		}
 	case err != nil:
-		res.SetNotReady("WhoAmI", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("WhoAmI", err))
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
 	var reports []*atlasexec.SchemaApply
 	shouldLint, err := data.shouldLint()
 	if err != nil {
-		res.SetNotReady("LintPolicyError", err.Error())
-		r.recordErrEvent(res, err)
-		return xresult(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("LintPolicyError", err))
 	}
 	switch desiredURL := data.Desired.String(); {
 	// The resource is connected to Atlas Cloud.

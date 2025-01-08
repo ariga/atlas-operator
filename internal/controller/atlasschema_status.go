@@ -104,6 +104,19 @@ func (m reportOption) GetResult() (reconcile.Result, error) {
 	return result.OK()
 }
 
+func (o *optionBuilder) withReconciling(message string) *optionBuilder {
+	o.opts = append(o.opts, conditionOption{
+		cond: metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "Reconciling",
+			Message: message,
+		},
+		err: &result.TransientError{},
+	})
+	return o
+}
+
 func (o *optionBuilder) withNotReady(reason string, err error) *optionBuilder {
 	err = IgnoreNonTransient(err)
 	o.opts = append(o.opts, conditionOption{
