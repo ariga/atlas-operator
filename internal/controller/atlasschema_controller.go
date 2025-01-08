@@ -30,6 +30,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -43,6 +44,8 @@ import (
 	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/ariga/atlas-operator/internal/result"
+	"github.com/ariga/atlas-operator/internal/status"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -108,7 +111,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		res = &dbv1alpha1.AtlasSchema{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			return result.OK()
+		}
+		return result.Failed()
 	}
 	defer func() {
 		// At the end of reconcile, update the status of the resource base on the error
@@ -127,31 +133,29 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
-		return ctrl.Result{Requeue: true}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withReconciling("Reconciling"))
 	}
 	data, err := r.extractData(ctx, res)
 	if err != nil {
-		res.SetNotReady("ReadSchema", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("ReadSchema", err))
 	}
 	if data.hasTargets() {
-		res.SetNotReady("ReadSchema", "Multiple targets are not supported")
-		return ctrl.Result{}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("ReadSchema", errors.New("multiple targets are not supported")))
 	}
 	hash, err := data.hash()
 	if err != nil {
-		res.SetNotReady("CalculatingHash", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CalculatingHash", err))
 	}
 	// We need to update the ready condition immediately before doing
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
-		res.SetNotReady("Reconciling", "current schema does not match last applied")
-		return ctrl.Result{Requeue: true}, nil
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withReconciling("current schema does not match last applied"))
 	}
 	// ====================================================
 	// Starting area to handle the heavy jobs.
@@ -162,8 +166,8 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			res.SetNotReady("GettingDevDB", err.Error())
-			return result(err)
+			return status.Update(ctx, r.Client.Status(), res, statusOptions().
+				withNotReady("GettingDevDB", err))
 		}
 	}
 	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
@@ -188,40 +192,34 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return err
 	}
 	if err != nil {
-		res.SetNotReady("CreatingWorkingDir", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CreatingWorkingDir", err))
 	}
 	defer wd.Close()
 	cli, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
-		res.SetNotReady("CreatingAtlasClient", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("CreatingAtlasClient", err))
 	}
 	var whoami *atlasexec.WhoAmI
 	switch whoami, err = cli.WhoAmI(ctx); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
-			err = errors.New("login is required to use custom atlas.hcl config")
-			res.SetNotReady("WhoAmI", err.Error())
-			r.recordErrEvent(res, err)
-			return result(err)
+			return status.Update(ctx, r.Client.Status(), res, statusOptions().
+				withNotReady("WhoAmI", errors.New("login is required to use custom atlas.hcl config")))
 		}
 	case err != nil:
-		res.SetNotReady("WhoAmI", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("WhoAmI", err))
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
 	var reports []*atlasexec.SchemaApply
 	shouldLint, err := data.shouldLint()
 	if err != nil {
-		res.SetNotReady("LintPolicyError", err.Error())
-		r.recordErrEvent(res, err)
-		return result(err)
+		return status.Update(ctx, r.Client.Status(), res, statusOptions().
+			withNotReady("LintPolicyError", err))
 	}
 	switch desiredURL := data.Desired.String(); {
 	// The resource is connected to Atlas Cloud.
@@ -231,7 +229,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			m.setLintReview(dbv1alpha1.LintReviewError, false)
 		})
 		if err != nil {
-			return result(err)
+			return xresult(err)
 		}
 		params := &atlasexec.SchemaApplyParams{
 			Env:    data.EnvName,
@@ -268,7 +266,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 						err = transient(err)
 					}
 					r.recordErrEvent(res, err)
-					return result(err)
+					return xresult(err)
 				}
 				state, err := cli.SchemaPush(ctx, &atlasexec.SchemaPushParams{
 					Env:  data.EnvName,
@@ -285,7 +283,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 						err = transient(err)
 					}
 					r.recordErrEvent(res, err)
-					return result(err)
+					return xresult(err)
 				}
 				desiredURL = state.URL
 			}
@@ -315,7 +313,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					err = transient(err)
 				}
 				r.recordErrEvent(res, err)
-				return result(err)
+				return xresult(err)
 			default:
 				log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
 				res.Status.PlanURL = plan.File.URL
@@ -342,7 +340,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				err = transient(err)
 			}
 			r.recordErrEvent(res, err)
-			return result(err)
+			return xresult(err)
 		// There are multiple pending plans. This is an unexpected state.
 		case len(plans) > 1:
 			planURLs := make([]string, 0, len(plans))
@@ -355,7 +353,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.recorder.Event(res, corev1.EventTypeWarning, reason, msg)
 			err = errors.New(msg)
 			r.recordErrEvent(res, err)
-			return result(err)
+			return xresult(err)
 		// There are no pending plans, but Atlas has been asked to review the changes ALWAYS.
 		case len(plans) == 0 && data.Policy.Lint.Review == dbv1alpha1.LintReviewAlways:
 			// Create a plan for the pending changes.
@@ -390,7 +388,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = editAtlasHCL(func(m *managedData) {
 			m.enableDestructive(true)
 		}); err != nil {
-			return result(err)
+			return xresult(err)
 		}
 		err = r.lint(ctx, wd, data, data.Vars)
 		switch d := (*destructiveErr)(nil); {
@@ -408,13 +406,13 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				err = transient(err)
 			}
 			r.recordErrEvent(res, err)
-			return result(err)
+			return xresult(err)
 		}
 		// Revert the destructive linting policy back to the original value.
 		if err = editAtlasHCL(func(m *managedData) {
 			m.Policy.Lint.Destructive.Error = false
 		}); err != nil {
-			return result(err)
+			return xresult(err)
 		}
 		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
@@ -433,7 +431,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				err = transient(err)
 			}
 			r.recordErrEvent(res, err)
-			return result(err)
+			return xresult(err)
 		}
 		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
@@ -459,14 +457,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			err = transient(err)
 		}
 		r.recordErrEvent(res, err)
-		return result(err)
+		return xresult(err)
 	}
 	s := dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
 		ObservedHash: hash,
 	}
 	if len(reports) != 1 {
-		return result(fmt.Errorf("unexpected number of schema reports: %d", len(reports)))
+		return xresult(fmt.Errorf("unexpected number of schema reports: %d", len(reports)))
 	}
 	log.Info("schema changes are applied", "applied", len(reports[0].Changes.Applied))
 	// Truncate the applied and pending changes to 1024 bytes.

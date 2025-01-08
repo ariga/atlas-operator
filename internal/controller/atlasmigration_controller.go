@@ -134,7 +134,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		res.SetNotReady(reason, err.Error())
 		r.recordErrEvent(res, err)
-		return result(err)
+		return xresult(err)
 	}
 	// We need to update the ready condition immediately before doing
 	// any heavy jobs if the hash is different from the last applied.
@@ -156,7 +156,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
 			res.SetNotReady("GettingDevDB", err.Error())
-			return result(err)
+			return xresult(err)
 		}
 	}
 	// Reconcile given resource
@@ -164,7 +164,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		r.recordErrEvent(res, err)
 	}
-	return result(err)
+	return xresult(err)
 }
 
 func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {

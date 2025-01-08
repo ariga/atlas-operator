@@ -185,7 +185,7 @@ func isTransient(err error) bool {
 // Permanent errors are not returned as errors because they cause
 // the controller to requeue indefinitely. Instead, they should be
 // reported as a status condition.
-func result(err error) (r ctrl.Result, _ error) {
+func xresult(err error) (r ctrl.Result, _ error) {
 	if t := (*transientError)(nil); errors.As(err, &t) {
 		r.RequeueAfter = t.after
 	}
