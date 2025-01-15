@@ -619,8 +619,7 @@ func (d *migrationData) render(w io.Writer) error {
 	}
 	// Merge the config block if it is set
 	if d.Config != nil {
-		mergeBlocks(d.Config.Body(), f.Body())
-		f = d.Config
+		mergeBlocks(f.Body(), d.Config.Body())
 	}
 	env := searchBlock(f.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
 	if env == nil {

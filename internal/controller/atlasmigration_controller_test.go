@@ -1063,12 +1063,12 @@ func TestCustomAtlasHCL(t *testing.T) {
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
 	require.EqualValues(t, `env "kubernetes" {
-  url = "sqlite://file2/?mode=memory"
-  dev = "sqlite://dev/?mode=memory"
   migration {
     dir      = "file://migrations"
     baseline = "20230412003626"
   }
+  dev = "sqlite://dev/?mode=memory"
+  url = "sqlite://file2/?mode=memory"
 }
 `, fileContent.String())
 }
@@ -1131,20 +1131,21 @@ env "kubernetes" {
 	}
 	var fileContent bytes.Buffer
 	require.NoError(t, migrate.render(&fileContent))
-	require.EqualValues(t, `atlas {
+	require.EqualValues(t, `env "kubernetes" {
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+  dev = "sqlite://dev/?mode=memory"
+  url = "sqlite://file2/?mode=memory"
+}
+atlas {
   cloud {
     token   = "my-token"
     url     = "https://atlasgo.io/"
     project = "my-project"
   }
 }
-env "kubernetes" {
-  url = "sqlite://file2/?mode=memory"
-  dev = "sqlite://dev/?mode=memory"
-  migration {
-    dir = "atlas://my-remote-dir?tag=my-remote-tag"
-  }
-}`, fileContent.String())
+`, fileContent.String())
 }
 
 func TestCustomAtlasHCL_BaselineTemplate(t *testing.T) {

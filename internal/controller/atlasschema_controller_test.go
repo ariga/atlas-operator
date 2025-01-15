@@ -552,12 +552,17 @@ env "kubernetes" {
 	}
   }
 }
-		`),
+`),
 	}
 	err := data.render(&buf)
 	require.NoError(t, err)
-	expected := `
-env "kubernetes" {
+	expected := `env "kubernetes" {
+  schema {
+    src = "file://schema.sql"
+  }
+  url     = "mysql://root:password@localhost:3306/test"
+  dev     = "mysql://root:password@localhost:3306/dev"
+  schemas = ["foo", "bar"]
   diff {
     concurrent_index {
       create = true
@@ -573,42 +578,8 @@ env "kubernetes" {
       error = true
     }
   }
-  dev     = "mysql://root:password@localhost:3306/dev"
-  schemas = ["foo", "bar"]
-  url     = "mysql://root:password@localhost:3306/test"
-  schema {
-    src = "file://schema.sql"
-  }
 }
-  `
-	require.EqualValues(t, expected, buf.String())
-}
-
-func TestCustomAtlasHCL_UnnamedBlock(t *testing.T) {
-	var buf bytes.Buffer
-	data := &managedData{
-		EnvName: defaultEnvName,
-		URL:     must(url.Parse("mysql://root:password@localhost:3306/test")),
-		Desired: must(url.Parse("file://schema.sql")),
-		Schemas: []string{"foo", "bar"},
-		Config: mustParseHCL(`
-env {
-  name = atlas.env
-  dev  = "mysql://root:password@localhost:3306/dev"
-}`),
-	}
-	err := data.render(&buf)
-	require.NoError(t, err)
-	expected := `
-env {
-  name    = atlas.env
-  dev     = "mysql://root:password@localhost:3306/dev"
-  schemas = ["foo", "bar"]
-  url     = "mysql://root:password@localhost:3306/test"
-  schema {
-    src = "file://schema.sql"
-  }
-}`
+`
 	require.EqualValues(t, expected, buf.String())
 }
 

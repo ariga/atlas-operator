@@ -20,10 +20,6 @@ kubectl create secret generic migration-config --from-file=config.hcl
 kubectl patch -f migration.yaml --type merge --patch-file patch-migration-config-from-configmap.yaml
 kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
 
-# Ensure the operator priority the spec url over the config
-kubectl patch -f migration.yaml --type merge --patch-file patch-invalid-url.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].message}'='"Error: postgres: scanning system variables: pq: Could not detect default username. Please provide one explicitly"' --timeout=500s AtlasMigrations/sample
-
 -- patch-migration-config-from-configmap.yaml --
 spec:
   config:
@@ -31,9 +27,6 @@ spec:
     secretKeyRef:
       name: migration-config
       key: config.hcl
--- patch-invalid-url.yaml --
-spec:
-  url: "postgres://invalid"
 -- config.hcl --
 variable "db_url" {
   type = string

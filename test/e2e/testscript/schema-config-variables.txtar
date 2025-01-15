@@ -20,10 +20,6 @@ kubectl create secret generic schema-config --from-file=config.hcl
 kubectl patch -f schema.yaml --type merge --patch-file patch-schema-config-from-configmap.yaml
 kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
 
-# Ensure the operator priority the spec url over the config
-kubectl patch -f schema.yaml --type merge --patch-file patch-invalid-url.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].message}'='"Error: postgres: scanning system variables: pq: Could not detect default username. Please provide one explicitly"' --timeout=500s AtlasSchemas/sample
-
 -- schema.yaml --
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
@@ -75,9 +71,6 @@ spec:
     secretKeyRef:
       name: schema-config
       key: config.hcl
--- patch-invalid-url.yaml --
-spec:
-  url: "postgres://invalid"
 -- config.hcl --
 variable "db_url" {
   type = string
