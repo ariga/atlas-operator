@@ -230,7 +230,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.recordErrEvent(res, err)
 		return result(err)
 	}
-	switch desiredURL := data.Desired.String(); {
+	switch desiredURL := data.targetURL(); {
 	// The resource is connected to Atlas Cloud.
 	case whoami != nil:
 		err = editAtlasHCL(func(m *managedData) {
@@ -257,7 +257,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// This is to ensure that the schema is in sync with the Atlas Cloud.
 			// And the schema is available for the Atlas CLI (on local machine)
 			// to modify or approve the changes.
-			if data.Desired.Scheme == dbv1alpha1.SchemaTypeFile {
+			if data.Desired != nil && data.Desired.Scheme == dbv1alpha1.SchemaTypeFile {
 				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 					Env:    data.EnvName,
 					URL:    desiredURL,
@@ -794,9 +794,6 @@ func (d *managedData) render(w io.Writer) error {
 	if d.EnvName == "" {
 		return errors.New("env name is not set")
 	}
-	if d.Desired == nil {
-		return errors.New("the desired state is not set")
-	}
 	env := searchBlock(f.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
 	if env == nil {
 		return fmt.Errorf("env block %q is not found", d.EnvName)
@@ -807,6 +804,10 @@ func (d *managedData) render(w io.Writer) error {
 	}
 	if b.GetAttribute("dev") == nil {
 		return errors.New("dev url is not set")
+	}
+	schema := searchBlock(b, hclwrite.NewBlock("schema", nil))
+	if schema == nil && b.GetAttribute("src") == nil {
+		return errors.New("the desired state is not set")
 	}
 	if _, err := f.WriteTo(w); err != nil {
 		return err

@@ -267,7 +267,7 @@ func (s Schema) DesiredState(ctx context.Context, r client.Reader, ns string) (*
 		}
 		return u, nil, err
 	}
-	return nil, nil, fmt.Errorf("no desired state specified")
+	return nil, nil, nil
 }
 
 // AsBlock returns the HCL block representation of the diff.
