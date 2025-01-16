@@ -1,0 +1,193 @@
+env SCHEMA_DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+env SCHEMA_DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic schema-db-creds --from-literal=url=${SCHEMA_DB_URL}
+kubectl create configmap schema-db-dev-creds --from-literal=url=${SCHEMA_DB_DEV_URL}
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=postgres pods
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+
+atlas schema inspect -u ${SCHEMA_DB_URL}
+cmp stdout schema.hcl
+
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: sample
+spec:
+  envName: "test"
+  cloud:
+    repo: atlas-operator
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  vars: 
+    - key: "db_url"
+      valueFrom: 
+        secretKeyRef:
+          name: schema-db-creds
+          key: url
+    - key: "dev_db_url"
+      valueFrom: 
+        configMapKeyRef:
+          name: schema-db-dev-creds
+          key: url
+  config: |
+    variable "db_url" {
+      type = string
+    }
+    variable "dev_db_url" {
+      type = string
+    }
+    data "external_schema" "users" {
+      program = ["echo", "CREATE TABLE users (id int not null, name varchar(255) not null, email varchar(255) not null, short_bio varchar(255) not null, PRIMARY KEY (id));"]
+    }
+    data "external_schema" "posts" {
+      program = ["echo", "CREATE TABLE posts (id int not null, title varchar(255) not null, body text not null, PRIMARY KEY (id));"]
+    }
+    data "composite_schema" "app" {
+      schema "public" {
+        url = data.external_schema.users.url
+      }
+      schema "public" {
+        url = data.external_schema.posts.url
+      }
+    }
+    env "test" {
+      schema {
+        src = data.composite_schema.app.url
+      }
+      url = var.db_url
+      dev = var.dev_db_url
+    }
+-- schema.hcl --
+table "posts" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  column "title" {
+    null = false
+    type = character_varying(255)
+  }
+  column "body" {
+    null = false
+    type = text
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  column "name" {
+    null = false
+    type = character_varying(255)
+  }
+  column "email" {
+    null = false
+    type = character_varying(255)
+  }
+  column "short_bio" {
+    null = false
+    type = character_varying(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

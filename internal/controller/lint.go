@@ -50,7 +50,7 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	plans, err := cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 		Env:    data.EnvName,
 		Vars:   vars,
-		To:     data.Desired.String(),
+		To:     data.targetURL(),
 		DryRun: true, // Dry run to get pending changes.
 	})
 	if err != nil {

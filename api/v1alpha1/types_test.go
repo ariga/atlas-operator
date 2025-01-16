@@ -124,10 +124,6 @@ func TestSchema_Content(t *testing.T) {
 			}).
 			Build()
 	)
-	// error
-	_, _, err := sch.DesiredState(ctx, client, "default")
-	require.ErrorContains(t, err, "no desired state specified")
-
 	sch.SQL = "bar"
 	u, data, err := sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
