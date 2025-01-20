@@ -758,7 +758,7 @@ func (d *managedData) repoURL() *url.URL {
 			Host:   d.Cloud.Repo,
 		})
 	// Fallback to desired URL if it's Cloud URL.
-	case d.Desired.Scheme == dbv1alpha1.SchemaTypeAtlas:
+	case d.Desired != nil && d.Desired.Scheme == dbv1alpha1.SchemaTypeAtlas:
 		c := *d.Desired
 		c.RawQuery = ""
 		return &c
