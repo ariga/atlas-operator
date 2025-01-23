@@ -333,7 +333,7 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 		})
 	}
 	// No changes because the migration down is not allowed
-	assert(ctrl.Result{}, false, "ProtectedFlowError", "Migrate down is not allowed", "", "", "")
+	assert(ctrl.Result{}, false, "ProtectedFlowError", "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade", "", "", "")
 
 	obj = &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
@@ -362,8 +362,8 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 		URL:     "THIS_IS_DEPLOYMENT_URL",
 	}
 	// Reconcile again
-	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "Deployment is waiting for approval", "", "THIS_IS_DEPLOYMENT_URL", "")
-	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "Deployment is waiting for approval", "", "THIS_IS_DEPLOYMENT_URL", "")
+	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "plan approval pending, review here: THIS_IS_DEPLOYMENT_URL", "", "THIS_IS_DEPLOYMENT_URL", "")
+	assert(ctrl.Result{RequeueAfter: 5 * time.Second}, false, "ApprovalPending", "plan approval pending, review here: THIS_IS_DEPLOYMENT_URL", "", "THIS_IS_DEPLOYMENT_URL", "")
 
 	mockExec.down.res = &atlasexec.MigrateDown{
 		Current: "2",
@@ -462,7 +462,7 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 		URL:     "",
 	}
 	// No changes because the migration down is not allowed
-	assert(ctrl.Result{}, false, "ProtectedFlowError", "Migrate down is not allowed", "", "", "")
+	assert(ctrl.Result{}, false, "ProtectedFlowError", "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade", "", "", "")
 
 	h.patch(t, &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
@@ -687,7 +687,7 @@ func TestReconcile_reconcile(t *testing.T) {
 	}
 	md, err := tt.r.extractData(context.Background(), res)
 	require.NoError(t, err)
-	err = tt.r.reconcile(context.Background(), md, res)
+	_, err = tt.r.reconcile(context.Background(), md, res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
@@ -746,7 +746,7 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	err = tt.r.reconcile(context.Background(), md, res)
+	_, err = tt.r.reconcile(context.Background(), md, res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
@@ -770,7 +770,7 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	}
 	md, err := tt.r.extractData(context.Background(), res)
 	require.NoError(t, err)
-	err = tt.r.reconcile(context.Background(), md, res)
+	_, err = tt.r.reconcile(context.Background(), md, res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003628", res.Status.LastAppliedVersion)
 
