@@ -58,6 +58,8 @@ type (
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful versioned migration.
 		LastApplied int64 `json:"lastApplied"`
+		// Failed is the number of times the migration has failed.
+		Failed int `json:"failed"`
 	}
 	// AtlasMigrationSpec defines the desired state of AtlasMigration
 	AtlasMigrationSpec struct {
@@ -157,6 +159,7 @@ func (m *AtlasMigration) IsHashModified(hash string) bool {
 
 // SetReady sets the ready condition to true.
 func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
+	status.Failed = 0
 	m.Status = status
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:   readyCond,
@@ -167,6 +170,7 @@ func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
 
 // SetNotReady sets the ready condition to false.
 func (m *AtlasMigration) SetNotReady(reason, message string) {
+	m.Status.Failed++
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,

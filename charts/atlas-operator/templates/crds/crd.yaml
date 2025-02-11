@@ -498,6 +498,9 @@ spec:
                   - type
                   type: object
                 type: array
+              failed:
+                description: Failed is the number of times the migration has failed.
+                type: integer
               lastApplied:
                 description: LastApplied is the unix timestamp of the most recent
                   successful versioned migration.
@@ -516,6 +519,7 @@ spec:
                   versioned migration.
                 type: string
             required:
+            - failed
             - lastApplied
             - observed_hash
             type: object
@@ -1079,6 +1083,10 @@ spec:
                   - type
                   type: object
                 type: array
+              failed:
+                description: Failed is the number of times the schema has failed to
+                  apply.
+                type: integer
               last_applied:
                 description: LastApplied is the unix timestamp of the most recent
                   successful schema apply operation.
@@ -1096,6 +1104,7 @@ spec:
                 description: PlanURL is the URL of the schema plan to apply.
                 type: string
             required:
+            - failed
             - last_applied
             - observed_hash
             type: object

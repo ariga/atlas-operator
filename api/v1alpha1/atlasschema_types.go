@@ -68,6 +68,8 @@ type (
 		// PlanLink is the link to the schema plan on the Atlas Cloud.
 		// +optional
 		PlanLink string `json:"planLink"`
+		// Failed is the number of times the schema has failed to apply.
+		Failed int `json:"failed"`
 	}
 	// AtlasSchemaSpec defines the desired state of AtlasSchema
 	AtlasSchemaSpec struct {
@@ -211,6 +213,7 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	} else {
 		msg = "The schema has been applied successfully."
 	}
+	status.Failed = 0
 	sc.Status = status
 	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
@@ -223,6 +226,7 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 // SetNotReady sets the Ready condition to false
 // with the given reason and message.
 func (sc *AtlasSchema) SetNotReady(reason, msg string) {
+	sc.Status.Failed++
 	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
