@@ -166,23 +166,62 @@ func TestReconcile_Reconcile(t *testing.T) {
 	}, h.events())
 }
 
-func TestReconcile_RetriedCount(t *testing.T) {
+func TestReconcile_FailedCount(t *testing.T) {
 	tt := newTest(t)
 	tt.k8s.put(&dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
-		Spec:       dbv1alpha1.AtlasSchemaSpec{},
+		Spec: dbv1alpha1.AtlasSchemaSpec{
+			BackoffLimit: 3,
+		},
 	})
-	// First failed reconcile should increment the failed count to 1
-	tt.r.Reconcile(context.Background(), req())
+	// Do not count first resource creation as a failure
+	r, _ := tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 0, tt.state().Status.Failed)
+	require.EqualValues(t, ctrl.Result{Requeue: true, RequeueAfter: 0}, r)
+	// First failed reconcile should increase the failed count to 1
+	r1, _ := tt.r.Reconcile(context.Background(), req())
 	require.EqualValues(t, 1, tt.state().Status.Failed)
-	// Second failed reconcile should increment the failed count to 2
-	tt.r.Reconcile(context.Background(), req())
+	require.Greater(t, r1.RequeueAfter, r.RequeueAfter)
+	// Second failed reconcile should increase the failed count to 2
+	r2, _ := tt.r.Reconcile(context.Background(), req())
 	require.EqualValues(t, 2, tt.state().Status.Failed)
+	require.Greater(t, r2.RequeueAfter, r1.RequeueAfter)
+	// Third failed reconcile should increase the failed count to 3
+	r3, _ := tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 3, tt.state().Status.Failed)
+	require.Greater(t, r3.RequeueAfter, r2.RequeueAfter)
+	// Fourth failed reconcile should not requeue because the backoff limit is reached
+	r4, _ := tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 4, tt.state().Status.Failed)
+	require.EqualValues(t, ctrl.Result{}, r4)
+	events := tt.events()
+	require.Equal(t, "Warning BackoffLimitExceeded backoff limit exceeded", events[len(events)-1])
+	// Reset the failed count to 0 when set of conditions is changed
 	tt.k8s.put(&dbv1alpha1.AtlasSchema{
 		ObjectMeta: objmeta(),
 		Spec: dbv1alpha1.AtlasSchemaSpec{
-			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
-			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
+			BackoffLimit: 3,
+		},
+		Status: dbv1alpha1.AtlasSchemaStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   schemaReadyCond,
+					Status: metav1.ConditionFalse,
+					Reason: "Changed",
+				},
+			},
+		},
+	})
+	// First failed reconcile after the conditions are changed should reset the failed count to 0
+	r5, _ := tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 1, tt.state().Status.Failed)
+	require.Greater(t, r5.RequeueAfter, time.Duration(0))
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
+		ObjectMeta: objmeta(),
+		Spec: dbv1alpha1.AtlasSchemaSpec{
+			TargetSpec:   dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			Schema:       dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
+			BackoffLimit: 3,
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{
 			Failed: 1,
@@ -194,7 +233,7 @@ func TestReconcile_RetriedCount(t *testing.T) {
 			},
 		},
 	})
-	// Third successful reconcile should reset the failed count to 0
+	// Successful reconcile should reset the failed count to 0
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
 	require.EqualValues(t, 0, tt.state().Status.Failed)
@@ -329,7 +368,7 @@ func TestReconcile_Credentials_BadPassSecret(t *testing.T) {
 	request := req()
 	resp, err := tt.r.Reconcile(context.Background(), request)
 	require.NoError(t, err)
-	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, resp)
+	require.EqualValues(t, ctrl.Result{RequeueAfter: 5 * time.Second}, resp)
 	events := tt.events()
 	require.EqualValues(t, `Warning TransientErr "pass-secret" not found`, events[0])
 }
@@ -391,7 +430,7 @@ func TestConfigMapNotFound(t *testing.T) {
 
 	res, err := tt.r.Reconcile(ctx, req())
 	require.NoError(t, err)
-	require.EqualValues(t, ctrl.Result{RequeueAfter: time.Second * 5}, res)
+	require.EqualValues(t, ctrl.Result{RequeueAfter: 5 * time.Second}, res)
 	cond := tt.cond()
 	require.Contains(t, cond.Message, `"schema-configmap" not found`)
 }

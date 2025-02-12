@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -123,7 +124,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Reconciling")
+		res.SetReconciling("Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -134,7 +135,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(data.ObservedHash) {
-		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Current migration data has changed")
+		res.SetReconciling("Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -149,7 +150,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
+			return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
 		}
 	}
 	// Reconcile given resource
@@ -330,11 +331,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		switch run.Status {
 		case StatePending:
 			res.Status.ApprovalURL = run.URL
-			err = transient(&ProtectedFlowError{
-				reason: dbv1alpha1.ReasonApprovalPending,
-				msg:    fmt.Sprintf("plan approval pending, review here: %s", run.URL),
-			})
-			return r.resultErr(res, err, dbv1alpha1.ReasonApprovalPending)
+			return r.resultPending(res, dbv1alpha1.ReasonApprovalPending, fmt.Sprintf("plan approval pending, review here: %s", run.URL))
 		case StateAborted:
 			res.Status.ApprovalURL = run.URL
 			// Migration is aborted, no need to reapply
@@ -553,7 +550,11 @@ func (r *AtlasMigrationReconciler) resultErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 func (r *AtlasMigrationReconciler) resultCLIErr(
@@ -567,7 +568,20 @@ func (r *AtlasMigrationReconciler) resultCLIErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
+}
+
+func (r *AtlasMigrationReconciler) resultPending(
+	res *dbv1alpha1.AtlasMigration, reason, message string) (ctrl.Result, error) {
+	res.SetNotReady(reason, message)
+	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
+	return ctrl.Result{
+		RequeueAfter: time.Second * 5,
+	}, nil
 }
 
 // Calculate the hash of the given data

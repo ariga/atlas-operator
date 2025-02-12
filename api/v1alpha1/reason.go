@@ -30,3 +30,13 @@ const (
 	// ReasonCreatingWorkingDir represents the reason for creating a working directory.
 	ReasonCreatingWorkingDir = "CreatingWorkingDir"
 )
+
+// isFailedReason returns true if the given reason is a failed reason.
+func isFailedReason(reason string) bool {
+	switch reason {
+	case ReasonReconciling, ReasonGettingDevDB, ReasonApprovalPending:
+		return false
+	default:
+		return true
+	}
+}

@@ -163,8 +163,7 @@ func isConnectionErr(err error) bool {
 
 // transientError is an error that should be retried.
 type transientError struct {
-	err   error
-	after time.Duration
+	err error
 }
 
 func (t *transientError) Error() string { return t.err.Error() }
@@ -172,16 +171,7 @@ func (t *transientError) Unwrap() error { return t.err }
 
 // transient wraps an error to indicate that it should be retried.
 func transient(err error) error {
-	return transientAfter(err, 5*time.Second)
-}
-
-// transientAfter wraps an error to indicate that it should be retried after
-// the given duration.
-func transientAfter(err error, after time.Duration) error {
-	if err == nil {
-		return nil
-	}
-	return &transientError{err: err, after: after}
+	return &transientError{err: err}
 }
 
 func isTransient(err error) bool {
@@ -194,9 +184,9 @@ func isTransient(err error) bool {
 // Permanent errors are not returned as errors because they cause
 // the controller to requeue indefinitely. Instead, they should be
 // reported as a status condition.
-func result(err error) (r ctrl.Result, _ error) {
+func result(err error, retryAfter time.Duration) (r ctrl.Result, _ error) {
 	if t := (*transientError)(nil); errors.As(err, &t) {
-		r.RequeueAfter = t.after
+		r.RequeueAfter = retryAfter
 	}
 	return r, nil
 }
@@ -283,4 +273,10 @@ func mapsSorted[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 			}
 		}
 	}
+}
+
+// backoffDelayAt returns the backoff delay at the given retry count.
+// Backoff is exponential with base 5.
+func backoffDelayAt(retry int) time.Duration {
+	return time.Duration(retry) * 5 * time.Second
 }
