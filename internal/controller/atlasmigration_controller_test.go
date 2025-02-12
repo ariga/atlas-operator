@@ -1182,6 +1182,25 @@ env "kubernetes" {
 `, fileContent.String())
 }
 
+func TestMigration_RetriedCount(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultAtlasMigration()
+	// First successful reconcile should reset failed count to 0
+	tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 0, tt.status().Failed)
+	// Second reconcile with bad SQL should increment failed count to 1
+	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
+	tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 1, tt.status().Failed)
+	// Third reconcile with bad SQL should increment failed count to 2
+	tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 2, tt.status().Failed)
+	// Fifth reconcile with successful migration should reset failed count to 0
+	tt.removeMigrationScript("20230412003627_bad_sql.sql")
+	tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 0, tt.status().Failed)
+}
+
 func migrationObjmeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:      "atlas-migration",
@@ -1261,6 +1280,26 @@ func (t *migrationTest) addMigrationScript(name, content string) {
 	// Update the configmap
 	cm.Data[name] = content
 	t.k8s.put(&cm)
+
+	sum, err := must(memDir(cm.Data)).Checksum()
+	require.NoError(t, err)
+	atlasSum, err := sum.MarshalText()
+	require.NoError(t, err)
+	cm.Data[migrate.HashFileName] = string(atlasSum)
+	t.k8s.put(&cm)
+}
+
+func (t *migrationTest) removeMigrationScript(name string) {
+	// Get the current configmap
+	cm := corev1.ConfigMap{}
+	err := t.k8s.Get(context.Background(), types.NamespacedName{
+		Name:      "my-configmap",
+		Namespace: "default",
+	}, &cm)
+	require.NoError(t, err)
+
+	// Update the configmap
+	delete(cm.Data, name)
 
 	sum, err := must(memDir(cm.Data)).Checksum()
 	require.NoError(t, err)

@@ -166,6 +166,40 @@ func TestReconcile_Reconcile(t *testing.T) {
 	}, h.events())
 }
 
+func TestReconcile_RetriedCount(t *testing.T) {
+	tt := newTest(t)
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
+		ObjectMeta: objmeta(),
+		Spec:       dbv1alpha1.AtlasSchemaSpec{},
+	})
+	// First failed reconcile should increment the failed count to 1
+	tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 1, tt.state().Status.Failed)
+	// Second failed reconcile should increment the failed count to 2
+	tt.r.Reconcile(context.Background(), req())
+	require.EqualValues(t, 2, tt.state().Status.Failed)
+	tt.k8s.put(&dbv1alpha1.AtlasSchema{
+		ObjectMeta: objmeta(),
+		Spec: dbv1alpha1.AtlasSchemaSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file2/?mode=memory"},
+			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
+		},
+		Status: dbv1alpha1.AtlasSchemaStatus{
+			Failed: 1,
+			Conditions: []metav1.Condition{
+				{
+					Type:   schemaReadyCond,
+					Status: metav1.ConditionFalse,
+				},
+			},
+		},
+	})
+	// Third successful reconcile should reset the failed count to 0
+	_, err := tt.r.Reconcile(context.Background(), req())
+	require.NoError(t, err)
+	require.EqualValues(t, 0, tt.state().Status.Failed)
+}
+
 func TestExtractData_CustomDevURL(t *testing.T) {
 	sc := conditionReconciling()
 	sc.Spec.DevURL = "mysql://dev"
@@ -793,6 +827,10 @@ func (m *mockClient) Create(ctx context.Context, obj client.Object, opts ...clie
 func (t *test) cond() metav1.Condition {
 	s := t.k8s.state[req().NamespacedName].(*dbv1alpha1.AtlasSchema)
 	return s.Status.Conditions[0]
+}
+
+func (t *test) state() *dbv1alpha1.AtlasSchema {
+	return t.k8s.state[req().NamespacedName].(*dbv1alpha1.AtlasSchema)
 }
 
 func (t *test) initDB(statement string) {

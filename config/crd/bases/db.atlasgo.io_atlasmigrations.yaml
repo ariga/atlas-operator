@@ -512,6 +512,9 @@ spec:
                   - type
                   type: object
                 type: array
+              failed:
+                description: Failed is the number of times the migration has failed.
+                type: integer
               lastApplied:
                 description: LastApplied is the unix timestamp of the most recent
                   successful versioned migration.
@@ -530,6 +533,7 @@ spec:
                   versioned migration.
                 type: string
             required:
+            - failed
             - lastApplied
             - observed_hash
             type: object
