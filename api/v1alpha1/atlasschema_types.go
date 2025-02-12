@@ -95,6 +95,9 @@ type (
 		Policy *Policy `json:"policy,omitempty"`
 		// The names of the schemas (named databases) on the target database to be managed.
 		Schemas []string `json:"schemas,omitempty"`
+		// BackoffLimit is the number of retries on error.
+		// +kubebuilder:default=20
+		BackoffLimit int `json:"backoffLimit,omitempty"`
 	}
 	// Schema defines the desired state of the target database schema in plain SQL or HCL.
 	Schema struct {
@@ -201,6 +204,17 @@ func (sc *AtlasSchema) IsHashModified(hash string) bool {
 	return hash != sc.Status.ObservedHash
 }
 
+// SetReconciling sets the ready condition to false with the reason "Reconciling".
+func (sc *AtlasSchema) SetReconciling(message string) {
+	sc.Status.Failed = 0
+	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+		Type:    readyCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  "Reconciling",
+		Message: message,
+	})
+}
+
 // SetReady sets the Ready condition to true
 func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	var msg string
@@ -226,13 +240,22 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 // SetNotReady sets the Ready condition to false
 // with the given reason and message.
 func (sc *AtlasSchema) SetNotReady(reason, msg string) {
-	sc.Status.Failed++
-	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+	changed := meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: msg,
 	})
+	// Reset the failed count if the condition changed.
+	if changed {
+		sc.Status.Failed = 0
+	}
+	sc.Status.Failed++
+}
+
+// IsExceedBackoffLimit returns true if the failed count exceeds the backoff limit.
+func (sc *AtlasSchema) IsExceedBackoffLimit() bool {
+	return sc.Spec.BackoffLimit > 0 && sc.Status.Failed > sc.Spec.BackoffLimit
 }
 
 // Schema reader types (URL schemes).

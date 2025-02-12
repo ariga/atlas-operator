@@ -59,6 +59,10 @@ spec:
           spec:
             description: AtlasMigrationSpec defines the desired state of AtlasMigration
             properties:
+              backoffLimit:
+                default: 20
+                description: BackoffLimit is the number of retries on error.
+                type: integer
               baseline:
                 description: BaselineVersion defines the baseline version of the database
                   on the first migration.

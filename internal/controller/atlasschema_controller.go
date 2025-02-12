@@ -121,7 +121,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
+		res.SetReconciling("Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -182,7 +182,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
-		res.SetNotReady("Reconciling", "current schema does not match last applied")
+		res.SetReconciling("current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -214,7 +214,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			m.setLintReview(dbv1alpha1.LintReviewError, false)
 		})
 		if err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		params := &atlasexec.SchemaApplyParams{
 			Env:    data.EnvName,
@@ -339,7 +339,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = editAtlasHCL(func(m *managedData) {
 			m.enableDestructive(true)
 		}); err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		err = r.lint(ctx, wd, data, data.Vars)
 		switch d := (*destructiveErr)(nil); {
@@ -356,7 +356,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = editAtlasHCL(func(m *managedData) {
 			m.Policy.Lint.Destructive.Error = false
 		}); err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
@@ -395,7 +395,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		ObservedHash: hash,
 	}
 	if len(reports) != 1 {
-		return result(fmt.Errorf("unexpected number of schema reports: %d", len(reports)))
+		return r.resultErr(res, fmt.Errorf("unexpected number of reports: %d", len(reports)), "ApplyingSchema")
 	}
 	log.Info("schema changes are applied", "applied", len(reports[0].Changes.Applied))
 	// Truncate the applied and pending changes to 1024 bytes.
@@ -550,7 +550,11 @@ func (r *AtlasSchemaReconciler) resultErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 func (r *AtlasSchemaReconciler) resultCLIErr(
@@ -561,7 +565,11 @@ func (r *AtlasSchemaReconciler) resultCLIErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "Backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 // ShouldLint returns true if the linting policy is set to error.

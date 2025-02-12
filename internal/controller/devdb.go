@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,7 +58,7 @@ type (
 	}
 )
 
-var errWaitDevDB = transientAfter(errors.New("waiting for dev database to be ready"), 15*time.Second)
+var errWaitDevDB = transient(errors.New("waiting for dev database to be ready"))
 
 func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconciler {
 	if r == nil {

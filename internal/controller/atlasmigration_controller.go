@@ -123,7 +123,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
+		res.SetReconciling("Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -134,7 +134,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(data.ObservedHash) {
-		res.SetNotReady("Reconciling", "Current migration data has changed")
+		res.SetReconciling("Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -553,7 +553,11 @@ func (r *AtlasMigrationReconciler) resultErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 func (r *AtlasMigrationReconciler) resultCLIErr(
@@ -567,7 +571,11 @@ func (r *AtlasMigrationReconciler) resultCLIErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 // Calculate the hash of the given data

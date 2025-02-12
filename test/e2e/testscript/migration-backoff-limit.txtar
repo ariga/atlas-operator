@@ -1,0 +1,111 @@
+env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
+kubectl apply -f database.yaml
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/mysql
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=mysql pods
+kubectl apply -f migration.yaml
+
+# Wait for the controller to detect the change
+exec sleep 15
+
+kubectl get -o jsonpath --template='{.status.failed}' AtlasMigration/mysql
+stdout 3
+
+# Create configmap to store the migrations directory
+kubectl create configmap migration-dir --from-file=migrations-v1
+kubectl patch -f migration.yaml --type merge --patch-file patch-target.yaml
+
+# Wait for the controller to detect the change
+exec sleep 10
+
+kubectl-wait-ready AtlasMigration/mysql
+kubectl get -o jsonpath --template='{.status.failed}' AtlasMigration/mysql
+stdout 0
+
+-- migrations-v1/atlas.sum --
+h1:XBXbh+rzLis8gknjlIqnxXLBkOZ+sN2v2p7KjyVFYYM=
+20230316085611.sql h1:br6W6LPEnnsejlz/7hRm9zthwStCzjN2vZkqVPxlmvo=
+20230316090502.sql h1:GfeRjkSeoCt3JVRtLQNa/r50lRfpAPXS7AqTU2ZNFgY=
+-- migrations-v1/20230316085611.sql --
+-- Create "users" table
+CREATE TABLE `users` (
+  `id` int NOT NULL,
+  `user_name` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`)
+) CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+-- migrations-v1/20230316090502.sql --
+-- Create "posts" table
+CREATE TABLE `posts` (
+  `id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `user_id` (`user_id`),
+  CONSTRAINT `posts_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+) CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+-- migration.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: mysql
+spec:
+  backoffLimit: 2
+  dir:
+    configMapRef:
+      name: "migration-dir"
+-- patch-target.yaml --
+spec:
+  backoffLimit: 20
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:latest
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: pass
+            - name: MYSQL_DATABASE
+              value: myapp
+          ports:
+            - containerPort: 3306
+              name: mysql
+          startupProbe:
+            exec:
+              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+            failureThreshold: 30
+            periodSeconds: 10
