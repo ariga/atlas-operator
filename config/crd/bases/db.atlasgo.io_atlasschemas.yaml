@@ -567,6 +567,7 @@ spec:
                   type: object
                 type: array
               failed:
+                default: 0
                 description: Failed is the number of times the schema has failed to
                   apply.
                 type: integer
