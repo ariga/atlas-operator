@@ -59,6 +59,7 @@ type (
 		// LastApplied is the unix timestamp of the most recent successful versioned migration.
 		LastApplied int64 `json:"lastApplied"`
 		// Failed is the number of times the migration has failed.
+		// +kubebuilder:default=0
 		Failed int `json:"failed"`
 	}
 	// AtlasMigrationSpec defines the desired state of AtlasMigration

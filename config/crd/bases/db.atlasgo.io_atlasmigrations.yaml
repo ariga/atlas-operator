@@ -513,6 +513,7 @@ spec:
                   type: object
                 type: array
               failed:
+                default: 0
                 description: Failed is the number of times the migration has failed.
                 type: integer
               lastApplied:

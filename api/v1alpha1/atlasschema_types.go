@@ -69,6 +69,7 @@ type (
 		// +optional
 		PlanLink string `json:"planLink"`
 		// Failed is the number of times the schema has failed to apply.
+		// +kubebuilder:default=0
 		Failed int `json:"failed"`
 	}
 	// AtlasSchemaSpec defines the desired state of AtlasSchema
