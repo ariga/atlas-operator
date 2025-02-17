@@ -40,7 +40,7 @@ jobs:
           make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             KIND_CLUSTER=chart-testing \
-            TEST_RUN='(schema|migration)-mysql'
+            TEST_RUN='schema-plan-concurrently'
         env:
           SKAFFOLD_PROFILE: helm
       - name: test env vars
