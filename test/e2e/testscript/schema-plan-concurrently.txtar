@@ -49,7 +49,9 @@ atlas schema plan approve --url=${PLAN_URL}
 
 exec sleep 20
 kubectl get AtlasSchemas/postgres -o jsonpath --template='{.status.conditions[*].message}'
+stdout "test"
 kubectl get AtlasSchemas/postgres -o jsonpath --template='{.status.conditions[*].reason}'
+
 
 kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApplyingSchema --timeout=500s AtlasSchemas/postgres
 # Check the error message
