@@ -164,7 +164,7 @@ func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:   readyCond,
 		Status: metav1.ConditionTrue,
-		Reason: "Applied",
+		Reason: ReasonApplied,
 	})
 }
 

@@ -134,7 +134,7 @@ func TestReconcile_Reconcile(t *testing.T) {
 		},
 	})
 	// Third reconcile, return error for missing schema
-	assert(ctrl.Result{}, false, "CreatingWorkingDir", "the desired state is not set")
+	assert(ctrl.Result{}, false, dbv1alpha1.ReasonCreatingWorkingDir, "the desired state is not set")
 	// Add schema,
 	h.patch(t, &dbv1alpha1.AtlasSchema{
 		ObjectMeta: meta,

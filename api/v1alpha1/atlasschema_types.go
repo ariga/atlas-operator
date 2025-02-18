@@ -218,7 +218,7 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Applied",
+		Reason:  ReasonApplied,
 		Message: msg,
 	})
 }
