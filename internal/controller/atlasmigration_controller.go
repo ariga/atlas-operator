@@ -123,7 +123,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
+		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -134,7 +134,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(data.ObservedHash) {
-		res.SetNotReady("Reconciling", "Current migration data has changed")
+		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Current migration data has changed")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -149,7 +149,7 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			return r.resultErr(res, err, "GettingDevDB")
+			return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
 		}
 	}
 	// Reconcile given resource
@@ -260,7 +260,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	defer wd.Close()
 	c, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
-		return r.resultErr(res, err, "CreatingAtlasClient")
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
 	var whoami *atlasexec.WhoAmI
 	switch whoami, err = c.WhoAmI(ctx); {
@@ -268,10 +268,10 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
 			err = errors.New("login is required to use custom atlas.hcl config")
-			return r.resultErr(res, err, "WhoAmI")
+			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 		}
 	case err != nil:
-		return r.resultErr(res, err, "WhoAmI")
+		return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
@@ -331,10 +331,10 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		case StatePending:
 			res.Status.ApprovalURL = run.URL
 			err = transient(&ProtectedFlowError{
-				reason: "ApprovalPending",
+				reason: dbv1alpha1.ReasonApprovalPending,
 				msg:    fmt.Sprintf("plan approval pending, review here: %s", run.URL),
 			})
-			return r.resultErr(res, err, "ApprovalPending")
+			return r.resultErr(res, err, dbv1alpha1.ReasonApprovalPending)
 		case StateAborted:
 			res.Status.ApprovalURL = run.URL
 			// Migration is aborted, no need to reapply

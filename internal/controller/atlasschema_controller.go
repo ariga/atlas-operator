@@ -121,7 +121,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady("Reconciling", "Reconciling")
+		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -144,14 +144,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			return r.resultErr(res, err, "GettingDevDB")
+			return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
 		}
 	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
 	wd, err := atlasexec.NewWorkingDir(opts...)
 	if err != nil {
-		return r.resultErr(res, err, "CreatingWorkingDir")
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingWorkingDir)
 	}
 	defer wd.Close()
 	// This function will be used to edit and re-render the atlas.hcl file in the working directory.
@@ -166,7 +166,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	cli, err := r.atlasClient(wd.Path(), data.Cloud)
 	if err != nil {
-		return r.resultErr(res, err, "CreatingAtlasClient")
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
 	// Calculate the hash of the current schema.
 	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
@@ -182,7 +182,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
-		res.SetNotReady("Reconciling", "current schema does not match last applied")
+		res.SetNotReady(dbv1alpha1.ReasonReconciling, "current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -194,10 +194,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
-			return r.resultErr(res, err, "WhoAmI")
+			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 		}
 	case err != nil:
-		res.SetNotReady("WhoAmI", err.Error())
+		res.SetNotReady(dbv1alpha1.ReasonWhoAmI, err.Error())
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
@@ -282,7 +282,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
 				res.Status.PlanURL = plan.File.URL
 				res.Status.PlanLink = plan.File.Link
-				reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
+				reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
 				r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
 				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 			}
@@ -314,7 +314,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("found a pending schema plan, waiting for approval", "plan", plans[0].URL)
 			res.Status.PlanURL = plans[0].URL
 			res.Status.PlanLink = plans[0].Link
-			reason, msg := "ApprovalPending", "Schema plan is waiting for approval"
+			reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
