@@ -85,7 +85,7 @@ jobs:
           context: .
           build-args: |
             ATLAS_VERSION=${{ steps.atlas.outputs.version }}
-            OPERATOR_VERSION=v${{ github.event.inputs.version }}
+            OPERATOR_VERSION=${{ github.event.inputs.version }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: latest,${{ github.event.inputs.version }}
@@ -115,12 +115,16 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: Validate semver syntax
         run: echo "${{ github.event.inputs.version }}" | grep -e "^v[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}$"
+      - name: Get Semantic Version
+        id: semver
+        run: |
+          VERSION=$(echo ${{ github.event.inputs.version }} | sed 's/^v//')
+          echo "::set-output name=version::$VERSION"
       - name: Update Chart Version
         working-directory: charts/atlas-operator/
         run: |
-          VERSION=$(echo ${{ github.event.inputs.version }} | sed 's/^v//')
-          sed -i "s/^version: .*/version: $VERSION/" Chart.yaml
-          sed -i "s/^appVersion: .*/appVersion: $VERSION/" Chart.yaml
+          sed -i "s/^version: .*/version: ${{ steps.semver.outputs.version }}/" Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: ${{ steps.semver.outputs.version }}/" Chart.yaml
           echo "Updated Chart.yaml:"
           grep -E '^(version|appVersion):' Chart.yaml
       - name: Commit changes
@@ -142,7 +146,7 @@ jobs:
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io/ariga/atlas-operator --username ${{ github.repository_owner }} --password-stdin
       - name: helm push
         run: |
-          helm push atlas-operator-${{ github.event.inputs.version }}.tgz oci://ghcr.io/ariga/charts
+          helm push atlas-operator-${{ steps.semver.outputs.version }}.tgz oci://ghcr.io/ariga/charts
       - name: Create release
         run: |
-          gh release create ${{ github.event.inputs.version }} atlas-operator-${{ github.event.inputs.version }}.tgz -t ${{ github.event.inputs.version }} -n "Release ${{ github.event.inputs.version }}"
+          gh release create ${{ github.event.inputs.version }} atlas-operator-${{ steps.semver.outputs.version }}.tgz -t ${{ github.event.inputs.version }} -n "Release ${{ github.event.inputs.version }}"
