@@ -13,14 +13,17 @@
 # limitations under the License.
 
 name: Helm
+run-name: ${{ github.ref_name }}
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Chart version'
+        type: string
+        required: true
+  push:
+    tags:
+      - "v*"
 jobs:
   helm-test:
     name: Test
@@ -50,7 +53,6 @@ jobs:
   helm-push:
     name: Push to ghcr.io
     needs: [helm-test]
-    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,16 +60,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
-      - name: get version
-        id: version
+      - name: Set version env
+        id: set_version
+        ## if version is not provided as input, use the tag name
         run: |
-          CHART_VERSION=$(helm show chart atlas-operator | grep '^version' | awk '{print $2}')
-          echo "::set-output name=CHART_VERSION::$CHART_VERSION"
+          echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+              echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+      - name: validate semver syntax
+        run: echo "${{ steps.set_version.outputs.tag }}" | grep -e "^v[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}$"
       - name: helm package
-        run: helm package atlas-operator
+        run: helm package atlas-operator --version ${{ steps.set_version.outputs.tag }} --app-version ${{ steps.set_version.outputs.tag }}
       - name: login to gcr using helm
         run: |
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io/ariga/atlas-operator --username ${{ github.repository_owner }} --password-stdin
       - name: helm push
         run: |
-          helm push atlas-operator-${{ steps.version.outputs.CHART_VERSION }}.tgz oci://ghcr.io/ariga/charts
+          helm push atlas-operator-${{ steps.set_version.outputs.tag }}.tgz oci://ghcr.io/ariga/charts
