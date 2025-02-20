@@ -72,6 +72,8 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.inputs.version }}
           labels: |
             io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
             org.opencontainers.image.title=atlas-operator
@@ -88,7 +90,7 @@ jobs:
             OPERATOR_VERSION=${{ github.event.inputs.version }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          tags: latest,${{ github.event.inputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
       - name: Run Trivy vulnerability scanner
