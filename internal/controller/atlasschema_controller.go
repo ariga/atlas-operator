@@ -121,7 +121,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 	// When the resource is first created, create the "Ready" condition.
 	if len(res.Status.Conditions) == 0 {
-		res.SetNotReady(dbv1alpha1.ReasonReconciling, "Reconciling")
+		res.SetReconciling("Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	data, err := r.extractData(ctx, res)
@@ -144,7 +144,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
 		if err != nil {
-			return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
+			return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
 		}
 	}
 	// Create a working directory for the Atlas CLI
@@ -182,7 +182,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// any heavy jobs if the hash is different from the last applied.
 	// This is to ensure that other tools know we are still applying the changes.
 	if res.IsReady() && res.IsHashModified(hash) {
-		res.SetNotReady(dbv1alpha1.ReasonReconciling, "current schema does not match last applied")
+		res.SetReconciling("current schema does not match last applied")
 		return ctrl.Result{Requeue: true}, nil
 	}
 	// ====================================================
@@ -214,7 +214,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			m.setLintReview(dbv1alpha1.LintReviewError, false)
 		})
 		if err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		params := &atlasexec.SchemaApplyParams{
 			Env:    data.EnvName,
@@ -282,9 +282,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
 				res.Status.PlanURL = plan.File.URL
 				res.Status.PlanLink = plan.File.Link
-				reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
-				r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
-				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+				return r.resultPending(res, dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval")
 			}
 		}
 		// List the schema plans to check if there are any plans.
@@ -339,7 +337,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = editAtlasHCL(func(m *managedData) {
 			m.enableDestructive(true)
 		}); err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		err = r.lint(ctx, wd, data, data.Vars)
 		switch d := (*destructiveErr)(nil); {
@@ -356,7 +354,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = editAtlasHCL(func(m *managedData) {
 			m.Policy.Lint.Destructive.Error = false
 		}); err != nil {
-			return result(err)
+			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
 		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
@@ -395,7 +393,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		ObservedHash: hash,
 	}
 	if len(reports) != 1 {
-		return result(fmt.Errorf("unexpected number of schema reports: %d", len(reports)))
+		return r.resultErr(res, fmt.Errorf("unexpected number of reports: %d", len(reports)), "ApplyingSchema")
 	}
 	log.Info("schema changes are applied", "applied", len(reports[0].Changes.Applied))
 	// Truncate the applied and pending changes to 1024 bytes.
@@ -550,7 +548,11 @@ func (r *AtlasSchemaReconciler) resultErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
 func (r *AtlasSchemaReconciler) resultCLIErr(
@@ -561,7 +563,23 @@ func (r *AtlasSchemaReconciler) resultCLIErr(
 	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
-	return result(err)
+	if res.IsExceedBackoffLimit() {
+		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "Backoff limit exceeded")
+		return result(err, 0)
+	}
+	return result(err, backoffDelayAt(res.Status.Failed))
+}
+
+// resultPending returns a pending result.
+// The controller will requeue the request after 5 seconds.
+func (r *AtlasSchemaReconciler) resultPending(
+	res *dbv1alpha1.AtlasSchema, reason, message string,
+) (ctrl.Result, error) {
+	res.SetNotReady(reason, message)
+	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
+	return ctrl.Result{
+		RequeueAfter: time.Second * 5,
+	}, nil
 }
 
 // ShouldLint returns true if the linting policy is set to error.

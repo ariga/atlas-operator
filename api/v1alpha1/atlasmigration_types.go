@@ -88,6 +88,9 @@ type (
 		ExecOrder MigrateExecOrder `json:"execOrder,omitempty"`
 		// ProtectedFlows defines the protected flows of a deployment.
 		ProtectedFlows *ProtectFlows `json:"protectedFlows,omitempty"`
+		// BackoffLimit is the number of retries on error.
+		// +kubebuilder:default=20
+		BackoffLimit int `json:"backoffLimit,omitempty"`
 	}
 	CloudV0 struct {
 		URL       string    `json:"url,omitempty"`
@@ -158,24 +161,55 @@ func (m *AtlasMigration) IsHashModified(hash string) bool {
 	return hash != m.Status.ObservedHash
 }
 
+// SetReconciling sets the ready condition to false with the reason "Reconciling".
+func (m *AtlasMigration) SetReconciling(message string) {
+	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+		Type:    readyCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonReconciling,
+		Message: message,
+	})
+	m.ResetFailed()
+}
+
 // SetReady sets the ready condition to true.
 func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
-	status.Failed = 0
 	m.Status = status
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:   readyCond,
 		Status: metav1.ConditionTrue,
 		Reason: ReasonApplied,
 	})
+	m.ResetFailed()
 }
 
 // SetNotReady sets the ready condition to false.
 func (m *AtlasMigration) SetNotReady(reason, message string) {
-	m.Status.Failed++
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
 	})
+	if isFailedReason(reason) {
+		m.IncrementFailed()
+	}
+}
+
+// IncrementFailed increments the failed count.
+func (m *AtlasMigration) IncrementFailed() {
+	m.Status.Failed++
+}
+
+// ResetFailed resets the failed count.
+func (m *AtlasMigration) ResetFailed() {
+	m.Status.Failed = 0
+}
+
+// IsExceedBackoffLimit returns true if the failed count exceeds the backoff limit.
+func (m *AtlasMigration) IsExceedBackoffLimit() bool {
+	if m.Spec.BackoffLimit == 0 {
+		return false
+	}
+	return m.Status.Failed > m.Spec.BackoffLimit
 }

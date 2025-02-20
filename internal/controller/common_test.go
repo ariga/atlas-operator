@@ -15,7 +15,9 @@
 package controller
 
 import (
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -130,6 +132,53 @@ env {
 			mergeBlocks(dst.Body(), src.Body())
 			if got := string(dst.Bytes()); got != tt.expected {
 				t.Errorf("mergeBlocks() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func Test_backoffDelayAt(t *testing.T) {
+	type args struct {
+		retry int
+	}
+	tests := []struct {
+		name string
+		args args
+		want time.Duration
+	}{
+		{
+			name: "0",
+			args: args{
+				retry: 0,
+			},
+			want: 0,
+		},
+		{
+			name: "1",
+			args: args{
+				retry: 1,
+			},
+			want: 5 * time.Second,
+		},
+		{
+			name: "2",
+			args: args{
+				retry: 2,
+			},
+			want: 10 * time.Second,
+		},
+		{
+			name: "20",
+			args: args{
+				retry: 20,
+			},
+			want: 100 * time.Second,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := backoffDelayAt(tt.args.retry); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("backoffDelayAt() = %v, want %v", got, tt.want)
 			}
 		})
 	}

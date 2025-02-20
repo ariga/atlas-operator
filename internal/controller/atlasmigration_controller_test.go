@@ -1182,23 +1182,44 @@ env "kubernetes" {
 `, fileContent.String())
 }
 
-func TestMigration_RetriedCount(t *testing.T) {
+func TestMigration_FailedCount(t *testing.T) {
 	tt := migrationCliTest(t)
 	tt.initDefaultAtlasMigration()
-	// First successful reconcile should reset failed count to 0
-	tt.r.Reconcile(context.Background(), migrationReq())
-	require.EqualValues(t, 0, tt.status().Failed)
-	// Second reconcile with bad SQL should increment failed count to 1
+	// First failed reconcile should increment failed count to 1
 	tt.addMigrationScript("20230412003627_bad_sql.sql", "BAD SQL")
 	tt.r.Reconcile(context.Background(), migrationReq())
 	require.EqualValues(t, 1, tt.status().Failed)
-	// Third reconcile with bad SQL should increment failed count to 2
+	// Second reconcile with hash changed should increase failed count to 2
+	// but not increase the backoff delay
 	tt.r.Reconcile(context.Background(), migrationReq())
 	require.EqualValues(t, 2, tt.status().Failed)
-	// Fifth reconcile with successful migration should reset failed count to 0
+	// Third successful reconcile should reset failed count to 0
 	tt.removeMigrationScript("20230412003627_bad_sql.sql")
 	tt.r.Reconcile(context.Background(), migrationReq())
 	require.EqualValues(t, 0, tt.status().Failed)
+	// Reset resource to initial state
+	m := tt.initDefaultAtlasMigration()
+	m.Spec.BackoffLimit = 3
+	// Simulate an error "no target URL" to trigger transient error
+	m.Spec.URL = ""
+	// First failed reconcile should increase failed count to 1
+	r, _ := tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 1, tt.status().Failed)
+	require.Greater(t, r.RequeueAfter, time.Duration(0))
+	// Second reconcile with hash changed should reset failed count to 2
+	r1, _ := tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 2, tt.status().Failed)
+	require.Greater(t, r1.RequeueAfter, r.RequeueAfter)
+	// Third reconcile with hash changed should reset failed count to 3
+	r2, _ := tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 3, tt.status().Failed)
+	require.Greater(t, r2.RequeueAfter, r1.RequeueAfter)
+	// Fourth failed reconcile that reach the backoff limit should not set backoff delay
+	r3, _ := tt.r.Reconcile(context.Background(), migrationReq())
+	require.EqualValues(t, 4, tt.status().Failed)
+	require.EqualValues(t, 0, r3.RequeueAfter)
+	ev := tt.events()
+	require.Equal(t, "Warning BackoffLimitExceeded backoff limit exceeded", ev[len(ev)-1])
 }
 
 func migrationObjmeta() metav1.ObjectMeta {
@@ -1309,28 +1330,29 @@ func (t *migrationTest) removeMigrationScript(name string) {
 	t.k8s.put(&cm)
 }
 
-func (t *migrationTest) initDefaultAtlasMigration() {
+func (t *migrationTest) initDefaultAtlasMigration() *dbv1alpha1.AtlasMigration {
 	t.initDefaultMigrationDir()
 	t.initDefaultTokenSecret()
-	t.k8s.put(
-		&dbv1alpha1.AtlasMigration{
-			ObjectMeta: migrationObjmeta(),
-			Spec: dbv1alpha1.AtlasMigrationSpec{
-				TargetSpec: dbv1alpha1.TargetSpec{URL: t.dburl},
-				Dir: dbv1alpha1.Dir{
-					ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
-				},
+	migration := &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: t.dburl},
+			Dir: dbv1alpha1.Dir{
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
-			Status: dbv1alpha1.AtlasMigrationStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:   "Ready",
-						Status: metav1.ConditionFalse,
-					},
+			BackoffLimit: 20,
+		},
+		Status: dbv1alpha1.AtlasMigrationStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   "Ready",
+					Status: metav1.ConditionFalse,
 				},
 			},
 		},
-	)
+	}
+	t.k8s.put(migration)
+	return migration
 }
 
 func (t *migrationTest) initDefaultMigrationDir() {
