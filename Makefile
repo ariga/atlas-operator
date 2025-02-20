@@ -231,6 +231,14 @@ cli-gen: generate manifests chart-manifests license
 chart-manifests: manifests license kustomize
 	$(KUSTOMIZE) build config/crd -o charts/atlas-operator/templates/crds/crd.yaml
 
+.PHONY: prep-release
+prep-release: ## Prepare the release by updating the version in Chart.yaml.
+	@test -n "$(VERSION)" || (echo "VERSION is not set"; exit 1)
+	@test -n "$(shell echo $(VERSION) | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$')" || (echo "VERSION is not in the format v0.0.0"; exit 1)
+	$(eval SEMVER=$(shell echo $(VERSION) | sed 's/v//'))
+	sed -i '' 's/version: .*/version: $(SEMVER)/' charts/atlas-operator/Chart.yaml
+	sed -i '' 's/appVersion: .*/appVersion: $(SEMVER)/' charts/atlas-operator/Chart.yaml
+
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
 # $2 - package url which can be installed
