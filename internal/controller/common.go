@@ -68,7 +68,7 @@ type (
 		// SchemaPlanList runs the `schema plan list` command.
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
 		// WhoAmI runs the `whoami` command.
-		WhoAmI(ctx context.Context) (*atlasexec.WhoAmI, error)
+		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.

@@ -78,7 +78,7 @@ func (m *mockAtlasExec) SchemaPush(context.Context, *atlasexec.SchemaPushParams)
 	return m.schemaPush.res, m.schemaPush.err
 }
 
-func (m *mockAtlasExec) WhoAmI(context.Context) (*atlasexec.WhoAmI, error) {
+func (m *mockAtlasExec) WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error) {
 	return m.whoami.res, m.whoami.err
 }
 

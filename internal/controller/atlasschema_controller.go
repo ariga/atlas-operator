@@ -164,7 +164,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
 		return err
 	}
-	cli, err := r.atlasClient(wd.Path(), data.Cloud)
+	cli, err := r.atlasClient(wd.Path(), nil)
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
@@ -190,7 +190,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Below this line is the main logic of the controller.
 	// ====================================================
 	var whoami *atlasexec.WhoAmI
-	switch whoami, err = cli.WhoAmI(ctx); {
+	switch whoami, err = cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
@@ -823,6 +823,20 @@ func (d *managedData) setLintReview(v dbv1alpha1.LintReview, force bool) {
 // asBlocks returns the HCL block for the environment configuration.
 func (d *managedData) asBlocks() []*hclwrite.Block {
 	var blocks []*hclwrite.Block
+	if d.Cloud != nil {
+		atlas := hclwrite.NewBlock("atlas", nil)
+		cloud := atlas.Body().AppendNewBlock("cloud", nil).Body()
+		if d.Cloud.Token != "" {
+			cloud.SetAttributeValue("token", cty.StringVal(d.Cloud.Token))
+		}
+		if d.Cloud.URL != "" {
+			cloud.SetAttributeValue("url", cty.StringVal(d.Cloud.URL))
+		}
+		if d.Cloud.Repo != "" {
+			cloud.SetAttributeValue("project", cty.StringVal(d.Cloud.Repo))
+		}
+		blocks = append(blocks, atlas)
+	}
 	env := hclwrite.NewBlock("env", []string{d.EnvName})
 	blocks = append(blocks, env)
 	envBody := env.Body()
