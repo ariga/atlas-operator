@@ -259,12 +259,12 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return r.resultErr(res, err, "ReadingMigrationData")
 	}
 	defer wd.Close()
-	c, err := r.atlasClient(wd.Path(), data.Cloud)
+	c, err := r.atlasClient(wd.Path(), nil)
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
 	var whoami *atlasexec.WhoAmI
-	switch whoami, err = c.WhoAmI(ctx); {
+	switch whoami, err = c.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
