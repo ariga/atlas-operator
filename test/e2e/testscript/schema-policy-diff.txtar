@@ -17,7 +17,7 @@ atlas schema inspect -u ${DB_URL}
 cmp stdout schema.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-remove-bio.yaml
-exec sleep 10
+exec sleep 20
 kubectl-wait-ready AtlasSchema/mysql
 # Ensure the schema is updated
 kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/mysql
