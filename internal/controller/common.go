@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"iter"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -98,10 +97,6 @@ func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
 	return cli, nil
 }
 
-var (
-	sqlErrRegex = regexp.MustCompile(`sql/migrate: (execute: )?executing statement`)
-)
-
 func getConfigMap(ctx context.Context, r client.Reader, ns string, ref *corev1.LocalObjectReference) (*corev1.ConfigMap, error) {
 	cfg := &corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, cfg)
@@ -133,15 +128,6 @@ func memDir(m map[string]string) (migrate.Dir, error) {
 		}
 	}
 	return f, nil
-}
-
-// isSQLErr returns true if the error is a SQL error.
-func isSQLErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "executing statement:") || sqlErrRegex.MatchString(s)
 }
 
 // isChecksumErr returns true if the error is a checksum error.

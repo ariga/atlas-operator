@@ -558,9 +558,6 @@ func (r *AtlasSchemaReconciler) resultErr(
 func (r *AtlasSchemaReconciler) resultCLIErr(
 	res *dbv1alpha1.AtlasSchema, err error, reason string,
 ) (ctrl.Result, error) {
-	if !isSQLErr(err) {
-		err = transient(err)
-	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
 	if res.IsExceedBackoffLimit() {

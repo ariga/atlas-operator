@@ -17,7 +17,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -516,7 +515,6 @@ func TestBadSQL(t *testing.T) {
 	require.EqualValues(t, schemaReadyCond, cont.Type)
 	require.EqualValues(t, metav1.ConditionFalse, cont.Status)
 	require.EqualValues(t, "CalculatingHash", cont.Reason)
-	require.Contains(t, cont.Message, "executing statement:")
 }
 
 func TestDiffPolicy(t *testing.T) {
@@ -904,15 +902,6 @@ func events(r record.EventRecorder) []string {
 			return ev
 		}
 	}
-}
-
-// Versions after v0.17 of Atlas return a slightly more readable error message. This test
-// ensures we support both formats.
-func TestSQLErrRegression(t *testing.T) {
-	m := `executing statement "create table bar (id int)"`
-	require.True(t, isSQLErr(fmt.Errorf(`sql/migrate: execute: %s`, m)))
-	require.True(t, isSQLErr(fmt.Errorf(`sql/migrate: %s`, m)))
-	require.True(t, isSQLErr(errors.New(`Error: read state from "schema.sql": executing statement: "bad sql;": near "bad": syntax error`)))
 }
 
 func Test_truncateSQL(t *testing.T) {

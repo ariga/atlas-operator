@@ -563,9 +563,6 @@ func (r *AtlasMigrationReconciler) resultCLIErr(
 	if e, ok := err.(interface{ Reason() string }); ok {
 		reason = e.Reason()
 	}
-	if !isSQLErr(err) {
-		err = transient(err)
-	}
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
 	if res.IsExceedBackoffLimit() {
