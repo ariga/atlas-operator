@@ -187,7 +187,9 @@ func listStringVal(s []string) cty.Value {
 }
 
 // mergeBlocks merges the given block with the env block with the given name.
-func mergeBlocks(dst *hclwrite.Body, src *hclwrite.Body) {
+func mergeBlocks(dst *hclwrite.Body, src *hclwrite.Body, atlasEnvName string) {
+	evaluateEnvBlock(dst, atlasEnvName)
+	evaluateEnvBlock(src, atlasEnvName)
 	for _, srcBlk := range src.Blocks() {
 		distBlk := searchBlock(dst, srcBlk)
 		// If there is no block with the same type and name, append it.
@@ -234,7 +236,7 @@ func mergeBlock(dst, src *hclwrite.Block) {
 		dst.Body().SetAttributeRaw(name, attr.Expr().BuildTokens(nil))
 	}
 	// Traverse to the nested blocks.
-	mergeBlocks(dst.Body(), src.Body())
+	mergeBlocks(dst.Body(), src.Body(), "")
 }
 
 // appendBlock appends a block to the body and ensures there is a newline before the block.
@@ -248,6 +250,36 @@ func appendBlock(body *hclwrite.Body, blk *hclwrite.Block) *hclwrite.Block {
 		body.AppendNewline()
 	}
 	return body.AppendBlock(blk)
+}
+
+func evaluateEnvBlock(blocks *hclwrite.Body, atlasEnvName string) error {
+	if blocks == nil {
+		return nil
+	}
+	for _, block := range blocks.Blocks() {
+		if block.Type() != "env" {
+			continue
+		}
+		if len(block.Labels()) > 0 {
+			return nil
+		}
+		// If the block has no labels, check env name attribute.
+		body := block.Body()
+		for attrN, attr := range body.Attributes() {
+			if attrN == "name" {
+				attrV := strings.TrimSpace(string(attr.Expr().BuildTokens(nil).Bytes()))
+				// If the name is using "atlas.env", evaluate it to the env label.
+				if attrV == "atlas.env" {
+					if atlasEnvName == "" {
+						return nil
+					}
+					block.SetLabels([]string{atlasEnvName})
+					body.RemoveAttribute(attrN)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // mapsSorted return a sequence of key-value pairs sorted by key.
