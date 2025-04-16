@@ -25,8 +25,9 @@ import (
 
 func Test_mergeBlocks(t *testing.T) {
 	type args struct {
-		dst string
-		src string
+		atlasEnv string
+		dst      string
+		src      string
 	}
 	tests := []struct {
 		name     string
@@ -124,12 +125,54 @@ env {
   key2 = "value2"
 }`,
 		},
+		{
+			name: "merge named block to unnamed block",
+			args: args{
+				dst: `
+env {
+    name = atlas.env
+	key = "value"
+}`,
+				src: `
+env "example" {
+	key2 = "value2"
+}
+`,
+			},
+			expected: `
+env {
+  name = atlas.env
+  key  = "value"
+  key2 = "value2"
+}`,
+		},
+		{
+			name: "merge unnamed block to named block",
+			args: args{
+				atlasEnv: "example",
+				dst: `
+env "example" {
+	key = "value"
+}`,
+				src: `
+env {
+	name = atlas.env
+	key2 = "value2"
+}
+`,
+			},
+			expected: `
+env "example" {
+  key  = "value"
+  key2 = "value2"
+}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dst, _ := hclwrite.ParseConfig([]byte(tt.args.dst), "", hcl.InitialPos)
 			src, _ := hclwrite.ParseConfig([]byte(tt.args.src), "", hcl.InitialPos)
-			mergeBlocks(dst.Body(), src.Body())
+			mergeBlocks(dst.Body(), src.Body(), tt.args.atlasEnv)
 			if got := string(dst.Bytes()); got != tt.expected {
 				t.Errorf("mergeBlocks() = %v, want %v", got, tt.expected)
 			}
