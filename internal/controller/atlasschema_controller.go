@@ -753,7 +753,7 @@ func (d *managedData) render(w io.Writer) error {
 	}
 	// Merge config into the atlas.hcl file.
 	if d.Config != nil {
-		mergeBlocks(f.Body(), d.Config.Body())
+		mergeBlocks(f.Body(), d.Config.Body(), d.EnvName)
 	}
 	if d.EnvName == "" {
 		return errors.New("env name is not set")
