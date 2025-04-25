@@ -137,7 +137,16 @@ type MigrateExecOrder string
 
 const (
 	readyCond = "Ready"
+	maxMigrationMessageLength = 32768
 )
+
+func truncateMigrationMessage(message string) string {
+	if len(message) > maxMigrationMessageLength {
+		truncMsg := "... [truncated]"
+		return message[:maxMigrationMessageLength-len(truncMsg)] + truncMsg
+	}
+	return message
+}
 
 func init() {
 	SchemeBuilder.Register(&AtlasMigration{}, &AtlasMigrationList{})
@@ -167,7 +176,7 @@ func (m *AtlasMigration) SetReconciling(message string) {
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  ReasonReconciling,
-		Message: message,
+		Message: truncateMigrationMessage(message),
 	})
 	m.ResetFailed()
 }
@@ -189,7 +198,7 @@ func (m *AtlasMigration) SetNotReady(reason, message string) {
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
-		Message: message,
+		Message: truncateMigrationMessage(message),
 	})
 	if isFailedReason(reason) {
 		m.IncrementFailed()

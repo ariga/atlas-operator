@@ -181,7 +181,16 @@ const (
 	LintReviewAlways  LintReview = "ALWAYS"
 	LintReviewWarning LintReview = "WARNING"
 	LintReviewError   LintReview = "ERROR"
+	maxSchemaMessageLength = 32768
 )
+
+func truncateSchemaMessage(message string) string {
+	if len(message) > maxSchemaMessageLength {
+		truncMsg := "... [truncated]"
+		return message[:maxSchemaMessageLength-len(truncMsg)] + truncMsg
+	}
+	return message
+}
 
 func init() {
 	SchemeBuilder.Register(&AtlasSchema{}, &AtlasSchemaList{})
@@ -211,7 +220,7 @@ func (sc *AtlasSchema) SetReconciling(message string) {
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  ReasonReconciling,
-		Message: message,
+		Message: truncateSchemaMessage(message),
 	})
 	sc.ResetFailed()
 }
@@ -233,7 +242,7 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 		Type:    readyCond,
 		Status:  metav1.ConditionTrue,
 		Reason:  ReasonApplied,
-		Message: msg,
+		Message: truncateSchemaMessage(msg),
 	})
 	sc.ResetFailed()
 }
