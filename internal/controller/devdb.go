@@ -248,6 +248,12 @@ func parseResourceRequirements() corev1.ResourceRequirements {
 // deploymentDevDB returns a deployment for a dev database.
 func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deployment, error) {
 	logger := log.Log.WithName("devdb").WithName("deployment")
+
+	var imageRegistry = os.Getenv("IMAGE_REGISTRY")
+	if imageRegistry != "" && imageRegistry[len(imageRegistry)-1] != '/' {
+		imageRegistry += "/"
+	}
+
 	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	var (
 		user string
@@ -286,7 +292,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			q.Set("search_path", "public")
 		}
 		// Containers
-		c.Image = "postgres:latest"
+		c.Image = imageRegistry + "postgres:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 5432},
 		}
@@ -307,7 +313,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			q.Set("mode", "DATABASE")
 		}
 		// Containers
-		c.Image = "mcr.microsoft.com/mssql/server:2022-latest"
+		c.Image = imageRegistry + "mcr.microsoft.com/mssql/server:2022-latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 1433},
 		}
@@ -337,7 +343,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "root", "pass", ""
 		// Containers
-		c.Image = "mysql:latest"
+		c.Image = imageRegistry + "mysql:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 3306},
 		}
@@ -363,7 +369,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "root", "pass", ""
 		// Containers
-		c.Image = "mariadb:latest"
+		c.Image = imageRegistry + "mariadb:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 3306},
 		}
@@ -389,7 +395,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		// URLs
 		user, pass, path = "root", "pass", ""
 		// Containers
-		c.Image = "clickhouse/clickhouse-server:latest"
+		c.Image = imageRegistry + "clickhouse/clickhouse-server:latest"
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 9000},
 		}
