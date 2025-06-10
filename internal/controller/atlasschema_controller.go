@@ -403,6 +403,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if p := reports[0].Plan; p != nil {
 		s.PlanLink = p.File.Link
 		s.PlanURL = p.File.URL
+		reports[0].Plan = nil // Clear the plan to avoid big reports.
 	}
 	res.SetReady(s, reports[0])
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
