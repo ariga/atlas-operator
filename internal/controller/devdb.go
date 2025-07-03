@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 )
@@ -180,8 +182,72 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
+// parseResourceRequirements reads resource requirements from environment variables.
+// Format examples:
+// - DEVDB_RESOURCES_REQUESTS_CPU=100m
+// - DEVDB_RESOURCES_REQUESTS_MEMORY=256Mi
+// - DEVDB_RESOURCES_LIMITS_CPU=500m
+// - DEVDB_RESOURCES_LIMITS_MEMORY=512Mi
+func parseResourceRequirements() corev1.ResourceRequirements {
+	logger := log.Log.WithName("devdb").WithName("resources")
+	resources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{},
+		Limits:   corev1.ResourceList{},
+	}
+
+	logger.Info("Parsing resource requirements from environment variables")
+
+	// Parse CPU request
+	if cpuReq := os.Getenv("DEVDB_RESOURCES_REQUESTS_CPU"); cpuReq != "" {
+		logger.Info("Found CPU request", "value", cpuReq)
+		if quantity, err := resource.ParseQuantity(cpuReq); err == nil {
+			resources.Requests[corev1.ResourceCPU] = quantity
+			logger.Info("Set CPU request", "value", quantity.String())
+		} else {
+			logger.Error(err, "Failed to parse CPU request", "value", cpuReq)
+		}
+	}
+
+	// Parse Memory request
+	if memReq := os.Getenv("DEVDB_RESOURCES_REQUESTS_MEMORY"); memReq != "" {
+		logger.Info("Found Memory request", "value", memReq)
+		if quantity, err := resource.ParseQuantity(memReq); err == nil {
+			resources.Requests[corev1.ResourceMemory] = quantity
+			logger.Info("Set Memory request", "value", quantity.String())
+		} else {
+			logger.Error(err, "Failed to parse Memory request", "value", memReq)
+		}
+	}
+
+	// Parse CPU limit
+	if cpuLimit := os.Getenv("DEVDB_RESOURCES_LIMITS_CPU"); cpuLimit != "" {
+		logger.Info("Found CPU limit", "value", cpuLimit)
+		if quantity, err := resource.ParseQuantity(cpuLimit); err == nil {
+			resources.Limits[corev1.ResourceCPU] = quantity
+			logger.Info("Set CPU limit", "value", quantity.String())
+		} else {
+			logger.Error(err, "Failed to parse CPU limit", "value", cpuLimit)
+		}
+	}
+
+	// Parse Memory limit
+	if memLimit := os.Getenv("DEVDB_RESOURCES_LIMITS_MEMORY"); memLimit != "" {
+		logger.Info("Found Memory limit", "value", memLimit)
+		if quantity, err := resource.ParseQuantity(memLimit); err == nil {
+			resources.Limits[corev1.ResourceMemory] = quantity
+			logger.Info("Set Memory limit", "value", quantity.String())
+		} else {
+			logger.Error(err, "Failed to parse Memory limit", "value", memLimit)
+		}
+	}
+
+	logger.Info("Resource requirements parsed", "requests", resources.Requests, "limits", resources.Limits)
+	return resources
+}
+
 // deploymentDevDB returns a deployment for a dev database.
 func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deployment, error) {
+	logger := log.Log.WithName("devdb").WithName("deployment")
 	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	var (
 		user string
@@ -202,7 +268,15 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 				Drop: []corev1.Capability{"ALL"},
 			},
 		},
+		// Set Resources from environment variables
+		Resources: parseResourceRequirements(),
 	}
+
+	// Log the container resources
+	logger.Info("Created container with resources",
+		"name", c.Name,
+		"requests", c.Resources.Requests,
+		"limits", c.Resources.Limits)
 	switch drv {
 	case dbv1alpha1.DriverPostgres:
 		// URLs
