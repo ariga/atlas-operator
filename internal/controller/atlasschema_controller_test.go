@@ -409,7 +409,7 @@ func TestSchemaConfigMap(t *testing.T) {
 		Format: "sql",
 	})
 	require.NoError(t, err)
-	require.Contains(t, inspect, "CREATE TABLE `foo` (`id` int NULL, PRIMARY KEY (`id`));")
+	require.Contains(t, inspect, "CREATE TABLE `foo` (\n  `id` int NULL,\n  PRIMARY KEY (`id`)\n);")
 }
 
 func TestConfigMapNotFound(t *testing.T) {
@@ -492,7 +492,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 		Format: "sql",
 	})
 	require.NoError(t, err)
-	require.Contains(t, ins, "CREATE TABLE `x` (`c` int NULL);")
+	require.Contains(t, ins, "CREATE TABLE `x` (\n  `c` int NULL\n);")
 }
 
 func TestBadSQL(t *testing.T) {
