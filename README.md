@@ -362,7 +362,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
    short_bio | character varying(255) |           | not null |                                | extended |             |              |
   ```
   
-  Please refer to [this link](https://atlasgo.io/integrations/kubernetes/operators/versioned) to explore the supported API for versioned migrations.
+  Please refer to [this link](https://atlasgo.io/integrations/kubernetes/versioned#api-reference) to explore the supported API for versioned migrations.
 
 ### API Reference
 
