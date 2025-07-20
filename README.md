@@ -185,7 +185,7 @@ operator, follow these steps to get started:
   to the database:
 
   ```bash
-  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/mysql.yaml
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/examples/databases/mysql.yaml
   ```
   
   Result:
@@ -257,7 +257,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
   to the database:
 
   ```bash
-  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/postgres.yaml
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/examples/databases/postgres.yaml
   ```
   
   Result:
