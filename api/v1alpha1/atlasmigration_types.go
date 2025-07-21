@@ -72,13 +72,6 @@ type (
 		Cloud CloudV0 `json:"cloud,omitempty"`
 		// Dir defines the directory to use for migrations as a configmap key reference.
 		Dir Dir `json:"dir"`
-		// DevURL is the URL of the database to use for normalization and calculations.
-		// If not specified, the operator will spin up a temporary database container to use for these operations.
-		// +optional
-		DevURL string `json:"devURL"`
-		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
-		// +optional
-		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// RevisionsSchema defines the schema that revisions table resides in
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
 		// BaselineVersion defines the baseline version of the database on the first migration.

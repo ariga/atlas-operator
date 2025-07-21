@@ -80,13 +80,6 @@ type (
 		Schema Schema `json:"schema,omitempty"`
 		// Cloud defines the Atlas Cloud configuration.
 		Cloud Cloud `json:"cloud,omitempty"`
-		// +optional
-		// DevURL is the URL of the database to use for normalization and calculations.
-		// If not specified, the operator will spin up a temporary database container to use for these operations.
-		DevURL string `json:"devURL"`
-		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
-		// +optional
-		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
 		// TxMode defines the transaction mode to use when applying the schema.

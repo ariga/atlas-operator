@@ -38,7 +38,13 @@ type (
 		EnvName string `json:"envName,omitempty"`
 		// Vars defines the input variables for the project configuration.
 		Vars []Variable `json:"vars,omitempty"`
-
+		// +optional
+		// DevURL is the URL of the database to use for normalization and calculations.
+		// If not specified, the operator will spin up a temporary database container to use for these operations.
+		DevURL string `json:"devURL"`
+		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
+		// +optional
+		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// CustomDevDB defines the custom dev database pod spec to use for normalization and calculations.
 		// +optional
 		CustomDevDB *corev1.PodSpec `json:"customDevDB,omitempty"`

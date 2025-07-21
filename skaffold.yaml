@@ -25,6 +25,10 @@ build:
         OPERATOR_VERSION: v0.0.1-local-k8s
 profiles:
 - name: kustomize
+  deploy:
+    kubectl:
+      flags:
+        apply: [ --server-side="true" ]
   manifests:
     kustomize:
       paths:
@@ -33,6 +37,9 @@ profiles:
       - config/customconfig
 - name: helm
   deploy:
+    kubectl:
+      flags:
+        apply: [--server-side="true"]
     helm:
       releases:
       - name: atlas-operator
