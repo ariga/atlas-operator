@@ -139,7 +139,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return err
 		})
 	}
-	if !data.hasDevURL() && data.URL != nil {
+	if (!data.hasDevURL() || res.Spec.CustomDevDB != nil) && data.URL != nil {
 		// The user has not specified an URL for dev-db,
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)

@@ -38,6 +38,10 @@ type (
 		EnvName string `json:"envName,omitempty"`
 		// Vars defines the input variables for the project configuration.
 		Vars []Variable `json:"vars,omitempty"`
+
+		// CustomDevDB defines the custom dev database pod spec to use for normalization and calculations.
+		// +optional
+		CustomDevDB *corev1.PodSpec `json:"customDevDB,omitempty"`
 	}
 	// Variables defines the reference of secret/configmap to the input variables for the project configuration.
 	Variable struct {

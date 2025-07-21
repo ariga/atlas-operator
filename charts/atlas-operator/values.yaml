@@ -5,9 +5,14 @@
 replicaCount: 1
 
 image:
-  repository: arigaio/atlas-operator
+  repository: local/controller
+  tag: v0.0.1-local-k8s
   pullPolicy: IfNotPresent
-  tag: ""
+
+# image:
+#   repository: arigaio/atlas-operator
+#   pullPolicy: IfNotPresent
+#   tag: ""
 
 rbac:
   create: true
@@ -51,7 +56,7 @@ prewarmDevDB: true
 # Enable this to allow custom project configuration
 # Warning: This setting enables users to use the `external` and `sql` data sources
 # which can be used to execute arbitrary commands and queries. Use with caution.
-allowCustomConfig: false
+allowCustomConfig: true
 
 # -- Additional environment variables to set
 extraEnvs: []
