@@ -48,12 +48,6 @@ const (
 	ReasonScaledUpDevDB = "ScaledUpDevDB"
 )
 
-var defaultLabels = map[string]string{
-	"app.kubernetes.io/name":       "atlas-dev-db",
-	"app.kubernetes.io/part-of":    "atlas-operator",
-	"app.kubernetes.io/created-by": "controller-manager",
-}
-
 type (
 	// TODO: Refactor this to a separate controller
 	devDBReconciler struct {
@@ -193,9 +187,13 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 }
 
 func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
-	labels := defaultLabels
-	labels[labelEngine] = drv.String()
-	labels[labelInstance] = key.Name
+	labels := map[string]string{
+		labelEngine:                    drv.String(),
+		labelInstance:                  key.Name,
+		"app.kubernetes.io/name":       "atlas-dev-db",
+		"app.kubernetes.io/part-of":    "atlas-operator",
+		"app.kubernetes.io/created-by": "controller-manager",
+	}
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
