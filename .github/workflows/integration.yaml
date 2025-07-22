@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
       - name: Install Atlas CLI
         uses: ariga/setup-atlas@master
       - name: Generate
@@ -51,12 +51,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
       - name: Create k8s Kind Cluster
         uses: helm/kind-action@v1
       - name: Install Skaffold
         run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.16.1/skaffold-linux-amd64 && \
           sudo install skaffold /usr/local/bin/
       - name: Run e2e tests
         run: |

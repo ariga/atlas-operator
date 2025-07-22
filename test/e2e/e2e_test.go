@@ -61,7 +61,8 @@ func TestOperator(t *testing.T) {
 		return string(output), nil
 	}
 	// Deploying the controller-manager
-	_, err = kind("skaffold", "run", "--wait-for-connection=true")
+	out, err := kind("skaffold", "run", "--wait-for-connection=true")
+	fmt.Fprintln(os.Stdout, out)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, err = kind("skaffold", "delete")
