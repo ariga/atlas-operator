@@ -61,8 +61,7 @@ func TestOperator(t *testing.T) {
 		return string(output), nil
 	}
 	// Deploying the controller-manager
-	out, err := kind("skaffold", "run", "--wait-for-connection=true")
-	fmt.Fprintln(os.Stdout, out)
+	_, err = kind("skaffold", "run", "--wait-for-connection=true")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, err = kind("skaffold", "delete")
@@ -80,7 +79,6 @@ func TestOperator(t *testing.T) {
 		require.NoError(t, err)
 		pods := strings.Split(output, " ")
 		if len(pods) == 1 && pods[0] != "" {
-			fmt.Fprintf(os.Stdout, "found controller-manager pod: %q\n", pods[0])
 			controllerPod = pods[0]
 			break
 		}
