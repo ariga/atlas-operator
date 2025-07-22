@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
-	"github.com/ariga/atlas-operator/api/v1alpha1"
+	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
@@ -72,8 +72,8 @@ type (
 		DevURL  string
 		Schemas []string
 		Exclude []string
-		Policy  *v1alpha1.Policy
-		TxMode  v1alpha1.TransactionMode
+		Policy  *dbv1alpha1.Policy
+		TxMode  dbv1alpha1.TransactionMode
 		Desired *url.URL
 		Cloud   *Cloud
 		Config  *hclwrite.File
@@ -102,7 +102,7 @@ func NewAtlasSchemaReconciler(mgr Manager, prewarmDevDB bool) *AtlasSchemaReconc
 func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
 	var (
 		log = log.FromContext(ctx)
-		res = &v1alpha1.AtlasSchema{}
+		res = &dbv1alpha1.AtlasSchema{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -131,7 +131,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.resultErr(res, errors.New("multiple targets are not supported"), "ReadSchema")
 	}
 	opts := []atlasexec.Option{atlasexec.WithAtlasHCL(data.render)}
-	if u := data.Desired; u != nil && u.Scheme == v1alpha1.SchemaTypeFile {
+	if u := data.Desired; u != nil && u.Scheme == dbv1alpha1.SchemaTypeFile {
 		// Write the schema file to the working directory.
 		opts = append(opts, func(ce *atlasexec.WorkingDir) error {
 			_, err := ce.WriteFile(filepath.Join(u.Host, u.Path), data.schema)
@@ -143,14 +143,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// spin up a dev-db and get the connection string.
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, res.Spec.CustomDevDB, data.DevURL)
 		if err != nil {
-			return r.resultPending(res, v1alpha1.ReasonGettingDevDB, err.Error())
+			return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
 		}
 	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
 	wd, err := atlasexec.NewWorkingDir(opts...)
 	if err != nil {
-		return r.resultErr(res, err, v1alpha1.ReasonCreatingWorkingDir)
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingWorkingDir)
 	}
 	defer wd.Close()
 	// This function will be used to edit and re-render the atlas.hcl file in the working directory.
@@ -165,7 +165,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	cli, err := r.atlasClient(wd.Path(), nil)
 	if err != nil {
-		return r.resultErr(res, err, v1alpha1.ReasonCreatingAtlasClient)
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
 	// Calculate the hash of the current schema.
 	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
@@ -193,10 +193,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		log.Info("the resource is not connected to Atlas Cloud")
 		if data.Config != nil {
-			return r.resultErr(res, err, v1alpha1.ReasonWhoAmI)
+			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 		}
 	case err != nil:
-		res.SetNotReady(v1alpha1.ReasonWhoAmI, err.Error())
+		res.SetNotReady(dbv1alpha1.ReasonWhoAmI, err.Error())
 	default:
 		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
@@ -210,7 +210,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case whoami != nil:
 		err = editAtlasHCL(func(m *managedData) {
 			m.enableDestructive(false)
-			m.setLintReview(v1alpha1.LintReviewError, false)
+			m.setLintReview(dbv1alpha1.LintReviewError, false)
 		})
 		if err != nil {
 			return r.resultErr(res, err, "ModifyingAtlasHCL")
@@ -232,7 +232,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// This is to ensure that the schema is in sync with the Atlas Cloud.
 			// And the schema is available for the Atlas CLI (on local machine)
 			// to modify or approve the changes.
-			if data.Desired != nil && data.Desired.Scheme == v1alpha1.SchemaTypeFile {
+			if data.Desired != nil && data.Desired.Scheme == dbv1alpha1.SchemaTypeFile {
 				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 					Env:    data.EnvName,
 					URL:    desiredURL,
@@ -267,7 +267,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			})
 			switch {
 			case err != nil && strings.Contains(err.Error(), "no changes to be made"):
-				res.SetReady(v1alpha1.AtlasSchemaStatus{
+				res.SetReady(dbv1alpha1.AtlasSchemaStatus{
 					LastApplied:  time.Now().Unix(),
 					ObservedHash: hash,
 				}, nil)
@@ -281,7 +281,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Info("created a new schema plan", "plan", plan.File.URL, "desiredURL", desiredURL)
 				res.Status.PlanURL = plan.File.URL
 				res.Status.PlanLink = plan.File.Link
-				return r.resultPending(res, v1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval")
+				return r.resultPending(res, dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval")
 			}
 		}
 		// List the schema plans to check if there are any plans.
@@ -303,7 +303,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("multiple schema plans found", "plans", planURLs)
 			return r.resultCLIErr(res, fmt.Errorf("multiple schema plans found: %s", strings.Join(planURLs, ", ")), "ListingPlans")
 		// There are no pending plans, but Atlas has been asked to review the changes ALWAYS.
-		case len(plans) == 0 && data.Policy.Lint.Review == v1alpha1.LintReviewAlways:
+		case len(plans) == 0 && data.Policy.Lint.Review == dbv1alpha1.LintReviewAlways:
 			// Create a plan for the pending changes.
 			return createPlan()
 		// The plan is pending approval, show the plan to the user.
@@ -311,7 +311,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("found a pending schema plan, waiting for approval", "plan", plans[0].URL)
 			res.Status.PlanURL = plans[0].URL
 			res.Status.PlanLink = plans[0].Link
-			reason, msg := v1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
+			reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
 			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
@@ -387,7 +387,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return r.resultCLIErr(res, err, "ApplyingSchema")
 	}
-	s := v1alpha1.AtlasSchemaStatus{
+	s := dbv1alpha1.AtlasSchemaStatus{
 		LastApplied:  time.Now().Unix(),
 		ObservedHash: hash,
 	}
@@ -413,14 +413,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.AtlasSchema{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&v1alpha1.AtlasSchema{}).
+		For(&dbv1alpha1.AtlasSchema{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&dbv1alpha1.AtlasSchema{}).
 		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
 		Watches(&corev1.Secret{}, r.secretWatcher).
 		Complete(r)
 }
 
-func (r *AtlasSchemaReconciler) watchRefs(res *v1alpha1.AtlasSchema) {
+func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
 	if c := res.Spec.Schema.ConfigMapKeyRef; c != nil {
 		r.configMapWatcher.Watch(
 			types.NamespacedName{Name: c.Name, Namespace: res.Namespace},
@@ -464,7 +464,7 @@ func (r *AtlasSchemaReconciler) AllowCustomConfig() {
 }
 
 // extractData extracts the info about the managed database and its desired state.
-func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *v1alpha1.AtlasSchema) (_ *managedData, err error) {
+func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasSchema) (_ *managedData, err error) {
 	var (
 		s    = res.Spec
 		c    = s.Cloud
@@ -533,7 +533,7 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *v1alpha1.A
 	return data, nil
 }
 
-func (r *AtlasSchemaReconciler) recordErrEvent(res *v1alpha1.AtlasSchema, err error) {
+func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err error) {
 	reason := "Error"
 	if isTransient(err) {
 		reason = "TransientErr"
@@ -542,7 +542,7 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *v1alpha1.AtlasSchema, err er
 }
 
 func (r *AtlasSchemaReconciler) resultErr(
-	res *v1alpha1.AtlasSchema, err error, reason string,
+	res *dbv1alpha1.AtlasSchema, err error, reason string,
 ) (ctrl.Result, error) {
 	if isConnectionErr(err) {
 		err = transient(err)
@@ -557,7 +557,7 @@ func (r *AtlasSchemaReconciler) resultErr(
 }
 
 func (r *AtlasSchemaReconciler) resultCLIErr(
-	res *v1alpha1.AtlasSchema, err error, reason string,
+	res *dbv1alpha1.AtlasSchema, err error, reason string,
 ) (ctrl.Result, error) {
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
@@ -571,7 +571,7 @@ func (r *AtlasSchemaReconciler) resultCLIErr(
 // resultPending returns a pending result.
 // The controller will requeue the request after 5 seconds.
 func (r *AtlasSchemaReconciler) resultPending(
-	res *v1alpha1.AtlasSchema, reason, message string,
+	res *dbv1alpha1.AtlasSchema, reason, message string,
 ) (ctrl.Result, error) {
 	res.SetNotReady(reason, message)
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
@@ -716,11 +716,11 @@ func (d *managedData) repoURL() *url.URL {
 	// The user has provided the repository name.
 	case d.Cloud != nil && d.Cloud.Repo != "":
 		return (&url.URL{
-			Scheme: v1alpha1.SchemaTypeAtlas,
+			Scheme: dbv1alpha1.SchemaTypeAtlas,
 			Host:   d.Cloud.Repo,
 		})
 	// Fallback to desired URL if it's Cloud URL.
-	case d.Desired != nil && d.Desired.Scheme == v1alpha1.SchemaTypeAtlas:
+	case d.Desired != nil && d.Desired.Scheme == dbv1alpha1.SchemaTypeAtlas:
 		c := *d.Desired
 		c.RawQuery = ""
 		return &c
@@ -781,10 +781,10 @@ func (d *managedData) render(w io.Writer) error {
 // If the force is set to true, it will override the existing value.
 func (d *managedData) enableDestructive(force bool) {
 	override := func() {
-		check := &v1alpha1.CheckConfig{Error: true}
-		destructive := &v1alpha1.Lint{Destructive: check}
+		check := &dbv1alpha1.CheckConfig{Error: true}
+		destructive := &dbv1alpha1.Lint{Destructive: check}
 		if d.Policy == nil {
-			d.Policy = &v1alpha1.Policy{Lint: destructive}
+			d.Policy = &dbv1alpha1.Policy{Lint: destructive}
 			return
 		}
 		if d.Policy.Lint == nil {
@@ -800,11 +800,11 @@ func (d *managedData) enableDestructive(force bool) {
 
 // setLintReview sets the lint review policy.
 // If the force is set to true, it will override the existing value.
-func (d *managedData) setLintReview(v v1alpha1.LintReview, force bool) {
+func (d *managedData) setLintReview(v dbv1alpha1.LintReview, force bool) {
 	override := func() {
-		lint := &v1alpha1.Lint{Review: v}
+		lint := &dbv1alpha1.Lint{Review: v}
 		if d.Policy == nil {
-			d.Policy = &v1alpha1.Policy{Lint: lint}
+			d.Policy = &dbv1alpha1.Policy{Lint: lint}
 			return
 		}
 		if d.Policy.Lint == nil {
