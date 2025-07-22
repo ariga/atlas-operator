@@ -79,6 +79,7 @@ func TestOperator(t *testing.T) {
 		require.NoError(t, err)
 		pods := strings.Split(output, " ")
 		if len(pods) == 1 {
+			fmt.Fprintf(os.Stdout, "found controller-manager pod: %q\n", pods[0])
 			controllerPod = pods[0]
 			break
 		}
