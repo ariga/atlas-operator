@@ -90,6 +90,7 @@ func (in *AtlasMigrationSpec) DeepCopyInto(out *AtlasMigrationSpec) {
 	in.ProjectConfigSpec.DeepCopyInto(&out.ProjectConfigSpec)
 	in.Cloud.DeepCopyInto(&out.Cloud)
 	in.Dir.DeepCopyInto(&out.Dir)
+	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
 	if in.ProtectedFlows != nil {
 		in, out := &in.ProtectedFlows, &out.ProtectedFlows
 		*out = new(ProtectFlows)
@@ -195,6 +196,7 @@ func (in *AtlasSchemaSpec) DeepCopyInto(out *AtlasSchemaSpec) {
 	in.ProjectConfigSpec.DeepCopyInto(&out.ProjectConfigSpec)
 	in.Schema.DeepCopyInto(&out.Schema)
 	in.Cloud.DeepCopyInto(&out.Cloud)
+	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
 	if in.Exclude != nil {
 		in, out := &in.Exclude, &out.Exclude
 		*out = make([]string, len(*in))
@@ -455,7 +457,6 @@ func (in *ProjectConfigSpec) DeepCopyInto(out *ProjectConfigSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
 	if in.CustomDevDB != nil {
 		in, out := &in.CustomDevDB, &out.CustomDevDB
 		*out = new(corev1.PodSpec)
