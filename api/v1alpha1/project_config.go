@@ -40,7 +40,7 @@ type (
 		Vars []Variable `json:"vars,omitempty"`
 		// CustomDevDB defines the custom dev database pod spec to use for normalization and calculations.
 		// +optional
-		CustomDevDB *corev1.PodSpec `json:"customDevDB,omitempty"`
+		CustomDevDB *CustomDevDB `json:"customDevDB,omitempty"`
 	}
 	// Variables defines the reference of secret/configmap to the input variables for the project configuration.
 	Variable struct {
@@ -54,6 +54,9 @@ type (
 		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 		// ConfigMapKeyRef defines the configmap key reference to use for the value.
 		ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
+	}
+	CustomDevDB struct {
+		Spec corev1.PodSpec `json:"spec,omitempty"`
 	}
 )
 

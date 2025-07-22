@@ -79,22 +79,23 @@ spec:
       key: schema.sql
       name: mysql-schema
   customDevDB:
-    containers:
-      - name: mysql-dev-foo
-        image: mysql:latest
-        env:
-          - name: MYSQL_ROOT_PASSWORD
-            value: pass
-          - name: MYSQL_DATABASE
-            value: dev
-        ports:
-          - containerPort: 3306
-            name: mysql
-        startupProbe:
-          exec:
-            command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-          failureThreshold: 30
-          periodSeconds: 10
+    spec:
+      containers:
+        - name: mysql-dev-foo
+          image: mysql:latest
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: pass
+            - name: MYSQL_DATABASE
+              value: dev
+          ports:
+            - containerPort: 3306
+              name: mysql
+          startupProbe:
+            exec:
+              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+            failureThreshold: 30
+            periodSeconds: 10
 
 -- database.yaml --
 apiVersion: v1
