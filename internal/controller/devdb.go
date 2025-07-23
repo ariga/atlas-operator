@@ -111,7 +111,7 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
-func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL) (string, error) {
+func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL, podSpec *corev1.PodSpec, devURL string) (string, error) {
 	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	if drv == dbv1alpha1.DriverSQLite {
 		return "sqlite://db?mode=memory", nil
@@ -120,7 +120,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	key := nameDevDB(sc)
 	deploy := &appsv1.Deployment{}
 	switch err := r.Get(ctx, key, deploy); {
-	// The dev database already exists,
+	// The dev database already exists.
 	case err == nil && (deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0):
 		// If it is scaled down, scale it up.
 		deploy.Spec.Replicas = ptr.To[int32](1)
@@ -131,10 +131,16 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		return "", errWaitDevDB
 	// The dev database does not exist, create it.
 	case apierrors.IsNotFound(err):
-		deploy, err := deploymentDevDB(key, targetURL)
-		if err != nil {
-			return "", err
+		switch {
+		case podSpec == nil:
+			podSpec, devURL, err = automaticDevDBSpec(targetURL)
+			if err != nil {
+				return "", fmt.Errorf("failed to create dev database spec: %w", err)
+			}
+		case devURL == "":
+			return "", fmt.Errorf("devURL is required when devDB is provided")
 		}
+		deploy = deploymentDevDB(key, drv, *podSpec, devURL)
 		// Set the owner reference to the given object
 		// This will ensure that the deployment is deleted when the owner is deleted.
 		if err := ctrl.SetControllerReference(sc, deploy, r.scheme); err != nil {
@@ -145,7 +151,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		}
 		r.recorder.Eventf(sc, corev1.EventTypeNormal, ReasonCreatedDevDB, "Created dev database deployment: %s", key.Name)
 		return "", errWaitDevDB
-	// An error occurred while getting the dev database,
+	// An error occurred while getting the dev database.
 	case err != nil:
 		return "", transient(err)
 	}
@@ -180,8 +186,39 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
-// deploymentDevDB returns a deployment for a dev database.
-func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deployment, error) {
+func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
+	labels := map[string]string{
+		labelEngine:                    drv.String(),
+		labelInstance:                  key.Name,
+		"app.kubernetes.io/name":       "atlas-dev-db",
+		"app.kubernetes.io/part-of":    "atlas-operator",
+		"app.kubernetes.io/created-by": "controller-manager",
+	}
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Replicas: ptr.To[int32](1),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+					Annotations: map[string]string{
+						annoConnTmpl: urlTemplate,
+					},
+				},
+				Spec: podSpec,
+			},
+		},
+	}
+}
+
+// automaticDevDBSpec returns a PodSpec for a development database based on the target URL.
+func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	var (
 		user string
@@ -342,7 +379,7 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 			"SYS_NICE", "NET_ADMIN", "IPC_LOCK",
 		}
 	default:
-		return nil, fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
+		return nil, "", fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
 	conn := &url.URL{
 		Scheme:   c.Ports[0].Name,
@@ -351,36 +388,9 @@ func deploymentDevDB(key types.NamespacedName, targetURL url.URL) (*appsv1.Deplo
 		Path:     path,
 		RawQuery: q.Encode(),
 	}
-	labels := map[string]string{
-		labelEngine:                    drv.String(),
-		labelInstance:                  key.Name,
-		"app.kubernetes.io/name":       "atlas-dev-db",
-		"app.kubernetes.io/part-of":    "atlas-operator",
-		"app.kubernetes.io/created-by": "controller-manager",
-	}
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      key.Name,
-			Namespace: key.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Replicas: ptr.To[int32](1),
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						annoConnTmpl: conn.String(),
-					},
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{c},
-				},
-			},
-		},
-	}, nil
+	return &corev1.PodSpec{
+		Containers: []corev1.Container{c},
+	}, conn.String(), nil
 }
 
 func readyPod(pods []corev1.Pod) (*corev1.Pod, error) {

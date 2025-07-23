@@ -145,13 +145,18 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// TODO(giautm): Create DevDB and run linter for new migration
 	// files before applying it to the target database.
-	if !data.hasDevURL() && data.URL != nil {
-		// The user has not specified an URL for dev-db,
-		// spin up a dev-db and get the connection string.
-		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
-		if err != nil {
-			return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
-		}
+	switch {
+	case data.URL == nil:
+		// The user has not specified a URL for the schema, so no dev database is needed.
+	case res.Spec.DevDB != nil:
+		// The user has provided a custom dev database configuration. spin it up.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, &res.Spec.DevDB.Spec, data.DevURL)
+	case !data.hasDevURL():
+		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, nil, data.DevURL)
+	}
+	if err != nil {
+		return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
 	}
 	// Reconcile given resource
 	return r.reconcile(ctx, data, res)

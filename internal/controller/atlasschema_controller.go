@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"ariga.io/atlas-go-sdk/atlasexec"
-	"github.com/ariga/atlas-operator/api/v1alpha1"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -139,13 +138,18 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return err
 		})
 	}
-	if !data.hasDevURL() && data.URL != nil {
-		// The user has not specified an URL for dev-db,
-		// spin up a dev-db and get the connection string.
-		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL)
-		if err != nil {
-			return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
-		}
+	switch {
+	case data.URL == nil:
+		// The user has not specified a URL for the schema, so no dev database is needed.
+	case res.Spec.DevDB != nil:
+		// The user has provided a custom dev database configuration. spin it up.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, &res.Spec.DevDB.Spec, data.DevURL)
+	case !data.hasDevURL():
+		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
+		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, nil, data.DevURL)
+	}
+	if err != nil {
+		return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
 	}
 	// Create a working directory for the Atlas CLI
 	// The working directory contains the atlas.hcl config.
@@ -717,7 +721,7 @@ func (d *managedData) repoURL() *url.URL {
 	// The user has provided the repository name.
 	case d.Cloud != nil && d.Cloud.Repo != "":
 		return (&url.URL{
-			Scheme: v1alpha1.SchemaTypeAtlas,
+			Scheme: dbv1alpha1.SchemaTypeAtlas,
 			Host:   d.Cloud.Repo,
 		})
 	// Fallback to desired URL if it's Cloud URL.
