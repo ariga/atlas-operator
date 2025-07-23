@@ -1,0 +1,49 @@
+# Copyright 2025 The Atlas Operator Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: CI - Helm Test
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches:
+      - "master"
+
+jobs:
+  helm-test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
+      - name: Install Skaffold
+        run: |
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.16.1/skaffold-linux-amd64 && \
+          sudo install skaffold /usr/local/bin/
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+      - name: Run e2e tests with Operator
+        run: |
+          make test-e2e \
+            ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
+            KIND_CLUSTER=chart-testing \
+            TEST_RUN='(schema|migration)-mysql'
+        env:
+          SKAFFOLD_PROFILE: helm
+      - name: test env vars
+        run: |
+          helm template atlas-operator charts/atlas-operator \
+            --set-json=extraEnvs='[{"name":"NORMAL_ENV","value":"value"}]' | grep NORMAL_ENV

@@ -20,30 +20,7 @@ on:
       - 'v*'
 jobs:
   helm-test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create k8s Kind Cluster
-        uses: helm/kind-action@v1
-      - name: Install Skaffold
-        run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.16.1/skaffold-linux-amd64 && \
-          sudo install skaffold /usr/local/bin/
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-      - name: Run e2e tests with Operator
-        run: |
-          make test-e2e \
-            ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
-            KIND_CLUSTER=chart-testing \
-            TEST_RUN='(schema|migration)-mysql'
-        env:
-          SKAFFOLD_PROFILE: helm
-      - name: test env vars
-        run: |
-          helm template atlas-operator charts/atlas-operator \
-            --set-json=extraEnvs='[{"name":"NORMAL_ENV","value":"value"}]' | grep NORMAL_ENV
+    uses: ./.github/workflows/ci-test-helm.yaml
   docker-build:
     name: Build
     runs-on: ubuntu-latest
