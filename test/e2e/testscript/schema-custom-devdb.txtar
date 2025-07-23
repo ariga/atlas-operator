@@ -46,7 +46,7 @@ spec:
       key: schema.sql
       name: mysql-schema
   devURL: mysql://root:pass@localhost/dev
-  customDevDB:
+  devDB:
     spec:
       containers:
         - name: mysql-dev-foo
@@ -79,7 +79,7 @@ spec:
     configMapKeyRef:
       key: schema.sql
       name: mysql-schema
-  customDevDB:
+  devDB:
     spec:
       containers:
         - name: mysql-dev-foo

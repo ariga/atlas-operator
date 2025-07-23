@@ -38,9 +38,11 @@ type (
 		EnvName string `json:"envName,omitempty"`
 		// Vars defines the input variables for the project configuration.
 		Vars []Variable `json:"vars,omitempty"`
-		// CustomDevDB defines the custom dev database pod spec to use for normalization and calculations.
+		// devDB defines the custom dev database pod spec to use for normalization and calculations.
+		// If not defined, a default pod spec will be created based on the type (driver) of the target database.
+		// When a custom devDB spec is provided, the devURL must be defined as well.
 		// +optional
-		CustomDevDB *CustomDevDB `json:"customDevDB,omitempty"`
+		DevDB *DevDB `json:"devDB,omitempty"`
 	}
 	// Variables defines the reference of secret/configmap to the input variables for the project configuration.
 	Variable struct {
@@ -55,7 +57,7 @@ type (
 		// ConfigMapKeyRef defines the configmap key reference to use for the value.
 		ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 	}
-	CustomDevDB struct {
+	DevDB struct {
 		Spec corev1.PodSpec `json:"spec,omitempty"`
 	}
 )

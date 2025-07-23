@@ -138,7 +138,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 				return "", fmt.Errorf("failed to create dev database spec: %w", err)
 			}
 		case devURL == "":
-			return "", fmt.Errorf("devURL is required when customDevDB is provided")
+			return "", fmt.Errorf("devURL is required when devDB is provided")
 		}
 		deploy = deploymentDevDB(key, drv, *podSpec, devURL)
 		// Set the owner reference to the given object

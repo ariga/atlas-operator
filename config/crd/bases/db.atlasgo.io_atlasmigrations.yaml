@@ -249,9 +249,11 @@ spec:
                         x-kubernetes-map-type: atomic
                     type: object
                 type: object
-              customDevDB:
-                description: CustomDevDB defines the custom dev database pod spec
-                  to use for normalization and calculations.
+              devDB:
+                description: |-
+                  devDB defines the custom dev database pod spec to use for normalization and calculations.
+                  If not defined, a default pod spec will be created based on the type (driver) of the target database.
+                  When a custom devDB spec is provided, the devURL must be defined as well.
                 properties:
                   spec:
                     description: PodSpec is a description of a pod.
