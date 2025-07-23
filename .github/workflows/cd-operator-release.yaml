@@ -28,7 +28,7 @@ jobs:
         uses: helm/kind-action@v1
       - name: Install Skaffold
         run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.3.1/skaffold-linux-amd64 && \
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.16.1/skaffold-linux-amd64 && \
           sudo install skaffold /usr/local/bin/
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -77,7 +77,7 @@ jobs:
             org.opencontainers.image.description=Atlas Operator
             org.opencontainers.image.url=https://atlasgo.io
             org.opencontainers.image.vendor=Ariga
-            org.opencontainers.image.source=https://github.com/ariga/atlas-operator/blob/master/Dockerfile 
+            org.opencontainers.image.source=https://github.com/ariga/atlas-operator/blob/master/Dockerfile
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
