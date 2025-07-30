@@ -245,7 +245,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					Vars:   data.Vars,
 				})
 				if err != nil {
-					return r.resultCLIErr(res, err, "SchemaPush")
+					return r.resultCLIErr(res, err, "SchemaInspect")
 				}
 				log.Info("schema is a file, pushing the schema to Atlas Cloud")
 				state, err := cli.SchemaPush(ctx, &atlasexec.SchemaPushParams{
