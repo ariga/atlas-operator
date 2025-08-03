@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	corev1 "k8s.io/api/core/v1"

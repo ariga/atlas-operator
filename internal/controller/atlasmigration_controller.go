@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
@@ -366,6 +366,8 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		r.recordApplied(res, status.Current)
 	default:
 		log.Info("applying pending migrations", "count", len(status.Pending))
+		var stderr bytes.Buffer
+		c.SetStderr(&stderr)
 		// There are pending migrations
 		// Execute Atlas CLI migrate command
 		reports, err := c.MigrateApplySlice(ctx, &atlasexec.MigrateApplyParams{
@@ -382,6 +384,11 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		if len(reports) != 1 {
 			return r.resultErr(res, fmt.Errorf("unexpected number of reports: %d", len(reports)), "Migrating")
 		}
+		if s := strings.TrimSpace(stderr.String()); s != "" {
+			// In some cases, Atlas logs to stderr without returning a nonzero status code. Emit the message to the user.
+			r.recorder.Event(res, corev1.EventTypeWarning, "Migrating", s)
+		}
+		c.SetStderr(nil)
 		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
 			ObservedHash:       data.ObservedHash,
 			LastApplied:        reports[0].End.Unix(),

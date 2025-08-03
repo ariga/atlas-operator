@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"ariga.io/atlas/sql/sqlcheck"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
