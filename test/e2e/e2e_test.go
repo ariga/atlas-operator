@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,7 @@ const (
 )
 
 func TestOperator(t *testing.T) {
+	os.MkdirAll("logs", 0755)
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
@@ -63,10 +65,6 @@ func TestOperator(t *testing.T) {
 	// Deploying the controller-manager
 	_, err = kind("skaffold", "run", "--wait-for-connection=true")
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, err = kind("skaffold", "delete")
-		require.NoError(t, err)
-	})
 	var controllerPod string
 	for range 10 {
 		// Getting the controller-manager pod name
@@ -86,6 +84,13 @@ func TestOperator(t *testing.T) {
 		<-time.After(time.Second * 5)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
+	t.Cleanup(func() {
+		logs, err := kind("kubectl", "logs", "-n", nsController, controllerPod)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile("logs/controller.txt", []byte(logs), 0644))
+		_, err = kind("skaffold", "delete")
+		require.NoError(t, err)
+	})
 	// Running the test script
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testscript"),
@@ -97,7 +102,7 @@ func TestOperator(t *testing.T) {
 			// Ensure the test in running in the right kube context
 			e.Setenv("KUBECONFIG", kubeconfig)
 			// Creating a namespace for the test
-			ns := fmt.Sprintf("e2e-%s-%d", strings.ToLower(t.Name()), time.Now().UnixMicro())
+			ns := fmt.Sprintf("e2e-%s-%d", path.Base(e.WorkDir), time.Now().UnixMicro())
 			e.Setenv("NAMESPACE", ns)
 			_, err = kind("kubectl", "create", "namespace", ns)
 			if err != nil {
