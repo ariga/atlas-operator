@@ -63,3 +63,8 @@ jobs:
           make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
             KIND_CLUSTER=chart-testing
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 'logs-${{ github.run_id }}-${{ github.run_attempt }}'
+          path: test/e2e/logs

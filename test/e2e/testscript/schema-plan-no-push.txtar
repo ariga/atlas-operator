@@ -1,4 +1,5 @@
 env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+env DEV_URL=postgres://root:pass@postgres-dev.${NAMESPACE}:5432/postgres?sslmode=disable
 kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
@@ -12,7 +13,6 @@ kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOK
 
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-env DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
 # Push the schemas to the registry
 atlas schema push atlas-operator --tag=plan-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
 atlas schema push atlas-operator --tag=plan-v2 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v2.hcl
@@ -113,9 +113,6 @@ spec:
     - name: postgres
       port: 5432
       targetPort: postgres
-    - name: postgres-dev
-      port: 5433
-      targetPort: postgres-dev
   type: ClusterIP
 ---
 apiVersion: apps/v1
@@ -156,6 +153,38 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-dev
+spec:
+  selector:
+    app: postgres-dev
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-dev
+spec:
+  selector:
+    matchLabels:
+      app: postgres-dev
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres-dev
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
         - name: postgres-dev
           image: postgres:15.4
           securityContext:
@@ -168,11 +197,9 @@ spec:
               value: pass
             - name: POSTGRES_USER
               value: root
-            - name: PGPORT
-              value: "5433"
           ports:
-            - containerPort: 5433
-              name: postgres-dev
+            - containerPort: 5432
+              name: postgres
           startupProbe:
             exec:
               command: [ "pg_isready" ]
