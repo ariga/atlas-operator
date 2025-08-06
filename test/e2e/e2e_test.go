@@ -35,7 +35,7 @@ const (
 )
 
 func TestOperator(t *testing.T) {
-	os.MkdirAll("logs", 0755)
+	require.NoError(t, os.MkdirAll("logs", 0755))
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
