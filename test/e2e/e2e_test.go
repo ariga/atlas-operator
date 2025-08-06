@@ -35,7 +35,6 @@ const (
 )
 
 func TestOperator(t *testing.T) {
-	require.NoError(t, os.MkdirAll("logs", 0755))
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
@@ -65,6 +64,13 @@ func TestOperator(t *testing.T) {
 	// Deploying the controller-manager
 	_, err = kind("skaffold", "run", "--wait-for-connection=true")
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		cmd := exec.Command("kind", "export", "logs", "logs", "--name", kindCluster)
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		require.NoError(t, cmd.Run())
+		_, err = kind("skaffold", "delete")
+		require.NoError(t, err)
+	})
 	var controllerPod string
 	for range 10 {
 		// Getting the controller-manager pod name
@@ -84,13 +90,6 @@ func TestOperator(t *testing.T) {
 		<-time.After(time.Second * 5)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
-	t.Cleanup(func() {
-		logs, err := kind("kubectl", "logs", "-n", nsController, controllerPod)
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile("logs/controller.txt", []byte(logs), 0644))
-		_, err = kind("skaffold", "delete")
-		require.NoError(t, err)
-	})
 	// Running the test script
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testscript"),
