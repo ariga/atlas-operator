@@ -35,7 +35,6 @@ const (
 )
 
 func TestOperator(t *testing.T) {
-	require.NoError(t, os.MkdirAll("logs", 0755))
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
@@ -83,14 +82,14 @@ func TestOperator(t *testing.T) {
 		// Wait 5s before retrying
 		<-time.After(time.Second * 5)
 	}
-	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	t.Cleanup(func() {
-		logs, err := kind("kubectl", "logs", "-n", nsController, controllerPod)
+		require.NoError(t, exportLogs(kind, nsController, "logs"))
+		_, err = kind("kubectl", "cluster-info", "dump", "-n", nsController, "--output-directory", "logs")
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile("logs/controller.txt", []byte(logs), 0644))
 		_, err = kind("skaffold", "delete")
 		require.NoError(t, err)
 	})
+	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	// Running the test script
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testscript"),
@@ -109,6 +108,11 @@ func TestOperator(t *testing.T) {
 				return err
 			}
 			e.Defer(func() {
+				if err := exportLogs(kind, ns, "logs"); err != nil {
+					fmt.Printf("failed to export logs: %s", err.Error())
+				}
+				_, err := kind("kubectl", "cluster-info", "dump", "-n", ns, "--output-directory", "logs")
+				require.NoError(t, err)
 				// Deleting the namespace after the test
 				kind("kubectl", "delete", "namespace", ns)
 			})
@@ -247,4 +251,29 @@ func getProjectDir() (string, error) {
 	}
 	wd = strings.Replace(wd, "/test/e2e", "", -1)
 	return wd, nil
+}
+
+func exportLogs(k func(name string, args ...string) (string, error), namespace string, dstPath string) error {
+	output, err := k("kubectl", "get", "pods",
+		"-n", namespace,
+		"-o", "jsonpath",
+		"--template", "{.items[*].metadata.name}",
+	)
+	if err != nil {
+		return err
+	}
+	dir := path.Join(dstPath, namespace)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return err
+	}
+	for _, p := range strings.Split(output, " ") {
+		output, err = k("kubectl", "logs", p, "-n", namespace)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path.Join(dir, p), []byte(output), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
