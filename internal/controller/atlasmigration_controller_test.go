@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"ariga.io/atlas/sql/migrate"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"

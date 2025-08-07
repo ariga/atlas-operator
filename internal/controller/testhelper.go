@@ -16,9 +16,10 @@ package controller
 
 import (
 	"context"
+	"io"
 	"testing"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -116,6 +117,9 @@ func (m *mockAtlasExec) MigrateLint(ctx context.Context, params *atlasexec.Migra
 func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error) {
 	return m.status.res, m.status.err
 }
+
+func (m *mockAtlasExec) SetStdout(io.Writer) {}
+func (m *mockAtlasExec) SetStderr(io.Writer) {}
 
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
 func newRunner[T interface {

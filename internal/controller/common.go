@@ -19,13 +19,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
-	"ariga.io/atlas-go-sdk/atlasexec"
+	"ariga.io/atlas/atlasexec"
 	"ariga.io/atlas/sql/migrate"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -68,6 +69,10 @@ type (
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
 		// WhoAmI runs the `whoami` command.
 		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
+		// SetStdout specifies a writer to stream stdout to for every command.
+		SetStdout(io.Writer)
+		// SetStderr specifies a writer to stream stderr to for every command.
+		SetStderr(io.Writer)
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.
