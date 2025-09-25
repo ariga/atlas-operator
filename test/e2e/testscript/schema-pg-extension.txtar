@@ -24,7 +24,6 @@ apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
 metadata:
   name: postgres-postgresql-schema
-  namespace: default
 spec:
   urlFrom:
     secretKeyRef:
