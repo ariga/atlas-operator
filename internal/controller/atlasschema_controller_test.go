@@ -406,7 +406,7 @@ func TestSchemaConfigMap(t *testing.T) {
 	inspect, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
 		DevURL: "sqlite://mem?mode=memory",
-		Format: "sql",
+		Format: "{{ sql . }}",
 	})
 	require.NoError(t, err)
 	require.Contains(t, inspect, "CREATE TABLE `foo` (\n  `id` int NULL,\n  PRIMARY KEY (`id`)\n);")
@@ -489,7 +489,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
-		Format: "sql",
+		Format: "{{ sql . }}",
 	})
 	require.NoError(t, err)
 	require.Contains(t, ins, "CREATE TABLE `x` (\n  `c` int NULL\n);")
@@ -538,7 +538,7 @@ func TestDiffPolicy(t *testing.T) {
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
-		Format: "sql",
+		Format: "{{ sql . }}",
 	})
 	require.NoError(t, err)
 	require.Contains(t, ins, "CREATE TABLE `x`", "expecting original table to be present")

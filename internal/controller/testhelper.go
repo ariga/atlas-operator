@@ -108,11 +108,6 @@ func (m *mockAtlasExec) MigrateDown(context.Context, *atlasexec.MigrateDownParam
 	return m.down.res, m.down.err
 }
 
-// MigrateLint implements AtlasExec.
-func (m *mockAtlasExec) MigrateLint(ctx context.Context, params *atlasexec.MigrateLintParams) (*atlasexec.SummaryReport, error) {
-	return m.lint.res, m.lint.err
-}
-
 // MigrateStatus implements AtlasExec.
 func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error) {
 	return m.status.res, m.status.err
