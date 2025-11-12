@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"ariga.io/atlas/atlasexec"
-	"ariga.io/atlas/sql/sqlcheck"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -36,14 +35,6 @@ const lintDirName = "lint-migrations"
 // Then it runs `atlas migrate lint` in the temporary directory.
 func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData, vars atlasexec.VarArgs) error {
 	cli, err := r.atlasClient(wd.Path(), data.Cloud)
-	if err != nil {
-		return err
-	}
-	current, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
-		Env:    data.EnvName,
-		Vars:   vars,
-		Format: "{{ sql . }}",
-	})
 	if err != nil {
 		return err
 	}
@@ -66,58 +57,27 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	if len(plans) != 1 {
 		return fmt.Errorf("unexpected number of schema plans: %d", len(plans))
 	}
-	dir, err := memDir(map[string]string{
-		"1.sql": current,
-		"2.sql": strings.Join(plans[0].Changes.Pending, ";\n"),
-	})
-	if err != nil {
-		return err
-	}
-	err = wd.CopyFS(lintDirName, dir)
-	if err != nil {
-		return err
-	}
-	lint, err := cli.MigrateLint(ctx, &atlasexec.MigrateLintParams{
-		Env:    data.EnvName,
-		Vars:   vars,
-		DirURL: fmt.Sprintf("file://./%s", lintDirName),
-		Latest: 1, // Only lint 2.sql, pending changes.
-	})
-	if err != nil {
-		return err
-	}
-	return destructive(lint)
-}
-
-func destructive(rep *atlasexec.SummaryReport) error {
-	var checks []sqlcheck.Diagnostic
-	for _, f := range rep.Files {
-		for _, r := range f.Reports {
-			if f.Error == "" {
-				continue
-			}
-			for _, diag := range r.Diagnostics {
-				if strings.HasPrefix(diag.Code, "DS") {
-					checks = append(checks, diag)
-				}
-			}
+	var causes []string
+	for _, c := range plans[0].Changes.Pending {
+		if strings.Contains(c, "DROP ") {
+			causes = append(causes, c)
 		}
 	}
-	if len(checks) > 0 {
-		return &destructiveErr{diags: checks}
+	if len(causes) > 0 {
+		return &destructiveErr{clauses: causes}
 	}
 	return nil
 }
 
 type destructiveErr struct {
-	diags []sqlcheck.Diagnostic
+	clauses []string
 }
 
 func (d *destructiveErr) Error() string {
 	var buf strings.Builder
 	buf.WriteString("destructive changes detected:\n")
-	for _, diag := range d.diags {
-		buf.WriteString("- " + diag.Text + "\n")
+	for _, c := range d.clauses {
+		buf.WriteString("- " + c + "\n")
 	}
 	return buf.String()
 }
