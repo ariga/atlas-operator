@@ -35,6 +35,8 @@ jobs:
           sudo install skaffold /usr/local/bin/
       - name: Setup Helm
         uses: azure/setup-helm@v4
+        with:
+          version: 'v3.19.4'
       - name: Run e2e tests with Operator
         run: |
           make test-e2e \
