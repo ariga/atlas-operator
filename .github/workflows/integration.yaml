@@ -45,7 +45,7 @@ jobs:
         run: |
           make test
   e2e:
-    runs-on: ubuntu-large
+    runs-on: ubuntu-latest
     needs: [unit]
     steps:
       - uses: actions/checkout@v4
