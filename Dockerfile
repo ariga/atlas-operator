@@ -53,4 +53,7 @@ COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
 RUN chmod +x /usr/local/bin/atlas
 ENV ATLAS_KUBERNETES_OPERATOR=1
 USER 65532:65532
+# Workaround for the issue with x/tools/imports
+# See: https://github.com/golang/go/issues/75505
+ENV HOME=/tmp
 ENTRYPOINT ["/manager"]
