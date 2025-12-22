@@ -225,6 +225,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			To:     desiredURL,
 			TxMode: string(data.TxMode),
 			Vars:   data.Vars,
+			DryRun: res.Spec.DryRun,
 		}
 		repo := data.repoURL()
 		if repo == nil {

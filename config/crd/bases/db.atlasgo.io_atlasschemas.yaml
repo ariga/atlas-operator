@@ -8171,6 +8171,10 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              dryRun:
+                description: DryRun defines whether to run the schema apply operation
+                  in dry-run mode.default is false
+                type: boolean
               envName:
                 description: |-
                   EnvName defines the environment name that defined in the project configuration.
