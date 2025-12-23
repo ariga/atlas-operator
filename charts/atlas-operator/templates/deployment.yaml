@@ -58,6 +58,8 @@ spec:
         env:
         - name: PREWARM_DEVDB
           value: "{{ .Values.prewarmDevDB }}"
+        - name: ALLOW_CUSTOM_CONFIG
+          value: "{{ .Values.allowCustomConfig }}"
         {{- with .Values.extraEnvs }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

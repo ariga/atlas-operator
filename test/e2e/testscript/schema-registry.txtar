@@ -1,0 +1,171 @@
+env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+kubectl apply -f database.yaml
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=postgres pods
+
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Sync the $WORK directory to the controller pod
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+# Push the schemas to the registry
+env DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
+atlas schema push atlas-operator --tag=registry-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
+atlas schema push atlas-operator --tag=registry-v2 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v2.hcl
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl-wait-ready AtlasSchema/postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+
+kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
+# Ensure the controller is aware of the change
+kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/postgres
+kubectl-wait-ready AtlasSchema/postgres
+
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v2.hcl
+-- patch-v2.yaml --
+spec:
+  schema:
+    url: atlas://atlas-operator?tag=registry-v2
+-- schema-v2.hcl --
+table "users1" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+table "users2" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema-v1.hcl --
+table "users2" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-v1
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: postgres-dev
+      port: 5433
+      targetPort: postgres-dev
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10
+        - name: postgres-dev
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+            - name: PGPORT
+              value: "5433"
+          ports:
+            - containerPort: 5433
+              name: postgres-dev
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

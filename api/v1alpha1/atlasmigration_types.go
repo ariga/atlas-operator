@@ -50,22 +50,35 @@ type (
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 		// LastAppliedVersion is the version of the most recent successful versioned migration.
 		LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
-		//LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
+		// LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
 		LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
+		// ApprovalURL is the URL to approve the migration.
+		ApprovalURL string `json:"approvalUrl,omitempty"`
 		// ObservedHash is the hash of the most recent successful versioned migration.
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful versioned migration.
 		LastApplied int64 `json:"lastApplied"`
+		// Failed is the number of times the migration has failed.
+		// +kubebuilder:default=0
+		Failed int `json:"failed"`
 	}
 	// AtlasMigrationSpec defines the desired state of AtlasMigration
 	AtlasMigrationSpec struct {
-		TargetSpec `json:",inline"`
+		TargetSpec        `json:",inline"`
+		ProjectConfigSpec `json:",inline"`
 		// EnvName sets the environment name used for reporting runs to Atlas Cloud.
 		EnvName string `json:"envName,omitempty"`
 		// Cloud defines the Atlas Cloud configuration.
-		Cloud Cloud `json:"cloud,omitempty"`
+		Cloud CloudV0 `json:"cloud,omitempty"`
 		// Dir defines the directory to use for migrations as a configmap key reference.
 		Dir Dir `json:"dir"`
+		// DevURL is the URL of the database to use for normalization and calculations.
+		// If not specified, the operator will spin up a temporary database container to use for these operations.
+		// +optional
+		DevURL string `json:"devURL"`
+		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
+		// +optional
+		DevURLFrom Secret `json:"devURLFrom,omitempty"`
 		// RevisionsSchema defines the schema that revisions table resides in
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
 		// BaselineVersion defines the baseline version of the database on the first migration.
@@ -73,9 +86,13 @@ type (
 		// ExecOrder controls how Atlas computes and executes pending migration files to the database.
 		// +kubebuilder:default=linear
 		ExecOrder MigrateExecOrder `json:"execOrder,omitempty"`
+		// ProtectedFlows defines the protected flows of a deployment.
+		ProtectedFlows *ProtectFlows `json:"protectedFlows,omitempty"`
+		// BackoffLimit is the number of retries on error.
+		// +kubebuilder:default=20
+		BackoffLimit int `json:"backoffLimit,omitempty"`
 	}
-	// Cloud defines the Atlas Cloud configuration.
-	Cloud struct {
+	CloudV0 struct {
 		URL       string    `json:"url,omitempty"`
 		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
 		Project   string    `json:"project,omitempty"`
@@ -98,6 +115,19 @@ type (
 	Remote struct {
 		Name string `json:"name,omitempty"`
 		Tag  string `json:"tag,omitempty"`
+	}
+	// ProtectedFlows defines the protected flows of a deployment.
+	ProtectFlows struct {
+		MigrateDown *DeploymentFlow `json:"migrateDown,omitempty"`
+	}
+	// DeploymentFlow defines the flow of a deployment.
+	DeploymentFlow struct {
+		// Allow allows the flow to be executed.
+		// +kubebuilder:default=false
+		Allow bool `json:"allow,omitempty"`
+		// AutoApprove allows the flow to be automatically approved.
+		// +kubebuilder:default=false
+		AutoApprove bool `json:"autoApprove,omitempty"`
 	}
 )
 
@@ -131,14 +161,26 @@ func (m *AtlasMigration) IsHashModified(hash string) bool {
 	return hash != m.Status.ObservedHash
 }
 
+// SetReconciling sets the ready condition to false with the reason "Reconciling".
+func (m *AtlasMigration) SetReconciling(message string) {
+	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+		Type:    readyCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonReconciling,
+		Message: message,
+	})
+	m.ResetFailed()
+}
+
 // SetReady sets the ready condition to true.
 func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
 	m.Status = status
 	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
 		Type:   readyCond,
 		Status: metav1.ConditionTrue,
-		Reason: "Applied",
+		Reason: ReasonApplied,
 	})
+	m.ResetFailed()
 }
 
 // SetNotReady sets the ready condition to false.
@@ -149,4 +191,25 @@ func (m *AtlasMigration) SetNotReady(reason, message string) {
 		Reason:  reason,
 		Message: message,
 	})
+	if isFailedReason(reason) {
+		m.IncrementFailed()
+	}
+}
+
+// IncrementFailed increments the failed count.
+func (m *AtlasMigration) IncrementFailed() {
+	m.Status.Failed++
+}
+
+// ResetFailed resets the failed count.
+func (m *AtlasMigration) ResetFailed() {
+	m.Status.Failed = 0
+}
+
+// IsExceedBackoffLimit returns true if the failed count exceeds the backoff limit.
+func (m *AtlasMigration) IsExceedBackoffLimit() bool {
+	if m.Spec.BackoffLimit == 0 {
+		return false
+	}
+	return m.Status.Failed > m.Spec.BackoffLimit
 }

@@ -63,24 +63,73 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 - `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
 
+- `allowCustomConfig`: Enable this to allow custom `atlas.hcl` configuration. To use this feature, you can set the `config` field in the `AtlasSchema` or `AtlasMigration` resource.
+
+```yaml
+  spec:
+    envName: myenv
+    config: |
+      env myenv {}
+    # config from secretKeyRef
+    # configFrom:
+    #   secretKeyRef:
+    #     key: config
+    #     name: my-secret
+```
+
+To use variables in the `config` field:
+
+```yaml
+  spec:
+    envName: myenv
+    variables:
+      - name: db_url
+        value: "mysql://root"
+      # variables from secretKeyRef
+      # - name: db_url
+      #   valueFrom:
+      #     secretKeyRef:
+      #       key: db_url
+      #       name: my-secret
+      # variables from configMapKeyRef
+      # - name: db_url
+      #   valueFrom:
+      #     configMapKeyRef:
+      #       key: db_url
+      #       name: my-configmap
+    config: |
+      variable "db_url" {
+        type = string
+      }
+      env myenv {
+        url = var.db_url
+      }
+```
+
+> Note: Allowing custom configuration enables executing arbitrary commands using the `external` data source as well as arbitrary SQL using the `sql` data source. Use this feature with caution.
+
 - `extraEnvs`: Used to set environment variables for the operator
 
 ```yaml
   extraEnvs: []
   # extraEnvs:
-  #   - name: FOO
-  #     value: "foo"
-  #   - name: BAR
+  #   - name: MSSQL_ACCEPT_EULA
+  #     value: "Y"
+  #   - name: MSSQL_PID
+  #     value: "Developer"
+  #   - name: ATLAS_TOKEN
   #     valueFrom:
   #       secretKeyRef:
-  #         key: BAR
-  #         name: secret-resource
+  #         key: ATLAS_TOKEN
+  #         name: atlas-token-secret
   #   - name: BAZ
   #     valueFrom:
   #       configMapKeyRef:
   #         key: BAZ
   #         name: configmap-resource
 ```
+
+> Note: The SQL Server driver requires the `MSSQL_ACCEPT_EULA` and `MSSQL_PID` environment variables to be set for acceptance of the [Microsoft EULA](https://go.microsoft.com/fwlink/?linkid=857698) and the product ID, respectively.
 
 - `extraVolumes`: Used to mount additional volumes to the operator
 
@@ -106,6 +155,27 @@ To configure the operator, you can set the following values in the `values.yaml`
   #     mountPath: /path/to/mount
 ```
 
+### Authentication
+
+If you want use use any feature that requires logging in (triggers, functions, procedures, sequence support or SQL Server, ClickHouse, and Redshift drivers), you need to provide the operator with an  Atlas token. You can do this by creating a secret with the token:
+
+```shell
+kubectl create secret generic atlas-token-secret \
+  --from-literal=ATLAS_TOKEN='aci_xxxxxxx'
+```
+
+Then set the `ATLAS_TOKEN` environment variable in the operator's deployment manifest:
+
+```yaml
+values:
+  extraEnvs:
+    - name: ATLAS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          key: ATLAS_TOKEN
+          name: atlas-token-secret
+```
+
 ### Getting started
 
 In this example, we will create a MySQL database and apply a schema to it. After installing the
@@ -115,7 +185,7 @@ operator, follow these steps to get started:
   to the database:
 
   ```bash
-  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/mysql.yaml
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/examples/databases/mysql.yaml
   ```
   
   Result:
@@ -187,7 +257,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
   to the database:
 
   ```bash
-  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/config/integration/databases/postgres.yaml
+  kubectl apply -f https://raw.githubusercontent.com/ariga/atlas-operator/master/examples/databases/postgres.yaml
   ```
   
   Result:
@@ -292,7 +362,7 @@ Now, let's try versioned migrations with a PostgreSQL database.
    short_bio | character varying(255) |           | not null |                                | extended |             |              |
   ```
   
-  Please refer to [this link](https://atlasgo.io/integrations/kubernetes/operators/versioned) to explore the supported API for versioned migrations.
+  Please refer to [this link](https://atlasgo.io/integrations/kubernetes/versioned#api-reference) to explore the supported API for versioned migrations.
 
 ### API Reference
 
@@ -377,18 +447,21 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | ------ | ----------- |
 | Reconciling | The operator is reconciling the desired state with the actual state of the database |
 | ReadSchema | There was an error about reading the schema from ConfigMap or database credentials |
-| GettingDevDB | failed to get the devdb resource, in case we are using the devdb for nomalization
-| VerifyingFirstRun | occurred when a first run of the operator that contain destructive changes |
-| LintPolicyError | occurred when the lint policy is violated |
-| ApplyingSchema | failed to apply to database |
+| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database), which used for normalization the schema |
+| VerifyingFirstRun | Occurred when a first run of the operator that contain destructive changes |
+| LintPolicyError | Occurred when the lint policy is violated |
+| ApplyingSchema | Failed to apply to database |
 
 **For AtlasMigration resource:** 
 
 | Reason | Description |
 | ------ | ----------- |
 | Reconciling | The operator is reconciling the desired state with the actual state of the database |
-| ReadingMigrationData | failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
-| Migrating | failed to migrate to database |
+| GettingDevDB | Failed to get a [Dev Database](https://atlasgo.io/concepts/dev-database) which is required to compute a migration plan |
+| ReadingMigrationData | Failed to read the migration directory from `ConfigMap`, Atlas Cloud or invalid database credentials |
+| ProtectedFlowError | Occurred when the migration is protected and the operator is not able to apply it |
+| ApprovalPending | Applying the migration requires manual approval on Atlas Cloud. The URL used for approval is provided in the `approvalUrl` field of the `status` object |
+| Migrating | Failed to migrate to database |
 
 ### Support
 

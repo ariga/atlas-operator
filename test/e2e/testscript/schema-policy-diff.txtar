@@ -1,0 +1,136 @@
+env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
+kubectl apply -f database.yaml
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/mysql
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=mysql pods
+
+# Create the schema
+kubectl apply -f schema.yaml
+kubectl-wait-ready AtlasSchema/mysql
+kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/mysql
+stdout oAoRLC2AXyGha6pKDollSqBB5ovjB\+qK78aAN9dkOow\=
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema.hcl
+
+kubectl patch -f schema.yaml --type merge --patch-file patch-remove-bio.yaml
+exec sleep 20
+kubectl-wait-ready AtlasSchema/mysql
+# Ensure the schema is updated
+kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/mysql
+stdout UmrKZN7GNsjWxLOq6VJ3vejqnvBQU9BeoDZlL\/2LTKU\=
+# Inspect the schema again to ensure it still has the bio column
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema.hcl
+-- schema.hcl --
+table "users" {
+  schema = schema.myapp
+  column "id" {
+    null           = false
+    type           = int
+    auto_increment = true
+  }
+  column "name" {
+    null = false
+    type = varchar(255)
+  }
+  column "email" {
+    null = false
+    type = varchar(255)
+  }
+  column "short_bio" {
+    null = false
+    type = varchar(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "email" {
+    unique  = true
+    columns = [column.email]
+  }
+}
+schema "myapp" {
+  charset = "utf8mb4"
+  collate = "utf8mb4_0900_ai_ci"
+}
+-- patch-remove-bio.yaml --
+spec:
+  schema:
+    sql: |
+      create table users (
+        id int not null auto_increment,
+        name varchar(255) not null,
+        email varchar(255) unique not null,
+        primary key (id)
+      );
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: mysql
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  policy:
+    diff:
+      skip:
+        drop_column: true
+  schema:
+    sql: |
+      create table users (
+        id int not null auto_increment,
+        name varchar(255) not null,
+        email varchar(255) unique not null,
+        short_bio varchar(255) not null,
+        primary key (id)
+      );
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:latest
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: pass
+            - name: MYSQL_DATABASE
+              value: myapp
+          ports:
+            - containerPort: 3306
+              name: mysql
+          startupProbe:
+            exec:
+              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
+            failureThreshold: 30
+            periodSeconds: 10

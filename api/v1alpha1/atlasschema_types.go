@@ -18,9 +18,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,12 +62,24 @@ type (
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful schema apply operation.
 		LastApplied int64 `json:"last_applied"`
+		// PlanURL is the URL of the schema plan to apply.
+		// +optional
+		PlanURL string `json:"planURL"`
+		// PlanLink is the link to the schema plan on the Atlas Cloud.
+		// +optional
+		PlanLink string `json:"planLink"`
+		// Failed is the number of times the schema has failed to apply.
+		// +kubebuilder:default=0
+		Failed int `json:"failed"`
 	}
 	// AtlasSchemaSpec defines the desired state of AtlasSchema
 	AtlasSchemaSpec struct {
-		TargetSpec `json:",inline"`
+		TargetSpec        `json:",inline"`
+		ProjectConfigSpec `json:",inline"`
 		// Desired Schema of the target.
 		Schema Schema `json:"schema,omitempty"`
+		// Cloud defines the Atlas Cloud configuration.
+		Cloud Cloud `json:"cloud,omitempty"`
 		// +optional
 		// DevURL is the URL of the database to use for normalization and calculations.
 		// If not specified, the operator will spin up a temporary database container to use for these operations.
@@ -81,11 +96,16 @@ type (
 		Policy *Policy `json:"policy,omitempty"`
 		// The names of the schemas (named databases) on the target database to be managed.
 		Schemas []string `json:"schemas,omitempty"`
+		// BackoffLimit is the number of retries on error.
+		// +kubebuilder:default=20
+		BackoffLimit int `json:"backoffLimit,omitempty"`
 	}
 	// Schema defines the desired state of the target database schema in plain SQL or HCL.
 	Schema struct {
-		SQL             string                       `json:"sql,omitempty"`
-		HCL             string                       `json:"hcl,omitempty"`
+		SQL string `json:"sql,omitempty"`
+		HCL string `json:"hcl,omitempty"`
+		URL string `json:"url,omitempty"`
+
 		ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 	}
 	// Policy defines the policies to apply when managing the schema change lifecycle.
@@ -96,6 +116,9 @@ type (
 	// Lint defines the linting policies to apply before applying the schema.
 	Lint struct {
 		Destructive *CheckConfig `json:"destructive,omitempty"`
+		// Review defines the review policy to apply after linting the schema changes (default: "ERROR").
+		// Atlas Cloud login is required.
+		Review LintReview `json:"review,omitempty"`
 	}
 	// CheckConfig defines the configuration of a linting check.
 	CheckConfig struct {
@@ -148,6 +171,16 @@ type (
 	// TransactionMode
 	// +kubebuilder:validation:Enum=file;all;none
 	TransactionMode string
+	// LintReview defines the review policies to apply after linting the schema.
+	// +kubebuilder:validation:Enum=ALWAYS;WARNING;ERROR
+	LintReview string
+)
+
+// LintReview values.
+const (
+	LintReviewAlways  LintReview = "ALWAYS"
+	LintReviewWarning LintReview = "WARNING"
+	LintReviewError   LintReview = "ERROR"
 )
 
 func init() {
@@ -172,21 +205,37 @@ func (sc *AtlasSchema) IsHashModified(hash string) bool {
 	return hash != sc.Status.ObservedHash
 }
 
+// SetReconciling sets the ready condition to false with the reason "Reconciling".
+func (sc *AtlasSchema) SetReconciling(message string) {
+	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+		Type:    readyCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonReconciling,
+		Message: message,
+	})
+	sc.ResetFailed()
+}
+
 // SetReady sets the Ready condition to true
 func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	var msg string
-	if j, err := json.Marshal(report); err != nil {
-		msg = fmt.Sprintf("Error marshalling apply response: %v", err)
+	if report != nil {
+		if j, err := json.Marshal(report); err != nil {
+			msg = fmt.Sprintf("Error marshalling apply response: %v", err)
+		} else {
+			msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
+		}
 	} else {
-		msg = fmt.Sprintf("The schema has been applied successfully. Apply response: %s", j)
+		msg = "The schema has been applied successfully."
 	}
 	sc.Status = status
 	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Applied",
+		Reason:  ReasonApplied,
 		Message: msg,
 	})
+	sc.ResetFailed()
 }
 
 // SetNotReady sets the Ready condition to false
@@ -198,31 +247,137 @@ func (sc *AtlasSchema) SetNotReady(reason, msg string) {
 		Reason:  reason,
 		Message: msg,
 	})
+	if isFailedReason(reason) {
+		sc.IncrementFailed()
+	}
 }
 
-// Content returns the desired schema of the AtlasSchema.
-func (s Schema) Content(ctx context.Context, r client.Reader, ns string) ([]byte, string, error) {
+// IncrementFailed increments the failed count.
+func (sc *AtlasSchema) IncrementFailed() {
+	sc.Status.Failed++
+}
+
+// ResetFailed resets the failed count.
+func (sc *AtlasSchema) ResetFailed() {
+	sc.Status.Failed = 0
+}
+
+// IsExceedBackoffLimit returns true if the failed count exceeds the backoff limit.
+func (sc *AtlasSchema) IsExceedBackoffLimit() bool {
+	return sc.Spec.BackoffLimit > 0 && sc.Status.Failed > sc.Spec.BackoffLimit
+}
+
+// Schema reader types (URL schemes).
+const (
+	SchemaTypeAtlas = "atlas"
+	SchemaTypeFile  = "file"
+)
+
+// Desired returns the desired schema of the AtlasSchema.
+func (s Schema) DesiredState(ctx context.Context, r client.Reader, ns string) (*url.URL, []byte, error) {
 	switch ref := s.ConfigMapKeyRef; {
 	case ref != nil:
 		val := &corev1.ConfigMap{}
 		err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, err
 		}
 		// Guess the schema file format based on the key's extension.
 		ext := strings.ToLower(filepath.Ext(ref.Key))
 		switch desired, ok := val.Data[ref.Key]; {
 		case !ok:
-			return nil, "", fmt.Errorf("configmaps %s/%s does not contain key %q", ns, ref.Name, ref.Key)
+			return nil, nil, fmt.Errorf("configmaps %s/%s does not contain key %q", ns, ref.Name, ref.Key)
 		case ext == ".hcl" || ext == ".sql":
-			return []byte(desired), ext[1:], nil
+			return &url.URL{Scheme: SchemaTypeFile, Path: "schema" + ext}, []byte(desired), nil
 		default:
-			return nil, "", fmt.Errorf("configmaps key %q must be ending with .sql or .hcl, received %q", ref.Key, ext)
+			return nil, nil, fmt.Errorf("configmaps key %q must be ending with .sql or .hcl, received %q", ref.Key, ext)
 		}
 	case s.HCL != "":
-		return []byte(s.HCL), "hcl", nil
+		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.hcl"}, []byte(s.HCL), nil
 	case s.SQL != "":
-		return []byte(s.SQL), "sql", nil
+		return &url.URL{Scheme: SchemaTypeFile, Path: "schema.sql"}, []byte(s.SQL), nil
+	case s.URL != "":
+		u, err := url.Parse(s.URL)
+		if err == nil && u.Scheme != SchemaTypeAtlas {
+			return nil, nil, fmt.Errorf("unsupported URL schema %q", u.Scheme)
+		}
+		return u, nil, err
 	}
-	return nil, "", fmt.Errorf("no desired schema specified")
+	return nil, nil, nil
+}
+
+// AsBlock returns the HCL block representation of the diff.
+func (d Diff) AsBlock() *hclwrite.Block {
+	blk := hclwrite.NewBlock("diff", nil)
+	body := blk.Body()
+	if v := d.ConcurrentIndex; v != nil {
+		b := body.AppendNewBlock("concurrent_index", nil).Body()
+		b.SetAttributeValue("create", cty.BoolVal(v.Create))
+		b.SetAttributeValue("drop", cty.BoolVal(v.Drop))
+	}
+	if v := d.Skip; v != nil {
+		b := body.AppendNewBlock("skip", nil).Body()
+		if v.AddSchema {
+			b.SetAttributeValue("add_schema", cty.BoolVal(v.AddSchema))
+		}
+		if v.DropSchema {
+			b.SetAttributeValue("drop_schema", cty.BoolVal(v.DropSchema))
+		}
+		if v.ModifySchema {
+			b.SetAttributeValue("modify_schema", cty.BoolVal(v.ModifySchema))
+		}
+		if v.AddTable {
+			b.SetAttributeValue("add_table", cty.BoolVal(v.AddTable))
+		}
+		if v.DropTable {
+			b.SetAttributeValue("drop_table", cty.BoolVal(v.DropTable))
+		}
+		if v.ModifyTable {
+			b.SetAttributeValue("modify_table", cty.BoolVal(v.ModifyTable))
+		}
+		if v.AddColumn {
+			b.SetAttributeValue("add_column", cty.BoolVal(v.AddColumn))
+		}
+		if v.DropColumn {
+			b.SetAttributeValue("drop_column", cty.BoolVal(v.DropColumn))
+		}
+		if v.ModifyColumn {
+			b.SetAttributeValue("modify_column", cty.BoolVal(v.ModifyColumn))
+		}
+		if v.AddIndex {
+			b.SetAttributeValue("add_index", cty.BoolVal(v.AddIndex))
+		}
+		if v.DropIndex {
+			b.SetAttributeValue("drop_index", cty.BoolVal(v.DropIndex))
+		}
+		if v.ModifyIndex {
+			b.SetAttributeValue("modify_index", cty.BoolVal(v.ModifyIndex))
+		}
+		if v.AddForeignKey {
+			b.SetAttributeValue("add_foreign_key", cty.BoolVal(v.AddForeignKey))
+		}
+		if v.DropForeignKey {
+			b.SetAttributeValue("drop_foreign_key", cty.BoolVal(v.DropForeignKey))
+		}
+		if v.ModifyForeignKey {
+			b.SetAttributeValue("modify_foreign_key", cty.BoolVal(v.ModifyForeignKey))
+		}
+	}
+	return blk
+}
+
+func (p *Policy) HasLint() bool {
+	return p != nil && p.Lint != nil
+}
+
+func (p *Policy) HasDiff() bool {
+	return p != nil && p.Diff != nil
+}
+
+func (p *Policy) HasLintDestructive() bool {
+	return p.HasLint() && p.Lint.Destructive != nil
+}
+
+func (p *Policy) HasLintReview() bool {
+	return p.HasLint() && p.Lint.Review != ""
 }

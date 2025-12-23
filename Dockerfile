@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Build the manager binary
-FROM golang:1.21.6-alpine3.19 as builder
+FROM golang:1.24-alpine3.22 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG OPERATOR_VERSION
@@ -30,29 +30,30 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 # Copy the go source
-COPY main.go main.go
+COPY cmd/main.go cmd/main.go
 COPY api/ api/
-COPY controllers/ controllers/
 COPY internal/ internal/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
-    -o manager -a main.go
+    -o manager -a cmd/main.go
 
-FROM alpine:3.19 as atlas
+FROM alpine:3.20 as atlas
 RUN apk add --no-cache curl
 ARG ATLAS_VERSION=latest
 ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh
 
-FROM alpine:3.19
+FROM alpine:3.20
 WORKDIR /
 COPY --from=builder /workspace/manager .
-COPY --from=atlas /usr/local/bin/atlas .
-RUN chmod +x /atlas
-ENV ATLAS_NO_UPDATE_NOTIFIER=1
+COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
+RUN chmod +x /usr/local/bin/atlas
 ENV ATLAS_KUBERNETES_OPERATOR=1
 USER 65532:65532
+# Workaround for the issue with x/tools/imports
+# See: https://github.com/golang/go/issues/75505
+ENV HOME=/tmp
 ENTRYPOINT ["/manager"]

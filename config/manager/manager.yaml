@@ -86,6 +86,7 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
+        env: []
         securityContext:
           runAsUser: 1000
           allowPrivilegeEscalation: false

@@ -53,9 +53,6 @@ func TestTargetSpec_DatabaseURL(t *testing.T) {
 			require.Equal(t, a, u.String())
 		}
 	)
-	// error
-	_, err := target.DatabaseURL(ctx, nil, "default")
-	require.ErrorContains(t, err, "no target database defined")
 
 	// Should return the URL from the credentials
 	target.Credentials = v1alpha1.Credentials{
@@ -127,20 +124,16 @@ func TestSchema_Content(t *testing.T) {
 			}).
 			Build()
 	)
-	// error
-	_, _, err := sch.Content(ctx, client, "default")
-	require.ErrorContains(t, err, "no desired schema specified")
-
 	sch.SQL = "bar"
-	data, ext, err := sch.Content(ctx, client, "default")
+	u, data, err := sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "sql", ext)
+	require.Equal(t, "file://schema.sql", u.String())
 	require.Equal(t, []byte("bar"), data)
 
 	sch.HCL = "foo"
-	data, ext, err = sch.Content(ctx, client, "default")
+	u, data, err = sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "hcl", ext)
+	require.Equal(t, "file://schema.hcl", u.String())
 	require.Equal(t, []byte("foo"), data)
 
 	// Should return the content from the configmap
@@ -150,21 +143,21 @@ func TestSchema_Content(t *testing.T) {
 		},
 		Key: "schema.sql",
 	}
-	data, ext, err = sch.Content(ctx, client, "default")
+	u, data, err = sch.DesiredState(ctx, client, "default")
 	require.NoError(t, err)
-	require.Equal(t, "sql", ext)
+	require.Equal(t, "file://schema.sql", u.String())
 	require.Equal(t, []byte("bar"), data)
 
 	sch.ConfigMapKeyRef.Key = "schema.bug"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps key "schema.bug" must be ending with .sql or .hcl, received ".bug"`)
 
 	sch.ConfigMapKeyRef.Key = "schema.foo"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps default/test does not contain key "schema.foo"`)
 
 	sch.ConfigMapKeyRef.Name = "foo"
-	_, _, err = sch.Content(ctx, client, "default")
+	_, _, err = sch.DesiredState(ctx, client, "default")
 	require.ErrorContains(t, err, `configmaps "foo" not found`)
 }
 
@@ -217,6 +210,17 @@ func TestCredentials_URL(t *testing.T) {
 				Database: "db",
 			},
 			exp: "mysql://user:pass@:3306/db",
+		},
+		{
+			c: v1alpha1.Credentials{
+				Scheme:   "sqlserver",
+				User:     "sa",
+				Password: "P@ssw0rd0995",
+				Host:     "",
+				Port:     1433,
+				Database: "master",
+			},
+			exp: "sqlserver://sa:P%40ssw0rd0995@:1433?database=master",
 		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {

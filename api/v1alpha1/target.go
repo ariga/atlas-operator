@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,12 +54,19 @@ type (
 		// SecretKeyRef defines the secret key reference to use for the user.
 		SecretKeyRef *corev1.SecretKeySelector `json:"secretKeyRef,omitempty"`
 	}
+	// Cloud defines the Atlas Cloud configuration.
+	Cloud struct {
+		// TokenFrom defines the reference to the secret key that contains the Atlas Cloud Token.
+		TokenFrom TokenFrom `json:"tokenFrom,omitempty"`
+		// Repo is the name of repository on the Atlas Cloud.
+		Repo string `json:"repo,omitempty"`
+	}
 )
 
 // DatabaseURL returns the database url.
 func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string) (*url.URL, error) {
 	if s.URLFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.URLFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.URLFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
@@ -68,21 +76,21 @@ func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string)
 		return url.Parse(s.URL)
 	}
 	if s.Credentials.UserFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.UserFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.UserFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
 		s.Credentials.User = val
 	}
 	if s.Credentials.PasswordFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.PasswordFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.PasswordFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
 		s.Credentials.Password = val
 	}
 	if s.Credentials.HostFrom.SecretKeyRef != nil {
-		val, err := getSecrectValue(ctx, r, ns, s.Credentials.HostFrom.SecretKeyRef)
+		val, err := getSecretValue(ctx, r, ns, s.Credentials.HostFrom.SecretKeyRef)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +99,7 @@ func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string)
 	if s.Credentials.Host != "" {
 		return s.Credentials.URL(), nil
 	}
-	return nil, fmt.Errorf("no target database defined")
+	return nil, nil
 }
 
 // URL returns the URL for the database.
@@ -99,6 +107,13 @@ func (c *Credentials) URL() *url.URL {
 	u := &url.URL{
 		Scheme: c.Scheme,
 		Path:   c.Database,
+	}
+	if DriverBySchema(c.Scheme) == "sqlserver" && c.Database != "" {
+		u.Path = ""
+		if c.Parameters == nil {
+			c.Parameters = map[string]string{}
+		}
+		c.Parameters["database"] = c.Database
 	}
 	if c.User != "" || c.Password != "" {
 		u.User = url.UserPassword(c.User, c.Password)
@@ -118,7 +133,7 @@ func (c *Credentials) URL() *url.URL {
 	return u
 }
 
-func getSecrectValue(
+func getSecretValue(
 	ctx context.Context,
 	r client.Reader,
 	ns string,
@@ -130,4 +145,80 @@ func getSecrectValue(
 		return "", err
 	}
 	return string(val.Data[ref.Key]), nil
+}
+
+func getConfigMapValue(
+	ctx context.Context,
+	r client.Reader,
+	ns string,
+	ref *corev1.ConfigMapKeySelector,
+) (string, error) {
+	val := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, val)
+	if err != nil {
+		return "", err
+	}
+	return string(val.Data[ref.Key]), nil
+}
+
+// Driver defines the database driver.
+type Driver string
+
+const (
+	DriverPostgres   Driver = "postgres"
+	DriverMySQL      Driver = "mysql"
+	DriverMariaDB    Driver = "mariadb"
+	DriverSQLite     Driver = "sqlite"
+	DriverSQLServer  Driver = "sqlserver"
+	DriverClickHouse Driver = "clickhouse"
+	DriverRedshift   Driver = "redshift"
+)
+
+// DriverBySchema returns the driver from the given schema.
+// it remove the schema modifier if present.
+// e.g. mysql+unix -> mysql
+// it also handles aliases.
+// e.g. mariadb -> mysql
+func DriverBySchema(schema string) Driver {
+	p := strings.SplitN(schema, "+", 2)
+	switch drv := strings.ToLower(p[0]); drv {
+	case "sqlite", "libsql":
+		return DriverSQLite
+	case "mysql":
+		return DriverMySQL
+	case "mariadb", "maria":
+		return DriverMariaDB
+	case "postgres", "postgresql":
+		return DriverPostgres
+	case "sqlserver", "azuresql", "mssql":
+		return DriverSQLServer
+	case "clickhouse":
+		return DriverClickHouse
+	case "redshift":
+		return DriverRedshift
+	default:
+		panic(fmt.Sprintf("unknown driver %q", drv))
+	}
+}
+
+// String returns the string representation of the driver.
+func (d Driver) String() string {
+	return string(d)
+}
+
+// SchemaBound returns true if the driver requires a schema.
+func (d Driver) SchemaBound(u url.URL) bool {
+	switch d {
+	case DriverPostgres, DriverRedshift: // PG-like
+		return u.Query().Get("search_path") != ""
+	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
+		return u.Path != ""
+	case DriverSQLite:
+		return true
+	case DriverSQLServer:
+		m := u.Query().Get("mode")
+		return m == "" || strings.ToLower(m) == "schema"
+	default:
+		panic(fmt.Sprintf("unsupported driver %q", d))
+	}
 }
