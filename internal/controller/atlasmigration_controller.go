@@ -275,17 +275,21 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
 	var whoami *atlasexec.WhoAmI
+	hasCloudConfig := data.Cloud != nil && data.Cloud.Token != ""
+
 	switch whoami, err = c.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
-		log.Info("the resource is not connected to Atlas Cloud")
-		if data.Config != nil {
-			err = errors.New("login is required to use custom atlas.hcl config")
+		if hasCloudConfig {
+			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
+		}
+	case errors.Is(err, atlasexec.ErrRequireEnterprise):
+		if hasCloudConfig {
 			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 		}
 	case err != nil:
 		return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 	default:
-		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
+		log.Info("connected to Atlas Cloud", "org", whoami.Org)
 	}
 	log.Info("reconciling migration", "env", data.EnvName)
 	// Check if there are any pending migration files
