@@ -22,8 +22,18 @@ jobs:
   helm-test:
     uses: ./.github/workflows/ci-test-helm.yaml
   docker-build:
-    name: Build
+    name: Build (${{ matrix.edition }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        edition: [enterprise, community]
+        include:
+          - edition: enterprise
+            atlas_image_suffix: ""
+            tag_suffix: ""
+          - edition: community
+            atlas_image_suffix: "-community"
+            tag_suffix: "-community"
     steps:
       - uses: actions/checkout@v2
       - name: Set up Docker Buildx
@@ -47,11 +57,12 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
           tags: |
-            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{version}}${{ matrix.tag_suffix }},value=${{ github.ref_name }}
           labels: |
             io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
+            io.ariga.atlas.edition=${{ matrix.edition }}
             org.opencontainers.image.title=atlas-operator
-            org.opencontainers.image.description=Atlas Operator
+            org.opencontainers.image.description=Atlas Operator (${{ matrix.edition }} edition)
             org.opencontainers.image.url=https://atlasgo.io
             org.opencontainers.image.vendor=Ariga
             org.opencontainers.image.source=https://github.com/ariga/atlas-operator/blob/master/Dockerfile
@@ -61,6 +72,7 @@ jobs:
           context: .
           build-args: |
             ATLAS_VERSION=${{ steps.atlas.outputs.version }}
+            ATLAS_IMAGE=arigaio/atlas:${{ steps.atlas.outputs.version }}${{ matrix.atlas_image_suffix }}
             OPERATOR_VERSION=${{ github.ref_name }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
