@@ -80,6 +80,7 @@ type (
 		Baseline        string
 		ExecOrder       string
 		MigrateDown     bool
+		AllowDirty      bool
 		ObservedHash    string
 		RemoteDir       *dbv1alpha1.Remote
 		Config          *hclwrite.File
@@ -381,7 +382,8 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 				TriggerType:    atlasexec.TriggerTypeKubernetes,
 				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
 			},
-			Vars: data.Vars,
+			Vars:       data.Vars,
+			AllowDirty: data.AllowDirty,
 		})
 		if err != nil {
 			return r.resultCLIErr(res, err, "Migrating")
@@ -437,6 +439,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			Baseline:        s.Baseline,
 			ExecOrder:       string(s.ExecOrder),
 			MigrateDown:     false,
+			AllowDirty:      s.AllowDirty,
 		}
 	)
 	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
