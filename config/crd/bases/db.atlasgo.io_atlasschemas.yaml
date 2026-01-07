@@ -8476,6 +8476,11 @@ spec:
                 description: ObservedHash is the hash of the most recently applied
                   schema.
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
               planLink:
                 description: PlanLink is the link to the schema plan on the Atlas
                   Cloud.
