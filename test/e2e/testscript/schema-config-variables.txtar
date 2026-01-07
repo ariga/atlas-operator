@@ -13,12 +13,12 @@ kubectl-wait-ready -l app=postgres pods
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasSchemas/sample
 
 # Patch a invalid config of schema from secret
 kubectl create secret generic schema-config --from-file=config.hcl
 kubectl patch -f schema.yaml --type merge --patch-file patch-schema-config-from-configmap.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasSchemas/sample
 
 -- schema.yaml --
 apiVersion: db.atlasgo.io/v1alpha1

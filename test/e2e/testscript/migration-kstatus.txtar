@@ -1,0 +1,28 @@
+kubectl apply -f migration.yaml
+
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=ReadingMigrationData --timeout=120s AtlasMigrations/missing-dir
+
+kubectl get -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].status}' AtlasMigration/missing-dir
+stdout False
+kubectl get -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}' AtlasMigration/missing-dir
+stdout no directory specified
+kubectl get -o jsonpath --template='{.status.conditions[?(@.type=="Reconciling")].status}' AtlasMigration/missing-dir
+stdout False
+kubectl get -o jsonpath --template='{.status.conditions[?(@.type=="Stalled")].status}' AtlasMigration/missing-dir
+stdout True
+kubectl get -o jsonpath --template='{.status.conditions[?(@.type=="Stalled")].message}' AtlasMigration/missing-dir
+stdout no directory specified
+kubectl get -o jsonpath --template='{.status.failed}' AtlasMigration/missing-dir
+stdout 1
+kubectl get -o jsonpath --template='{.metadata.generation}' AtlasMigration/missing-dir
+stdout 1
+kubectl get -o jsonpath --template='{.status.observedGeneration}' AtlasMigration/missing-dir
+stdout 1
+
+-- migration.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: missing-dir
+spec:
+  url: sqlite://atlas.db

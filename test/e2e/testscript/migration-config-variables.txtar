@@ -13,12 +13,12 @@ kubectl-wait-ready -l app=postgres pods
 
 # Create the migration
 kubectl apply -f migration.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasMigrations/sample
 
 # Patch a invalid config of schema from secret
 kubectl create secret generic migration-config --from-file=config.hcl
 kubectl patch -f migration.yaml --type merge --patch-file patch-migration-config-from-configmap.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasMigrations/sample
 
 -- patch-migration-config-from-configmap.yaml --
 spec:

@@ -22,16 +22,16 @@ kubectl patch -f schema.yaml --type merge --patch-file patch-remove-bio.yaml
 exec sleep 10
 
 # Ensure the controller is aware of the change
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApplyingSchema --timeout=500s AtlasSchemas/mysql
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=ApplyingSchema --timeout=500s AtlasSchemas/mysql
 # Check the error message
-kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[*].message}'
+kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
 stdout 'Rejected by review policy: errors or warnings were found'
 
 # Disable the lint policy error via custom config
 kubectl patch -f schema.yaml --type merge --patch-file patch-disable-lint-destructive.yaml
 # Wait for the controller to detect the change
 exec sleep 10
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/mysql
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasSchemas/mysql
 
 -- schema.hcl --
 table "users" {

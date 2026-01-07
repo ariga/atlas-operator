@@ -30,7 +30,7 @@ cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-remove-c1.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=500s AtlasSchemas/postgres
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=ApprovalPending --timeout=500s AtlasSchemas/postgres
 
 # Get the plan URL from resource then approve it
 kubectl get AtlasSchemas/postgres -o go-template --template='{{ .status.planURL }}'

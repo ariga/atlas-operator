@@ -21,9 +21,9 @@ kubectl patch -f schema.yaml --type merge --patch-file patch-remove-bio.yaml
 exec sleep 10
 
 # Ensure the controller is aware of the change
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=LintPolicyError --timeout=500s AtlasSchemas/mysql
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=LintPolicyError --timeout=500s AtlasSchemas/mysql
 # Check the error message
-kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[*].message}'
+kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
 stdout 'destructive changes detected:'
 stdout '- Dropping non-virtual column "short_bio"'
 -- schema.hcl --

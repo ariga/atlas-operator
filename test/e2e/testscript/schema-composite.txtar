@@ -13,7 +13,7 @@ kubectl-wait-ready -l app=postgres pods
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasSchemas/sample
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=500s AtlasSchemas/sample
 
 atlas schema inspect -u ${SCHEMA_DB_URL}
 cmp stdout schema.hcl
