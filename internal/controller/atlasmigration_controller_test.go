@@ -33,6 +33,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -90,11 +91,16 @@ func TestMigration_ConfigMap(t *testing.T) {
 			require.EqualValues(t, except, result)
 			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
 			h.get(t, res)
-			require.Len(t, res.Status.Conditions, 1)
-			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason)
-			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			readyCond := getReadyCondition(t, res.Status.Conditions)
+			if !ready {
+				require.Equal(t, ready, res.IsReady())
+			}
+			require.Equal(t, reason, readyCond.Reason)
+			require.Contains(t, readyCond.Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
+			if ready {
+				require.Equal(t, ready, res.IsReady())
+			}
 		})
 	}
 	newDir := func(dir map[string]string) {
@@ -174,10 +180,10 @@ func TestMigration_Local(t *testing.T) {
 			require.EqualValues(t, except, result)
 			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
 			h.get(t, res)
-			require.Len(t, res.Status.Conditions, 1)
+			readyCond := getReadyCondition(t, res.Status.Conditions)
 			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason)
-			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, reason, readyCond.Reason)
+			require.Contains(t, readyCond.Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
 		})
 	}
@@ -323,10 +329,10 @@ func TestMigration_MigrateDown_Remote_Protected(t *testing.T) {
 			require.EqualValues(t, except, result)
 			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
 			h.get(t, res)
-			require.Len(t, res.Status.Conditions, 1)
+			readyCond := getReadyCondition(t, res.Status.Conditions)
 			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason, res.Status.Conditions[0].Message)
-			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, reason, readyCond.Reason, readyCond.Message)
+			require.Contains(t, readyCond.Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
 			require.Equal(t, approvalURL, res.Status.ApprovalURL)
 			require.Equal(t, deploymentURL, res.Status.LastDeploymentURL)
@@ -445,10 +451,10 @@ func TestMigration_MigrateDown_Local(t *testing.T) {
 			require.EqualValues(t, except, result)
 			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
 			h.get(t, res)
-			require.Len(t, res.Status.Conditions, 1)
+			readyCond := getReadyCondition(t, res.Status.Conditions)
 			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason)
-			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, reason, readyCond.Reason)
+			require.Contains(t, readyCond.Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
 			require.Equal(t, approvalURL, res.Status.ApprovalURL)
 			require.Equal(t, deploymentURL, res.Status.LastDeploymentURL)
@@ -1425,4 +1431,13 @@ func mustParseHCL(content string) *hclwrite.File {
 		panic(err)
 	}
 	return f
+}
+
+func getReadyCondition(t *testing.T, conds []metav1.Condition) metav1.Condition {
+	t.Helper()
+	cond := meta.FindStatusCondition(conds, "Ready")
+	if cond == nil {
+		t.Fatal("Ready condition not found")
+	}
+	return *cond
 }

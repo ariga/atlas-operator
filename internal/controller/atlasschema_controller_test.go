@@ -32,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerr "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -115,10 +116,11 @@ func TestReconcile_Reconcile(t *testing.T) {
 			require.EqualValues(t, except, result)
 			res := &dbv1alpha1.AtlasSchema{ObjectMeta: meta}
 			h.get(t, res)
-			require.Len(t, res.Status.Conditions, 1)
+			readyCond := apimeta.FindStatusCondition(res.Status.Conditions, "Ready")
+			require.NotNil(t, readyCond, "Ready condition not found")
 			require.Equal(t, ready, res.IsReady())
-			require.Equal(t, reason, res.Status.Conditions[0].Reason)
-			require.Contains(t, res.Status.Conditions[0].Message, msg)
+			require.Equal(t, reason, readyCond.Reason)
+			require.Contains(t, readyCond.Message, msg)
 		})
 	}
 	// First reconcile
