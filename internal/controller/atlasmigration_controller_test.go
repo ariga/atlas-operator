@@ -92,15 +92,10 @@ func TestMigration_ConfigMap(t *testing.T) {
 			res := &dbv1alpha1.AtlasMigration{ObjectMeta: meta}
 			h.get(t, res)
 			readyCond := getReadyCondition(t, res.Status.Conditions)
-			if !ready {
-				require.Equal(t, ready, res.IsReady())
-			}
 			require.Equal(t, reason, readyCond.Reason)
 			require.Contains(t, readyCond.Message, msg)
 			require.Equal(t, version, res.Status.LastAppliedVersion)
-			if ready {
-				require.Equal(t, ready, res.IsReady())
-			}
+			require.Equal(t, ready, res.IsReady())
 		})
 	}
 	newDir := func(dir map[string]string) {
