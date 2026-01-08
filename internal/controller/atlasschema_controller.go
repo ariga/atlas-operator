@@ -196,10 +196,15 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Below this line is the main logic of the controller.
 	// ====================================================
 	var whoami *atlasexec.WhoAmI
+	hasCloudConfig := data.Cloud != nil
+
 	switch whoami, err = cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
-		log.Info("the resource is not connected to Atlas Cloud")
-		if data.Config != nil {
+		if hasCloudConfig {
+			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
+		}
+	case errors.Is(err, atlasexec.ErrRequireEnterprise):
+		if hasCloudConfig {
 			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
 		}
 	case err != nil:

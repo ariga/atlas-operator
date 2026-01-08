@@ -40,17 +40,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
     -o manager -a cmd/main.go
 
-FROM alpine:3.20 as atlas
-RUN apk add --no-cache curl
+# Enterprise (default): ATLAS_IMAGE=arigaio/atlas:${ATLAS_VERSION}
+# Community: ATLAS_IMAGE=arigaio/atlas:${ATLAS_VERSION}-community
 ARG ATLAS_VERSION=latest
-ENV ATLAS_VERSION=${ATLAS_VERSION}
-RUN curl -sSf https://atlasgo.sh | sh
+ARG ATLAS_IMAGE=arigaio/atlas:${ATLAS_VERSION}
+FROM ${ATLAS_IMAGE} AS atlas
 
 FROM alpine:3.20
 WORKDIR /
 COPY --from=builder /workspace/manager .
-COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
-RUN chmod +x /usr/local/bin/atlas
+COPY --from=atlas --chmod=755 /atlas /usr/local/bin/atlas
 ENV ATLAS_KUBERNETES_OPERATOR=1
 USER 65532:65532
 # Workaround for the issue with x/tools/imports
