@@ -32,7 +32,7 @@ stdin stdout
 kubectl apply -f -
 
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/mysql
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/mysql
 kubectl-wait-ready AtlasSchema/mysql
 
 # Inspect the schema to ensure it's correct

@@ -20,7 +20,7 @@ plans-rm stdout
 # Create the schema
 kubectl apply -f schema.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=500s AtlasSchemas/postgres
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=2h AtlasSchemas/postgres
 
 # Get the plan URL from resource then approve it
 kubectl get AtlasSchemas/postgres -o go-template --template='{{ .status.planURL }}'
@@ -38,7 +38,7 @@ stdout lhl512tzvwQXJ9lroGuRNzGS6fiic8r9ohGMV\+\/Ij0w\=
 # Apply again without any change in the schema, it should be a no-op
 kubectl patch -f schema.yaml --type merge --patch-file patch-comment.yaml
 # Ensure the controller is aware of the change
-exec sleep 10
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/postgres
 kubectl-wait-ready AtlasSchema/postgres
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}

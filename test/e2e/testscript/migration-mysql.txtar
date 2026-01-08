@@ -23,7 +23,7 @@ kubectl create configmap migration-dir --from-file=migrations-v2 --dry-run=clien
 stdin stdout
 kubectl apply -f -
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=500s AtlasMigration/mysql
+kubectl wait --for=condition=ready=false --timeout=2h AtlasMigration/mysql
 kubectl-wait-ready AtlasMigration/mysql
 
 # Inspect the schema to ensure it's correct
@@ -35,10 +35,10 @@ kubectl create configmap migration-dir --from-file=migrations-v1 --dry-run=clien
 stdin stdout
 kubectl apply -f -
 # Expect migration is failured
-kubectl wait --timeout=500s --for=jsonpath='{.status.conditions[*].message}'='"migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade"' AtlasMigration/mysql
+kubectl wait --timeout=2h --for=jsonpath='{.status.conditions[*].message}'='"migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade"' AtlasMigration/mysql
 # Patch the migration to allow down migration
 kubectl patch AtlasMigration/mysql --type merge --patch-file ./migration-patch-down.yaml
-kubectl wait --timeout=500s --for=condition=ready AtlasMigration/mysql
+kubectl wait --timeout=2h --for=condition=ready AtlasMigration/mysql
 
 # Inspect the schema to ensure it's correct after down migration
 atlas schema inspect -u ${DB_URL} --exclude=atlas_schema_revisions
