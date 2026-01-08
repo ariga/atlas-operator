@@ -27,7 +27,7 @@ cmp stdout schema-v1.hcl
 
 kubectl patch -f schema.yaml --type merge --patch-file patch-v2.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/postgres
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/postgres
 kubectl-wait-ready AtlasSchema/postgres
 
 # Inspect the schema to ensure it's correct

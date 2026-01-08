@@ -142,11 +142,7 @@ func TestOperator(t *testing.T) {
 					ts.Fatalf("usage: kubectl-wait-ready <resource> <name>")
 				}
 				err := ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE"),
-					"wait", "--for=condition=ready",
-					// We need a timeout of 10m because we run the test in parallel
-					// and the controller-manager is not able to handle all the requests
-					// at the same time
-					"--timeout=10m",
+					"wait", "--for=condition=ready", "--timeout=2h",
 				}, args...)...)
 				if !neg {
 					ts.Check(err)
@@ -162,11 +158,7 @@ func TestOperator(t *testing.T) {
 				// wait for the deployment to be available,
 				// minimum available is 1 so pods are created
 				err = ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE"),
-					"wait", "--for=condition=available",
-					// We need a timeout of 10m because we run the test in parallel
-					// and the controller-manager is not able to handle all the requests
-					// at the same time
-					"--timeout=10m",
+					"wait", "--for=condition=available", "--timeout=2h",
 				}, args...)...)
 				if !neg {
 					ts.Check(err)

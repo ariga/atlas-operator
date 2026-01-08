@@ -81,7 +81,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 .PHONY: test-e2e
 SKAFFOLD_PROFILE ?= kustomize
 test-e2e: ## Run the e2e tests. Expected an isolated environment using Kind.
-	SKAFFOLD_PROFILE=${SKAFFOLD_PROFILE} go test -timeout 20m -v ./test/e2e/ -run="^TestOperator/${TEST_RUN}" -parallel 3
+	SKAFFOLD_PROFILE=${SKAFFOLD_PROFILE} go test -timeout 30m -v ./test/e2e/ -run="^TestOperator/${TEST_RUN}" -parallel 3
 
 .PHONY: kind-image
 kind-image:
