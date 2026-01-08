@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -227,4 +228,93 @@ func TestCredentials_URL(t *testing.T) {
 			require.Equal(t, tt.exp, tt.c.URL().String())
 		})
 	}
+}
+
+func requireCondition(t *testing.T, conds []metav1.Condition, condType string) metav1.Condition {
+	t.Helper()
+	cond := meta.FindStatusCondition(conds, condType)
+	if cond == nil {
+		t.Fatalf("condition %s not found", condType)
+	}
+	return *cond
+}
+
+func TestAtlasMigrationStatusConditions(t *testing.T) {
+	res := &v1alpha1.AtlasMigration{ObjectMeta: metav1.ObjectMeta{Generation: 3}}
+	res.SetReconciling("syncing")
+	require.Equal(t, int64(3), res.Status.ObservedGeneration)
+	recon := requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionTrue, recon.Status)
+	require.Equal(t, v1alpha1.ReasonReconciling, recon.Reason)
+	ready := requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	stalled := requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+	require.Equal(t, 0, res.Status.Failed)
+
+	res.SetNotReady(v1alpha1.ReasonApprovalPending, "waiting approval")
+	require.Equal(t, int64(3), res.Status.ObservedGeneration)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionTrue, recon.Status)
+	require.Equal(t, "waiting approval", recon.Message)
+	require.Equal(t, 0, res.Status.Failed)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+
+	res.SetNotReady(v1alpha1.ReasonCreatingAtlasClient, "boom")
+	require.Equal(t, 1, res.Status.Failed)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionTrue, stalled.Status)
+	require.Equal(t, "boom", stalled.Message)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+
+	res.SetReady(v1alpha1.AtlasMigrationStatus{LastApplied: 10})
+	require.Equal(t, int64(3), res.Status.ObservedGeneration)
+	require.Equal(t, 0, res.Status.Failed)
+	ready = requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionTrue, ready.Status)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+}
+
+func TestAtlasSchemaStatusConditions(t *testing.T) {
+	res := &v1alpha1.AtlasSchema{ObjectMeta: metav1.ObjectMeta{Generation: 5}}
+	res.SetReconciling("syncing schema")
+	require.Equal(t, int64(5), res.Status.ObservedGeneration)
+	ready := requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	stalled := requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+	recon := requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionTrue, recon.Status)
+	require.Equal(t, 0, res.Status.Failed)
+
+	res.SetNotReady(v1alpha1.ReasonApprovalPending, "waiting plan")
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionTrue, recon.Status)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+	require.Equal(t, 0, res.Status.Failed)
+
+	res.SetNotReady(v1alpha1.ReasonCreatingAtlasClient, "connect failed")
+	require.Equal(t, 1, res.Status.Failed)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionTrue, stalled.Status)
+	require.Equal(t, "connect failed", stalled.Message)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+
+	res.SetReady(v1alpha1.AtlasSchemaStatus{ObservedHash: "hash"}, nil)
+	require.Equal(t, 0, res.Status.Failed)
+	require.Equal(t, int64(5), res.Status.ObservedGeneration)
+	ready = requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionTrue, ready.Status)
+	require.Contains(t, ready.Message, "applied successfully")
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
 }

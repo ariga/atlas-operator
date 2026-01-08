@@ -20,7 +20,7 @@ plans-rm stdout
 # Create the schema
 kubectl apply -f schema.yaml
 # Ensure the controller is aware of the change
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ApprovalPending --timeout=2h AtlasSchemas/postgres
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=ApprovalPending --timeout=2h AtlasSchemas/postgres
 
 # Get the plan URL from resource then approve it
 kubectl get AtlasSchemas/postgres -o go-template --template='{{ .status.planURL }}'
