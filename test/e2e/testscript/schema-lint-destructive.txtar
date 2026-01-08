@@ -24,7 +24,7 @@ kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=LintPolicyError --t
 # Check the error message
 kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[*].message}'
 stdout 'destructive changes detected:'
-stdout '- Dropping non-virtual column "short_bio"'
+stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`;'
 -- schema.hcl --
 table "users" {
   schema = schema.myapp
