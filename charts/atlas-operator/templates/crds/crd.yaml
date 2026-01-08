@@ -8331,6 +8331,8 @@ spec:
             - dir
             type: object
           status:
+            default:
+              observedGeneration: -1
             description: AtlasMigrationStatus defines the observed state of AtlasMigration
             properties:
               approvalUrl:
@@ -8415,10 +8417,11 @@ spec:
                 description: ObservedHash is the hash of the most recent successful
                   versioned migration.
                 type: string
-            required:
-            - failed
-            - lastApplied
-            - observed_hash
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
             type: object
         type: object
     served: true
@@ -16816,6 +16819,8 @@ spec:
                 type: array
             type: object
           status:
+            default:
+              observedGeneration: -1
             description: AtlasSchemaStatus defines the observed state of AtlasSchema
             properties:
               conditions:
@@ -16890,6 +16895,11 @@ spec:
                 description: ObservedHash is the hash of the most recently applied
                   schema.
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
               planLink:
                 description: PlanLink is the link to the schema plan on the Atlas
                   Cloud.
@@ -16897,10 +16907,6 @@ spec:
               planURL:
                 description: PlanURL is the URL of the schema plan to apply.
                 type: string
-            required:
-            - failed
-            - last_applied
-            - observed_hash
             type: object
         type: object
     served: true

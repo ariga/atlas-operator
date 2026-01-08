@@ -51,16 +51,23 @@ type (
 		metav1.TypeMeta   `json:",inline"`
 		metav1.ObjectMeta `json:"metadata,omitempty"`
 
-		Spec   AtlasSchemaSpec   `json:"spec,omitempty"`
+		Spec AtlasSchemaSpec `json:"spec,omitempty"`
+		//+kubebuilder:default={"observedGeneration":-1}
 		Status AtlasSchemaStatus `json:"status,omitempty"`
 	}
 	// AtlasSchemaStatus defines the observed state of AtlasSchema
 	AtlasSchemaStatus struct {
+		// ObservedGeneration is the generation last processed by the controller.
+		// +optional
+		ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 		// Conditions represent the latest available observations of an object's state.
+		// +optional
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 		// ObservedHash is the hash of the most recently applied schema.
+		// +optional
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful schema apply operation.
+		// +optional
 		LastApplied int64 `json:"last_applied"`
 		// PlanURL is the URL of the schema plan to apply.
 		// +optional
@@ -69,6 +76,7 @@ type (
 		// +optional
 		PlanLink string `json:"planLink"`
 		// Failed is the number of times the schema has failed to apply.
+		// +optional
 		// +kubebuilder:default=0
 		Failed int `json:"failed"`
 	}
@@ -207,11 +215,23 @@ func (sc *AtlasSchema) IsHashModified(hash string) bool {
 
 // SetReconciling sets the ready condition to false with the reason "Reconciling".
 func (sc *AtlasSchema) SetReconciling(message string) {
-	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+	sc.Status.ObservedGeneration = sc.Generation
+	sc.setCondition(metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  ReasonReconciling,
 		Message: message,
+	})
+	sc.setCondition(metav1.Condition{
+		Type:    reconcilingCond,
+		Status:  metav1.ConditionTrue,
+		Reason:  ReasonReconciling,
+		Message: message,
+	})
+	sc.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
+		Reason: ReasonReconciling,
 	})
 	sc.ResetFailed()
 }
@@ -228,12 +248,24 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 	} else {
 		msg = "The schema has been applied successfully."
 	}
+	status.ObservedGeneration = sc.Generation
 	sc.Status = status
-	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+	sc.setCondition(metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionTrue,
 		Reason:  ReasonApplied,
 		Message: msg,
+	})
+	sc.setCondition(metav1.Condition{
+		Type:    reconcilingCond,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonApplied,
+		Message: "",
+	})
+	sc.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
+		Reason: ReasonApplied,
 	})
 	sc.ResetFailed()
 }
@@ -241,15 +273,40 @@ func (sc *AtlasSchema) SetReady(status AtlasSchemaStatus, report any) {
 // SetNotReady sets the Ready condition to false
 // with the given reason and message.
 func (sc *AtlasSchema) SetNotReady(reason, msg string) {
-	meta.SetStatusCondition(&sc.Status.Conditions, metav1.Condition{
+	sc.Status.ObservedGeneration = sc.Generation
+	sc.setCondition(metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: msg,
 	})
 	if isFailedReason(reason) {
+		sc.setCondition(metav1.Condition{
+			Type:    reconcilingCond,
+			Status:  metav1.ConditionFalse,
+			Reason:  reason,
+			Message: msg,
+		})
+		sc.setCondition(metav1.Condition{
+			Type:    stalledCond,
+			Status:  metav1.ConditionTrue,
+			Reason:  reason,
+			Message: msg,
+		})
 		sc.IncrementFailed()
+		return
 	}
+	sc.setCondition(metav1.Condition{
+		Type:    reconcilingCond,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: msg,
+	})
+	sc.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
+		Reason: reason,
+	})
 }
 
 // IncrementFailed increments the failed count.
@@ -265,6 +322,13 @@ func (sc *AtlasSchema) ResetFailed() {
 // IsExceedBackoffLimit returns true if the failed count exceeds the backoff limit.
 func (sc *AtlasSchema) IsExceedBackoffLimit() bool {
 	return sc.Spec.BackoffLimit > 0 && sc.Status.Failed > sc.Spec.BackoffLimit
+}
+
+func (sc *AtlasSchema) setCondition(cond metav1.Condition) {
+	if cond.ObservedGeneration <= 0 {
+		cond.ObservedGeneration = sc.Generation
+	}
+	meta.SetStatusCondition(&sc.Status.Conditions, cond)
 }
 
 // Schema reader types (URL schemes).
