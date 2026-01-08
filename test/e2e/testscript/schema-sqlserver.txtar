@@ -3,16 +3,16 @@ kubectl apply -f database.yaml
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
-kubectl wait --for=condition=available --timeout=600s deploy/sqlserver
+kubectl-wait-available deploy/sqlserver
 # Wait for the DB ready before creating the schema
-kubectl wait --for=condition=ready --timeout=600s -l app=sqlserver pods
+kubectl-wait-ready -l app=sqlserver pods
 
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 # Create the schema
 kubectl apply -f schema.yaml
-kubectl wait --for=condition=ready --timeout=600s AtlasSchema/sqlserver
+kubectl-wait-ready AtlasSchema/sqlserver
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}

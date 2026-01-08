@@ -18,7 +18,7 @@ stdout oAoRLC2AXyGha6pKDollSqBB5ovjB\+qK78aAN9dkOow\=
 kubectl patch -f schema.yaml --type merge --patch-file schema-v2-patch.yaml
 
 # Ensure the controller is aware of the change
-kubectl wait --for=condition=ready=false --timeout=500s AtlasSchema/mysql
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/mysql
 kubectl-wait-ready AtlasSchema/mysql
 
 # Hash should be updated

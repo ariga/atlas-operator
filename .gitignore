@@ -27,3 +27,4 @@ Dockerfile.cross
 .kpt-pipeline
 .env.secret
 .env*
+test/e2e/logs/*

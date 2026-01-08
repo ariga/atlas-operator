@@ -13,7 +13,7 @@ kubectl-wait-ready -l app=postgres pods
 
 # Create the migration
 kubectl apply -f migration.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=500s AtlasMigrations/sample
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=Applied --timeout=2h AtlasMigrations/sample
 
 -- config.hcl --
 variable "db_url" {

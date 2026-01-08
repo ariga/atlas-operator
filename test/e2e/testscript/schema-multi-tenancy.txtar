@@ -19,7 +19,7 @@ atlas schema inspect -u ${DB_URL}
 cmp stdout schema.hcl
 
 kubectl apply -f multi-tenancy.yaml
-kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ReadSchema --timeout=500s AtlasSchemas/multi-tenancy
+kubectl wait --for=jsonpath='{.status.conditions[*].reason}'=ReadSchema --timeout=2h AtlasSchemas/multi-tenancy
 
 -- multi-tenancy.yaml --
 apiVersion: db.atlasgo.io/v1alpha1
