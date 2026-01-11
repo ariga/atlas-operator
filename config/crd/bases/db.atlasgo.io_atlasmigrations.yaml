@@ -8345,6 +8345,8 @@ spec:
             - dir
             type: object
           status:
+            default:
+              observedGeneration: -1
             description: AtlasMigrationStatus defines the observed state of AtlasMigration
             properties:
               approvalUrl:
@@ -8429,10 +8431,11 @@ spec:
                 description: ObservedHash is the hash of the most recent successful
                   versioned migration.
                 type: string
-            required:
-            - failed
-            - lastApplied
-            - observed_hash
+              observedGeneration:
+                description: ObservedGeneration is the generation last processed by
+                  the controller.
+                format: int64
+                type: integer
             type: object
         type: object
     served: true

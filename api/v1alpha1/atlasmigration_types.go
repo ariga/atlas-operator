@@ -41,24 +41,35 @@ type (
 		metav1.TypeMeta   `json:",inline"`
 		metav1.ObjectMeta `json:"metadata,omitempty"`
 
-		Spec   AtlasMigrationSpec   `json:"spec,omitempty"`
+		Spec AtlasMigrationSpec `json:"spec,omitempty"`
+		//+kubebuilder:default={"observedGeneration":-1}
 		Status AtlasMigrationStatus `json:"status,omitempty"`
 	}
 	// AtlasMigrationStatus defines the observed state of AtlasMigration
 	AtlasMigrationStatus struct {
+		// ObservedGeneration is the generation last processed by the controller.
+		// +optional
+		ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 		// Conditions represent the latest available observations of an object's state.
+		// +optional
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 		// LastAppliedVersion is the version of the most recent successful versioned migration.
+		// +optional
 		LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
 		// LastDeploymentURL is the Deployment URL of the most recent successful versioned migration.
+		// +optional
 		LastDeploymentURL string `json:"lastDeploymentUrl,omitempty"`
 		// ApprovalURL is the URL to approve the migration.
+		// +optional
 		ApprovalURL string `json:"approvalUrl,omitempty"`
 		// ObservedHash is the hash of the most recent successful versioned migration.
+		// +optional
 		ObservedHash string `json:"observed_hash"`
 		// LastApplied is the unix timestamp of the most recent successful versioned migration.
+		// +optional
 		LastApplied int64 `json:"lastApplied"`
 		// Failed is the number of times the migration has failed.
+		// +optional
 		// +kubebuilder:default=0
 		Failed int `json:"failed"`
 	}
@@ -136,7 +147,9 @@ type (
 type MigrateExecOrder string
 
 const (
-	readyCond = "Ready"
+	readyCond       = "Ready"
+	reconcilingCond = "Reconciling"
+	stalledCond     = "Stalled"
 )
 
 func init() {
@@ -163,21 +176,44 @@ func (m *AtlasMigration) IsHashModified(hash string) bool {
 
 // SetReconciling sets the ready condition to false with the reason "Reconciling".
 func (m *AtlasMigration) SetReconciling(message string) {
-	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+	m.Status.ObservedGeneration = m.Generation
+	m.setCondition(metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  ReasonReconciling,
 		Message: message,
+	})
+	m.setCondition(metav1.Condition{
+		Type:    reconcilingCond,
+		Status:  metav1.ConditionTrue,
+		Reason:  ReasonReconciling,
+		Message: message,
+	})
+	m.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
+		Reason: ReasonReconciling,
 	})
 	m.ResetFailed()
 }
 
 // SetReady sets the ready condition to true.
 func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
+	status.ObservedGeneration = m.Generation
 	m.Status = status
-	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+	m.setCondition(metav1.Condition{
 		Type:   readyCond,
 		Status: metav1.ConditionTrue,
+		Reason: ReasonApplied,
+	})
+	m.setCondition(metav1.Condition{
+		Type:   reconcilingCond,
+		Status: metav1.ConditionFalse,
+		Reason: ReasonApplied,
+	})
+	m.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
 		Reason: ReasonApplied,
 	})
 	m.ResetFailed()
@@ -185,15 +221,40 @@ func (m *AtlasMigration) SetReady(status AtlasMigrationStatus) {
 
 // SetNotReady sets the ready condition to false.
 func (m *AtlasMigration) SetNotReady(reason, message string) {
-	meta.SetStatusCondition(&m.Status.Conditions, metav1.Condition{
+	m.Status.ObservedGeneration = m.Generation
+	m.setCondition(metav1.Condition{
 		Type:    readyCond,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
 	})
 	if isFailedReason(reason) {
+		m.setCondition(metav1.Condition{
+			Type:    reconcilingCond,
+			Status:  metav1.ConditionFalse,
+			Reason:  reason,
+			Message: message,
+		})
+		m.setCondition(metav1.Condition{
+			Type:    stalledCond,
+			Status:  metav1.ConditionTrue,
+			Reason:  reason,
+			Message: message,
+		})
 		m.IncrementFailed()
+		return
 	}
+	m.setCondition(metav1.Condition{
+		Type:    reconcilingCond,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	})
+	m.setCondition(metav1.Condition{
+		Type:   stalledCond,
+		Status: metav1.ConditionFalse,
+		Reason: reason,
+	})
 }
 
 // IncrementFailed increments the failed count.
@@ -212,4 +273,11 @@ func (m *AtlasMigration) IsExceedBackoffLimit() bool {
 		return false
 	}
 	return m.Status.Failed > m.Spec.BackoffLimit
+}
+
+func (m *AtlasMigration) setCondition(cond metav1.Condition) {
+	if cond.ObservedGeneration <= 0 {
+		cond.ObservedGeneration = m.Generation
+	}
+	meta.SetStatusCondition(&m.Status.Conditions, cond)
 }

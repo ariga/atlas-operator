@@ -58,6 +58,8 @@ jobs:
         run: |
           curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/v2.17.1/skaffold-linux-amd64 && \
           sudo install skaffold /usr/local/bin/
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
       - name: Run e2e tests
         run: |
           make test-e2e \
