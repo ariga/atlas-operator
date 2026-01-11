@@ -102,6 +102,10 @@ type (
 		// BackoffLimit is the number of retries on error.
 		// +kubebuilder:default=20
 		BackoffLimit int `json:"backoffLimit,omitempty"`
+		// AllowDirty allows applying migrations to a database that has schemas
+		// not managed by Atlas (e.g., system schemas in TiDB).
+		// +optional
+		AllowDirty bool `json:"allowDirty,omitempty"`
 	}
 	CloudV0 struct {
 		URL       string    `json:"url,omitempty"`
