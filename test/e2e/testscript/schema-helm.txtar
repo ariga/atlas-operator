@@ -7,6 +7,10 @@ kubectl-wait-available deploy/postgres
 # Wait for pods to become ready before installing the chart
 kubectl-wait-ready -l app=postgres pods
 
+helm version
+# Ensure we using Helm v4 for testing
+stdout 'version\.BuildInfo{Version:"v4\.'
+
 # Install the chart that provisions the AtlasSchema
 helm install ${RELEASE} ./chart --set-file schema.sql=./schema.sql --set-string db.url=${DB_URL} --wait --debug
 
