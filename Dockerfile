@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Build the manager binary
-FROM golang:1.24-alpine3.22 AS builder
+FROM golang:1.25.5-alpine3.23 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG OPERATOR_VERSION
@@ -40,13 +40,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags "-X 'main.version=${OPERATOR_VERSION}'" \
     -o manager -a cmd/main.go
 
-FROM alpine:3.20 as atlas
+FROM alpine:3.23 as atlas
 RUN apk add --no-cache curl
 ARG ATLAS_VERSION=latest
 ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh
 
-FROM alpine:3.20
+FROM alpine:3.23
 WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
