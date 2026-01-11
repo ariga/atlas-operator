@@ -1,0 +1,125 @@
+env RELEASE=pgschema
+env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
+kubectl apply -f database.yaml
+
+# Wait for the database deployment to start
+kubectl-wait-available deploy/postgres
+# Wait for pods to become ready before installing the chart
+kubectl-wait-ready -l app=postgres pods
+
+# Install the chart that provisions the AtlasSchema
+helm install ${RELEASE} ./chart --set-file schema.sql=./schema.sql --set-string db.url=${DB_URL} --wait --debug
+
+# We should see Helm waiting for the AtlasSchema to be ready
+stderr 'level=DEBUG msg="waiting for resources" count=2 timeout=5m0s'
+stderr 'level=DEBUG msg="waiting for resource" name=pgschema kind=AtlasSchema expectedStatus=Current actualStatus=InProgress'
+
+# Inspect again from the controller pod to assert the final shape
+atlas schema inspect -u ${DB_URL}
+cmp stdout expected-schema.hcl
+-- expected-schema.hcl --
+table "helm_users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema.sql --
+-- Slow down the migration to ensure Helm is waiting for the AtlasSchema
+select pg_sleep(10);
+create table helm_users (
+  id int not null,
+  primary key (id)
+);
+-- chart/Chart.yaml --
+apiVersion: v2
+name: atlas-schema
+description: Helm chart deploying an AtlasSchema resource for testing
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+-- chart/values.yaml --
+db:
+  url: ""
+schema:
+  sql: ""
+-- chart/templates/schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: {{ printf "%s-db" .Release.Name }}
+      key: url
+  schema:
+    sql: |
+{{- nindent 6 .Values.schema.sql }}
+-- chart/templates/secret.yaml --
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ printf "%s-db" .Release.Name }}
+type: Opaque
+stringData:
+  url: {{ required "db.url must be provided" .Values.db.url | quote }}
+-- database.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: postgres
+          image: postgres:15.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+          env:
+            - name: POSTGRES_PASSWORD
+              value: pass
+            - name: POSTGRES_USER
+              value: root
+          ports:
+            - containerPort: 5432
+              name: postgres
+          startupProbe:
+            exec:
+              command: [ "pg_isready" ]
+            failureThreshold: 30
+            periodSeconds: 10

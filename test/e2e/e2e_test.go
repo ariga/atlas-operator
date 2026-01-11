@@ -127,6 +127,15 @@ func TestOperator(t *testing.T) {
 					ts.Fatalf("unexpected success")
 				}
 			},
+			// helm runs helm with the namespace set to the test namespace
+			"helm": func(ts *testscript.TestScript, neg bool, args []string) {
+				err := ts.Exec("helm", append([]string{"-n", ts.Getenv("NAMESPACE")}, args...)...)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
+				}
+			},
 			// kubectl runs kubectl with the namespace set to the test namespace
 			"kubectl": func(ts *testscript.TestScript, neg bool, args []string) {
 				err := ts.Exec("kubectl", append([]string{"-n", ts.Getenv("NAMESPACE")}, args...)...)
