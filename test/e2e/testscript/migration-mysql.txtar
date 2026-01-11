@@ -34,7 +34,7 @@ cmp stdout schema-v2.hcl
 kubectl create configmap migration-dir --from-file=migrations-v1 --dry-run=client -o yaml
 stdin stdout
 kubectl apply -f -
-# Expect migration is failured
+# Expect migration is failed
 kubectl wait --timeout=2h --for=jsonpath='{.status.conditions[?(@.type=="Ready")].message}'='"migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade"' AtlasMigration/mysql
 # Patch the migration to allow down migration
 kubectl patch AtlasMigration/mysql --type merge --patch-file ./migration-patch-down.yaml
