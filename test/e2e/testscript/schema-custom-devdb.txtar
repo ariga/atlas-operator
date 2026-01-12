@@ -1,5 +1,4 @@
-env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
-kubectl apply -f database.yaml
+db mysql:latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod to be created
@@ -100,62 +99,6 @@ spec:
               value: pass
             - name: MYSQL_DATABASE
               value: dev
-          ports:
-            - containerPort: 3306
-              name: mysql
-          startupProbe:
-            exec:
-              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - mysql
-                - -ppass
-                - -h
-                - 127.0.0.1
-                - -e
-                - SELECT 1
-            periodSeconds: 5
-            failureThreshold: 3
-
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql
-spec:
-  selector:
-    app: mysql
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: mysql
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mysql
-spec:
-  selector:
-    matchLabels:
-      app: mysql
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: mysql
-    spec:
-      containers:
-        - name: mysql
-          image: mysql:latest
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: pass
-            - name: MYSQL_DATABASE
-              value: myapp
           ports:
             - containerPort: 3306
               name: mysql

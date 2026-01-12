@@ -1,5 +1,4 @@
-env DB_URL=clickhouse://root:pass@clickhouse.${NAMESPACE}:9000/myapp
-kubectl apply -f database.yaml
+db clickhouse/clickhouse-server:latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
@@ -88,57 +87,3 @@ spec:
       name: clickhouse-schema
   exclude:
     - ignore_me
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: clickhouse
-spec:
-  selector:
-    app: clickhouse
-  ports:
-    - name: clickhouse
-      port: 9000
-      targetPort: clickhouse
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: clickhouse
-spec:
-  selector:
-    matchLabels:
-      app: clickhouse
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: clickhouse
-    spec:
-      containers:
-        - name: clickhouse
-          image: clickhouse/clickhouse-server:latest
-          env:
-            - name: CLICKHOUSE_USER
-              value: root
-            - name: CLICKHOUSE_PASSWORD
-              value: pass
-            - name: CLICKHOUSE_DB
-              value: myapp
-          ports:
-            - containerPort: 9000
-              name: clickhouse
-          startupProbe:
-            exec:
-              command: [ "clickhouse-client", "-q", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - clickhouse-client
-                - -q
-                - SELECT 1
-            periodSeconds: 5
-            failureThreshold: 3
