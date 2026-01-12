@@ -11,7 +11,7 @@ metadata:
     {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["db.atlasgo.io"]
-    resources: ["atlasmigrations", "atlasschemas"]
+    resources: ["atlasmigrations", "atlasmigrations/status", "atlasschemas", "atlasschemas/status"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -26,4 +26,7 @@ rules:
   - apiGroups: ["db.atlasgo.io"]
     resources: ["atlasmigrations", "atlasschemas"]
     verbs: ["create", "delete", "patch", "update"]
+  - apiGroups: ["db.atlasgo.io"]
+    resources: ["atlasmigrations/status", "atlasschemas/status"]
+    verbs: ["get", "patch", "update"]
 {{- end }}
