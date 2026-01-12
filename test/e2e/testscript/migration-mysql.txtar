@@ -270,3 +270,14 @@ spec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - mysql
+                - -ppass
+                - -h
+                - 127.0.0.1
+                - -e
+                - SELECT 1
+            periodSeconds: 5
+            failureThreshold: 3

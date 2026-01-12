@@ -24,7 +24,7 @@ kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Li
 # Check the error message
 kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
 stdout 'destructive changes detected:'
-stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`;'
+stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`'
 -- schema.hcl --
 table "users" {
   schema = schema.myapp
@@ -134,3 +134,14 @@ spec:
               command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - mysql
+                - -ppass
+                - -h
+                - 127.0.0.1
+                - -e
+                - SELECT 1
+            periodSeconds: 5
+            failureThreshold: 3

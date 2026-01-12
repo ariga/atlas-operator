@@ -101,3 +101,16 @@ spec:
               ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /opt/mssql-tools18/bin/sqlcmd
+                - -C
+                - -U
+                - sa
+                - -P
+                - P@ssw0rd0995
+                - -Q
+                - SELECT 1
+            periodSeconds: 5
+            failureThreshold: 3
