@@ -1,5 +1,4 @@
-env DB_URL=sqlserver://sa:P%40ssw0rd0995@sqlserver.${NAMESPACE}:1433?database=master
-kubectl apply -f database.yaml
+db mcr.microsoft.com/mssql/server:2022-latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
@@ -51,53 +50,3 @@ spec:
         [id] int not null,
         constraint PK_t1 primary key ([id])
       );
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: sqlserver
-spec:
-  type: ClusterIP
-  selector:
-    app: sqlserver
-  ports:
-    - name: sqlserver
-      port: 1433
-      targetPort: sqlserver
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sqlserver
-spec:
-  selector:
-    matchLabels:
-      app: sqlserver
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: sqlserver
-    spec:
-      containers:
-        - name: sqlserver
-          image: mcr.microsoft.com/mssql/server:2022-latest
-          env:
-            - name: ACCEPT_EULA
-              value: "Y"
-            - name: MSSQL_PID
-              value: "Developer"
-            - name: MSSQL_SA_PASSWORD
-              value: "P@ssw0rd0995"
-          ports:
-            - containerPort: 1433
-              name: sqlserver
-          startupProbe:
-            exec:
-              command: [
-                "/opt/mssql-tools18/bin/sqlcmd",
-                "-C", "-U", "sa", "-P", "P@ssw0rd0995",
-                "-Q", "SELECT 1"
-              ]
-            failureThreshold: 30
-            periodSeconds: 10

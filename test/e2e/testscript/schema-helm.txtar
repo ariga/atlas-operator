@@ -1,6 +1,5 @@
 env RELEASE=pgschema
-env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
-kubectl apply -f database.yaml
+db postgres:15.4 DB_URL
 
 # Wait for the database deployment to start
 kubectl-wait-available deploy/postgres
@@ -75,55 +74,3 @@ metadata:
 type: Opaque
 stringData:
   url: {{ required "db.url must be provided" .Values.db.url | quote }}
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-spec:
-  selector:
-    app: postgres
-  ports:
-    - name: postgres
-      port: 5432
-      targetPort: postgres
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  selector:
-    matchLabels:
-      app: postgres
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-      containers:
-        - name: postgres
-          image: postgres:15.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-          env:
-            - name: POSTGRES_PASSWORD
-              value: pass
-            - name: POSTGRES_USER
-              value: root
-          ports:
-            - containerPort: 5432
-              name: postgres
-          startupProbe:
-            exec:
-              command: [ "pg_isready" ]
-            failureThreshold: 30
-            periodSeconds: 10

@@ -1,18 +1,12 @@
-env DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5432/postgres?sslmode=disable
-kubectl apply -f database.yaml
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/postgres
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=postgres pods
 
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-env DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5433/postgres?sslmode=disable
 # List all schema plans and remove them, it may come from previous failure runs
 atlas schema plan list --format="{{range .}}{{println .URL}}{{end}}" --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=file:///tmp/${NAMESPACE}/empty.hcl --to=file:///tmp/${NAMESPACE}/schema-v1.hcl
 plans-rm stdout
@@ -103,80 +97,3 @@ spec:
         c1 int,
         primary key (id)
       );
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-spec:
-  selector:
-    app: postgres
-  ports:
-    - name: postgres
-      port: 5432
-      targetPort: postgres
-    - name: postgres-dev
-      port: 5433
-      targetPort: postgres-dev
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  selector:
-    matchLabels:
-      app: postgres
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-      containers:
-        - name: postgres
-          image: postgres:15.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-          env:
-            - name: POSTGRES_PASSWORD
-              value: pass
-            - name: POSTGRES_USER
-              value: root
-          ports:
-            - containerPort: 5432
-              name: postgres
-          startupProbe:
-            exec:
-              command: [ "pg_isready" ]
-            failureThreshold: 30
-            periodSeconds: 10
-        - name: postgres-dev
-          image: postgres:15.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-          env:
-            - name: POSTGRES_PASSWORD
-              value: pass
-            - name: POSTGRES_USER
-              value: root
-            - name: PGPORT
-              value: "5433"
-          ports:
-            - containerPort: 5433
-              name: postgres-dev
-          startupProbe:
-            exec:
-              command: [ "pg_isready" ]
-            failureThreshold: 30
-            periodSeconds: 10

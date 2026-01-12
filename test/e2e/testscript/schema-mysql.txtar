@@ -1,5 +1,4 @@
-env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
-kubectl apply -f database.yaml
+db mysql:latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
@@ -9,7 +8,7 @@ kubectl-wait-ready -l app=mysql pods
 
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-env DEV_URL=mysql://root:pass@mysql.${NAMESPACE}:3307/myapp
+env DEV_URL=${DB_URL}
 # Create a table not described in the desired schema but excluded from it.
 atlas schema apply --auto-approve --dev-url=${DEV_URL} --url=${DB_URL} --to=file:///tmp/${NAMESPACE}/ignore.sql
 
@@ -162,67 +161,3 @@ spec:
       name: mysql-schema
   exclude:
     - ignore_me
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql
-spec:
-  selector:
-    app: mysql
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: mysql
-    - name: mysql-dev
-      port: 3307
-      targetPort: mysql-dev
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mysql
-spec:
-  selector:
-    matchLabels:
-      app: mysql
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: mysql
-    spec:
-      containers:
-        - name: mysql
-          image: mysql:latest
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: pass
-            - name: MYSQL_DATABASE
-              value: myapp
-          ports:
-            - containerPort: 3306
-              name: mysql
-          startupProbe:
-            exec:
-              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
-        - name: mysql-dev
-          image: mysql:latest
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: pass
-            - name: MYSQL_DATABASE
-              value: myapp
-            - name: MYSQL_TCP_PORT
-              value: "3307"
-          ports:
-            - containerPort: 3307
-              name: mysql-dev
-          startupProbe:
-            exec:
-              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10

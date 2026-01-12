@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -28,6 +29,12 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -115,6 +122,44 @@ func TestOperator(t *testing.T) {
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
+			// db deploys a database and exports its URL in the requested environment variable.
+			"db": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg {
+					ts.Fatalf("unsupported: ! db")
+				}
+				if len(args) < 2 || len(args) > 3 {
+					ts.Fatalf("usage: db <image> <env> [name]")
+				}
+				image := args[0]
+				envVar := args[1]
+				cfg, err := newDBConfig(image)
+				if err != nil {
+					ts.Fatalf("db: %v", err)
+				}
+				if len(args) == 3 {
+					name := strings.ToLower(args[2])
+					if errs := validation.IsDNS1123Label(name); len(errs) > 0 {
+						ts.Fatalf("db: invalid name %q: %s", args[2], strings.Join(errs, ", "))
+					}
+					cfg.name = name
+				}
+				manifestYAML, err := cfg.manifest(image)
+				if err != nil {
+					ts.Fatalf("db: %v", err)
+				}
+				manifestPath, err := writeManifest(ts.Getenv("WORK"), manifestYAML)
+				if err != nil {
+					ts.Fatalf("db: %v", err)
+				}
+				ts.Defer(func() {
+					_ = os.Remove(manifestPath)
+				})
+				ns := ts.Getenv("NAMESPACE")
+				ts.Check(ts.Exec("kubectl", "-n", ns, "apply", "-f", manifestPath))
+				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=available", "--timeout=2h", "deployment/"+cfg.name))
+				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app="+cfg.name))
+				ts.Setenv(envVar, cfg.dsn(ns))
+			},
 			// atlas runs the atlas binary in the controller-manager pod
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
 				err := ts.Exec("kubectl", "exec",
@@ -217,19 +262,245 @@ func TestOperator(t *testing.T) {
 				if len(args) < 1 {
 					ts.Fatalf("usage: plans-rm filename")
 				}
-				plans := strings.Split(ts.ReadFile(args[0]), "\n")
-				for _, plan := range plans {
-					if plan == "" {
+				for p := range strings.SplitSeq(ts.ReadFile(args[0]), "\n") {
+					if p == "" {
 						continue
 					}
 					ts.Check(ts.Exec("kubectl", "exec",
 						"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), plan),
+						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), p),
 					))
 				}
 			},
 		},
 	})
+}
+
+type (
+	dbConfig struct {
+		name         string
+		scheme       string
+		port         int
+		database     string
+		user         string
+		pass         string
+		query        url.Values
+		env          []dbEnvVar
+		startupCmd   []string
+		readinessCmd []string
+	}
+	dbEnvVar struct {
+		Name  string
+		Value string
+	}
+)
+
+func newDBConfig(image string) (*dbConfig, error) {
+	img := strings.ToLower(image)
+	switch {
+	case strings.Contains(img, "mariadb"):
+		return &dbConfig{
+			name:     "mariadb",
+			scheme:   "mariadb",
+			port:     3306,
+			database: "myapp",
+			user:     "root",
+			pass:     "pass",
+			env: []dbEnvVar{
+				{Name: "MARIADB_ROOT_PASSWORD", Value: "pass"},
+				{Name: "MARIADB_DATABASE", Value: "myapp"},
+			},
+			startupCmd:   []string{"mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
+			readinessCmd: []string{"mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
+		}, nil
+	case strings.Contains(img, "mysql"):
+		return &dbConfig{
+			name:     "mysql",
+			scheme:   "mysql",
+			port:     3306,
+			database: "myapp",
+			user:     "root",
+			pass:     "pass",
+			env: []dbEnvVar{
+				{Name: "MYSQL_ROOT_PASSWORD", Value: "pass"},
+				{Name: "MYSQL_DATABASE", Value: "myapp"},
+			},
+			startupCmd:   []string{"mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
+			readinessCmd: []string{"mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
+		}, nil
+	case strings.Contains(img, "postgres"):
+		return &dbConfig{
+			name:     "postgres",
+			scheme:   "postgres",
+			port:     5432,
+			database: "postgres",
+			user:     "root",
+			pass:     "pass",
+			query: url.Values{
+				"sslmode": {"disable"},
+			},
+			env: []dbEnvVar{
+				{Name: "POSTGRES_DB", Value: "postgres"},
+				{Name: "POSTGRES_USER", Value: "root"},
+				{Name: "POSTGRES_PASSWORD", Value: "pass"},
+			},
+			startupCmd:   []string{"pg_isready"},
+			readinessCmd: []string{"pg_isready", "--username=root", "--dbname=postgres"},
+		}, nil
+	case strings.Contains(img, "clickhouse"):
+		return &dbConfig{
+			name:     "clickhouse",
+			scheme:   "clickhouse",
+			port:     9000,
+			database: "myapp",
+			user:     "root",
+			pass:     "pass",
+			env: []dbEnvVar{
+				{Name: "CLICKHOUSE_USER", Value: "root"},
+				{Name: "CLICKHOUSE_PASSWORD", Value: "pass"},
+				{Name: "CLICKHOUSE_DB", Value: "myapp"},
+			},
+			startupCmd:   []string{"clickhouse-client", "-q", "SELECT 1"},
+			readinessCmd: []string{"clickhouse-client", "-q", "SELECT 1"},
+		}, nil
+	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
+		return &dbConfig{
+			name:   "sqlserver",
+			scheme: "sqlserver",
+			port:   1433,
+			user:   "sa",
+			pass:   "P@ssw0rd0995",
+			query: url.Values{
+				"database": {"master"},
+			},
+			env: []dbEnvVar{
+				{Name: "ACCEPT_EULA", Value: "Y"},
+				{Name: "MSSQL_PID", Value: "Developer"},
+				{Name: "MSSQL_SA_PASSWORD", Value: "P@ssw0rd0995"},
+			},
+			startupCmd:   []string{"/opt/mssql-tools18/bin/sqlcmd", "-C", "-U", "sa", "-P", "P@ssw0rd0995", "-Q", "SELECT 1"},
+			readinessCmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-C", "-U", "sa", "-P", "P@ssw0rd0995", "-Q", "SELECT 1"},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported database image %q", image)
+	}
+}
+
+func (cfg *dbConfig) manifest(image string) ([]byte, error) {
+	selector := map[string]string{"app": cfg.name}
+	labels := map[string]string{"app": cfg.name}
+	svc := &corev1.Service{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cfg.name,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: selector,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       cfg.scheme,
+					Port:       int32(cfg.port),
+					TargetPort: intstr.FromString(cfg.scheme),
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+	replicas := int32(1)
+	container := corev1.Container{
+		Name:  cfg.name,
+		Image: image,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          cfg.scheme,
+				ContainerPort: int32(cfg.port),
+			},
+		},
+	}
+	if len(cfg.env) > 0 {
+		envs := make([]corev1.EnvVar, 0, len(cfg.env))
+		for _, env := range cfg.env {
+			envs = append(envs, corev1.EnvVar{Name: env.Name, Value: env.Value})
+		}
+		container.Env = envs
+	}
+	if len(cfg.startupCmd) > 0 {
+		container.StartupProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{Command: cfg.startupCmd},
+			},
+			FailureThreshold: 30,
+			PeriodSeconds:    10,
+		}
+	}
+	if len(cfg.readinessCmd) > 0 {
+		container.ReadinessProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{Command: cfg.readinessCmd},
+			},
+			PeriodSeconds:    5,
+			FailureThreshold: 3,
+		}
+	}
+	dep := &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cfg.name,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: selector},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{container},
+				},
+			},
+		},
+	}
+	svcYAML, err := yaml.Marshal(svc)
+	if err != nil {
+		return nil, err
+	}
+	depYAML, err := yaml.Marshal(dep)
+	if err != nil {
+		return nil, err
+	}
+	manifest := append(svcYAML, []byte("---\n")...)
+	manifest = append(manifest, depYAML...)
+	return manifest, nil
+}
+
+func (cfg *dbConfig) dsn(namespace string) string {
+	u := &url.URL{
+		Scheme: cfg.scheme,
+		User:   url.UserPassword(cfg.user, cfg.pass),
+		Host:   fmt.Sprintf("%s.%s:%d", cfg.name, namespace, cfg.port),
+	}
+	if cfg.database != "" {
+		u.Path = cfg.database
+	}
+	if cfg.query != nil {
+		u.RawQuery = cfg.query.Encode()
+	}
+	return u.String()
+}
+
+func writeManifest(dir string, content []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "db-*.yaml")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func pipeFile(perm fs.FileMode, p string, fn func(w io.Writer) error) error {

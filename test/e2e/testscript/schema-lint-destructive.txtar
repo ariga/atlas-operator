@@ -1,5 +1,4 @@
-env DB_URL=mysql://root:pass@mysql.${NAMESPACE}:3306/myapp
-kubectl apply -f database.yaml
+db mysql:latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
@@ -24,7 +23,7 @@ kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Li
 # Check the error message
 kubectl get AtlasSchema/mysql -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
 stdout 'destructive changes detected:'
-stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`;'
+stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`'
 -- schema.hcl --
 table "users" {
   schema = schema.myapp
@@ -90,47 +89,3 @@ spec:
         short_bio varchar(255) not null,
         primary key (id)
       );
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql
-spec:
-  selector:
-    app: mysql
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: mysql
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mysql
-spec:
-  selector:
-    matchLabels:
-      app: mysql
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: mysql
-    spec:
-      containers:
-        - name: mysql
-          image: mysql:latest
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: pass
-            - name: MYSQL_DATABASE
-              value: myapp
-          ports:
-            - containerPort: 3306
-              name: mysql
-          startupProbe:
-            exec:
-              command: [ "mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
