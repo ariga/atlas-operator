@@ -9,6 +9,8 @@ kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOK
 kubectl-wait-available deploy/postgres
 # Wait for the DB ready before creating the schema
 kubectl-wait-ready -l app=postgres pods
+# Ensure the dev DB (used by dev_db_url) is also ready
+kubectl-wait-ready -l app=postgres-dev pods
 
 # Create the schema
 kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE SCHEMA tenant_1;'
@@ -134,6 +136,14 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - --username=root
+                - --dbname=postgres
+            periodSeconds: 5
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -186,3 +196,11 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - --username=root
+                - --dbname=postgres
+            periodSeconds: 5
+            failureThreshold: 3

@@ -168,6 +168,14 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - --username=root
+                - --dbname=postgres
+            periodSeconds: 5
+            failureThreshold: 3
         - name: postgres-dev
           image: postgres:15.4
           securityContext:
@@ -190,3 +198,12 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - --username=root
+                - --dbname=postgres
+                - --port=5433
+            periodSeconds: 5
+            failureThreshold: 3

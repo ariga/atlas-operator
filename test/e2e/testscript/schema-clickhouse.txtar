@@ -134,3 +134,11 @@ spec:
               command: [ "clickhouse-client", "-q", "SELECT 1" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - clickhouse-client
+                - -q
+                - SELECT 1
+            periodSeconds: 5
+            failureThreshold: 3

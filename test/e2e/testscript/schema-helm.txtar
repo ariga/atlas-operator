@@ -127,3 +127,11 @@ spec:
               command: [ "pg_isready" ]
             failureThreshold: 30
             periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - --username=root
+                - --dbname=postgres
+            periodSeconds: 5
+            failureThreshold: 3
