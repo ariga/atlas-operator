@@ -1,81 +1,36 @@
-# Default values for atlas-operator.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-replicaCount: 1
-
-image:
-  repository: arigaio/atlas-operator
-  pullPolicy: IfNotPresent
-  tag: ""
-
-rbac:
-  create: true
-
+controllerManager:
+  manager:
+    args:
+      - --leader-elect
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1000
+    env:
+      prewarmDevdb: "true"
+    image:
+      repository: arigaio/atlas-operator
+      tag: ""
+    imagePullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  nodeSelector: {}
+  podSecurityContext:
+    runAsNonRoot: true
+  replicas: 1
+  tolerations: []
+  topologySpreadConstraints: []
 imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-
+kubernetesClusterDomain: cluster.local
 serviceAccount:
-  create: true
   annotations: {}
-  labels: {}
+  automount: true
+  create: true
   name: ""
-
-podAnnotations: {}
-
-podLabels: {}
-
-podSecurityContext:
-  runAsNonRoot: true
-
-containerSecurityContext:
-  runAsUser: 1000
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-
-resources: {}
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
-
-# By default, the operator will recreate devdb pods after migration
-# Set this to true to keep the devdb pods around.
-prewarmDevDB: true
-
-# Enable this to allow custom project configuration
-# Warning: This setting enables users to use the `external` and `sql` data sources
-# which can be used to execute arbitrary commands and queries. Use with caution.
-allowCustomConfig: false
-
-# -- Additional environment variables to set
-extraEnvs: []
-# extraEnvs:
-#   - name: FOO
-#     valueFrom:
-#       secretKeyRef:
-#         key: FOO
-#         name: secret-resource
-#   - name: BAR
-#     valueFrom:
-#      configMapKeyRef:
-#        key: BAR
-#        name: config-map-resource
-
-extraVolumes: []
-# extraVolumes:
-#   - name: extra-volume
-#     secret:
-#       secretName: extra-volume-secret
-
-extraVolumeMounts: []
-# extraVolumeMounts:
-#   - name: extra-volume
-#     mountPath: /extra-volume
-#     readOnly: true
-

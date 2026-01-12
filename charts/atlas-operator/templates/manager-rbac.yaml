@@ -1,23 +1,10 @@
-{{- if .Values.rbac.create -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "atlas-operator.managerRoleName" . }}
+  name: {{ include "atlas-operator.fullname" . }}-manager-role
   labels:
   {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - ""
   resources:
@@ -48,9 +35,9 @@ rules:
   - list
   - watch
 - apiGroups:
-  - db.atlasgo.io
+  - apps
   resources:
-  - atlasmigrations
+  - deployments
   verbs:
   - create
   - delete
@@ -62,20 +49,7 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
-  - atlasmigrations/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - db.atlasgo.io
-  resources:
-  - atlasmigrations/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - db.atlasgo.io
-  resources:
+  - atlasmigrations
   - atlasschemas
   verbs:
   - create
@@ -88,12 +62,14 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasmigrations/finalizers
   - atlasschemas/finalizers
   verbs:
   - update
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasmigrations/status
   - atlasschemas/status
   verbs:
   - get
@@ -103,7 +79,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "atlas-operator.managerRoleName" . }}-binding
+  name: {{ include "atlas-operator.fullname" . }}-manager-rolebinding
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: atlas-operator
@@ -112,9 +88,8 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "atlas-operator.managerRoleName" . }}'
+  name: '{{ include "atlas-operator.fullname" . }}-manager-role'
 subjects:
 - kind: ServiceAccount
   name: '{{ include "atlas-operator.serviceAccountName" . }}'
   namespace: '{{ .Release.Namespace }}'
-{{- end }}
