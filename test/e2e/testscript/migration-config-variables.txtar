@@ -1,15 +1,9 @@
-env MIGRATE_DB_URL=postgres://root:pass@postgres.${NAMESPACE}:5434/postgres?sslmode=disable
-env MIGRATE_DB_DEV_URL=postgres://root:pass@postgres.${NAMESPACE}:5435/postgres?sslmode=disable
-kubectl apply -f database.yaml
+db postgres:15.4 MIGRATE_DB_URL
+db postgres:15.4 MIGRATE_DB_DEV_URL postgres-dev
 kubectl create secret generic migrate-db-creds --from-literal=url=${MIGRATE_DB_URL}
 kubectl create configmap migrate-db-dev-creds --from-literal=url=${MIGRATE_DB_DEV_URL}
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/postgres
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=postgres pods
 
 # Create the migration
 kubectl apply -f migration.yaml
@@ -86,99 +80,3 @@ spec:
       atlas.sum: |
         h1:FwM0ApKo8xhcZFrSlpa6dYjvi0fnDPo/aZSzajtbHLc=
         20230316085611.sql h1:ldFr73m6ZQzNi8q9dVJsOU/ZHmkBo4Sax03AaL0VUUs=
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-spec:
-  selector:
-    app: postgres
-  ports:
-    - name: pg-migrate
-      port: 5434
-      targetPort: pg-migrate
-    - name: pg-migrate-dev
-      port: 5435
-      targetPort: pg-migrate-dev
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  selector:
-    matchLabels:
-      app: postgres
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-      containers:
-        - name: pg-migrate
-          image: postgres:15.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-          env:
-            - name: POSTGRES_PASSWORD
-              value: pass
-            - name: POSTGRES_USER
-              value: root
-            - name: PGPORT
-              value: "5434" 
-          ports:
-            - containerPort: 5434
-              name: pg-migrate
-          startupProbe:
-            exec:
-              command: [ "pg_isready" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - pg_isready
-                - --username=root
-                - --dbname=postgres
-            periodSeconds: 5
-            failureThreshold: 3
-        - name: pg-migrate-dev
-          image: postgres:15.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-          env:
-            - name: POSTGRES_PASSWORD
-              value: pass
-            - name: POSTGRES_USER
-              value: root
-            - name: PGPORT
-              value: "5435"
-          ports:
-            - containerPort: 5435
-              name: pg-migrate-dev
-          startupProbe:
-            exec:
-              command: [ "pg_isready" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - pg_isready
-                - --username=root
-                - --dbname=postgres
-                - --port=5435
-            periodSeconds: 5
-            failureThreshold: 3

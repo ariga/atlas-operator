@@ -1,5 +1,4 @@
-env DB_URL=mariadb://root:pass@mariadb.${NAMESPACE}:3306/myapp
-kubectl apply -f database.yaml
+db mariadb:latest DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Wait for the first pod created
@@ -9,7 +8,7 @@ kubectl-wait-ready -l app=mariadb pods
 
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-env DEV_URL=mariadb://root:pass@mariadb.${NAMESPACE}:3307/myapp
+env DEV_URL=${DB_URL}
 # Create a table not described in the desired schema but excluded from it.
 atlas schema apply --auto-approve --dev-url=${DEV_URL} --url=${DB_URL} --to=file:///tmp/${NAMESPACE}/ignore.sql
 
@@ -162,89 +161,3 @@ spec:
       name: mariadb-schema
   exclude:
     - ignore_me
--- database.yaml --
-apiVersion: v1
-kind: Service
-metadata:
-  name: mariadb
-spec:
-  selector:
-    app: mariadb
-  ports:
-    - name: mariadb
-      port: 3306
-      targetPort: mariadb
-    - name: mariadb-dev
-      port: 3307
-      targetPort: mariadb-dev
-  type: ClusterIP
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mariadb
-spec:
-  selector:
-    matchLabels:
-      app: mariadb
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: mariadb
-    spec:
-      containers:
-        - name: mariadb
-          image: mariadb:latest
-          env:
-            - name: MARIADB_ROOT_PASSWORD
-              value: pass
-            - name: MARIADB_DATABASE
-              value: myapp
-          ports:
-            - containerPort: 3306
-              name: mariadb
-          startupProbe:
-            exec:
-              command: [ "mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - mariadb
-                - -ppass
-                - -h
-                - 127.0.0.1
-                - -e
-                - SELECT 1
-            periodSeconds: 5
-            failureThreshold: 3
-        - name: mariadb-dev
-          image: mariadb:latest
-          env:
-            - name: MARIADB_ROOT_PASSWORD
-              value: pass
-            - name: MARIADB_DATABASE
-              value: myapp
-            - name: MYSQL_TCP_PORT
-              value: "3307"
-          ports:
-            - containerPort: 3307
-              name: mariadb-dev
-          startupProbe:
-            exec:
-              command: [ "mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1" ]
-            failureThreshold: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - mariadb
-                - -ppass
-                - -h
-                - 127.0.0.1
-                - -e
-                - SELECT 1
-            periodSeconds: 5
-            failureThreshold: 3
