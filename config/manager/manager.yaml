@@ -85,8 +85,11 @@ spec:
         args:
         - --leader-elect
         image: controller:latest
+        imagePullPolicy: IfNotPresent
         name: manager
-        env: []
+        env:
+        - name: PREWARM_DEVDB
+          value: "true"
         securityContext:
           runAsUser: 1000
           allowPrivilegeEscalation: false
