@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -27,12 +28,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/ariga/atlas-operator/internal/controller"
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
 )
@@ -127,27 +128,44 @@ func TestOperator(t *testing.T) {
 				if neg {
 					ts.Fatalf("unsupported: ! db")
 				}
-				if len(args) < 2 || len(args) > 3 {
-					ts.Fatalf("usage: db <image> <env> [name]")
-				}
-				image := args[0]
-				envVar := args[1]
-				cfg, err := newDBConfig(image)
-				if err != nil {
-					ts.Fatalf("db: %v", err)
-				}
-				if len(args) == 3 {
-					name := strings.ToLower(args[2])
-					if errs := validation.IsDNS1123Label(name); len(errs) > 0 {
+				var res *devDBResources
+				var schemaBound bool
+				var name string
+				switch len(args) {
+				case 4:
+					mode := strings.ToLower(args[3])
+					schemaBound = mode != "database"
+					fallthrough
+				case 3:
+					override := strings.ToLower(args[2])
+					if errs := validation.IsDNS1123Label(override); len(errs) > 0 {
 						ts.Fatalf("db: invalid name %q: %s", args[2], strings.Join(errs, ", "))
 					}
-					cfg.name = name
+					name = override
+					fallthrough
+				case 2:
+					drv := v1alpha1.Driver(strings.ToLower(args[0]))
+					if name == "" {
+						name = drv.String()
+					}
+					switch podSpec, devURL, err := controller.AutomaticDevDBSpec(drv, schemaBound, ts.Getenv); {
+					case err != nil:
+						ts.Fatalf("db: %v", err)
+					case podSpec == nil:
+						ts.Fatalf("db: %v", fmt.Errorf("db: driver %s returned no pod spec", drv))
+					default:
+						podSpec.Containers[0].Name = name
+						res = &devDBResources{
+							deployment: controller.DeploymentDevDB(types.NamespacedName{
+								Name: name,
+							}, drv, *podSpec, devURL),
+							template: devURL,
+						}
+					}
+				default:
+					ts.Fatalf("usage: db <driver> <env> [name] [mode]")
 				}
-				manifestYAML, err := cfg.manifest(image)
-				if err != nil {
-					ts.Fatalf("db: %v", err)
-				}
-				manifestPath, err := writeManifest(ts.Getenv("WORK"), manifestYAML)
+				manifestPath, err := res.writeManifest(ts.Getenv("WORK"))
 				if err != nil {
 					ts.Fatalf("db: %v", err)
 				}
@@ -156,15 +174,27 @@ func TestOperator(t *testing.T) {
 				})
 				ns := ts.Getenv("NAMESPACE")
 				ts.Check(ts.Exec("kubectl", "-n", ns, "apply", "-f", manifestPath))
-				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=available", "--timeout=2h", "deployment/"+cfg.name))
-				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app="+cfg.name))
-				ts.Setenv(envVar, cfg.dsn(ns))
+				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=available", "--timeout=2h", "deployment/"+name))
+				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app.kubernetes.io/instance="+name))
+				podIP, err := kind("kubectl", "-n", ns, "get", "pod", "-l", "app.kubernetes.io/instance="+name, "-o", "jsonpath={.items[0].status.podIP}")
+				if err != nil {
+					ts.Fatalf("db: %v", err)
+				}
+				dsn, err := res.DSN(podIP)
+				if err != nil {
+					ts.Fatalf("db: %v", err)
+				}
+				ts.Setenv(args[1], dsn)
 			},
 			// atlas runs the atlas binary in the controller-manager pod
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
+				quotedArgs := make([]string, 0, len(args))
+				for _, a := range args {
+					quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
+				}
 				err := ts.Exec("kubectl", "exec",
 					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
+					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(quotedArgs, " ")),
 				)
 				if !neg {
 					ts.Check(err)
@@ -276,222 +306,41 @@ func TestOperator(t *testing.T) {
 	})
 }
 
-type (
-	dbConfig struct {
-		name         string
-		scheme       string
-		port         int
-		database     string
-		user         string
-		pass         string
-		query        url.Values
-		env          []dbEnvVar
-		startupCmd   []string
-		readinessCmd []string
-	}
-	dbEnvVar struct {
-		Name  string
-		Value string
-	}
-)
-
-func newDBConfig(image string) (*dbConfig, error) {
-	img := strings.ToLower(image)
-	switch {
-	case strings.Contains(img, "mariadb"):
-		return &dbConfig{
-			name:     "mariadb",
-			scheme:   "mariadb",
-			port:     3306,
-			database: "myapp",
-			user:     "root",
-			pass:     "pass",
-			env: []dbEnvVar{
-				{Name: "MARIADB_ROOT_PASSWORD", Value: "pass"},
-				{Name: "MARIADB_DATABASE", Value: "myapp"},
-			},
-			startupCmd:   []string{"mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
-			readinessCmd: []string{"mariadb", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
-		}, nil
-	case strings.Contains(img, "mysql"):
-		return &dbConfig{
-			name:     "mysql",
-			scheme:   "mysql",
-			port:     3306,
-			database: "myapp",
-			user:     "root",
-			pass:     "pass",
-			env: []dbEnvVar{
-				{Name: "MYSQL_ROOT_PASSWORD", Value: "pass"},
-				{Name: "MYSQL_DATABASE", Value: "myapp"},
-			},
-			startupCmd:   []string{"mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
-			readinessCmd: []string{"mysql", "-ppass", "-h", "127.0.0.1", "-e", "SELECT 1"},
-		}, nil
-	case strings.Contains(img, "postgres"):
-		return &dbConfig{
-			name:     "postgres",
-			scheme:   "postgres",
-			port:     5432,
-			database: "postgres",
-			user:     "root",
-			pass:     "pass",
-			query: url.Values{
-				"sslmode": {"disable"},
-			},
-			env: []dbEnvVar{
-				{Name: "POSTGRES_DB", Value: "postgres"},
-				{Name: "POSTGRES_USER", Value: "root"},
-				{Name: "POSTGRES_PASSWORD", Value: "pass"},
-			},
-			startupCmd:   []string{"pg_isready"},
-			readinessCmd: []string{"pg_isready", "--username=root", "--dbname=postgres"},
-		}, nil
-	case strings.Contains(img, "clickhouse"):
-		return &dbConfig{
-			name:     "clickhouse",
-			scheme:   "clickhouse",
-			port:     9000,
-			database: "myapp",
-			user:     "root",
-			pass:     "pass",
-			env: []dbEnvVar{
-				{Name: "CLICKHOUSE_USER", Value: "root"},
-				{Name: "CLICKHOUSE_PASSWORD", Value: "pass"},
-				{Name: "CLICKHOUSE_DB", Value: "myapp"},
-			},
-			startupCmd:   []string{"clickhouse-client", "-q", "SELECT 1"},
-			readinessCmd: []string{"clickhouse-client", "-q", "SELECT 1"},
-		}, nil
-	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
-		return &dbConfig{
-			name:   "sqlserver",
-			scheme: "sqlserver",
-			port:   1433,
-			user:   "sa",
-			pass:   "P@ssw0rd0995",
-			query: url.Values{
-				"database": {"master"},
-			},
-			env: []dbEnvVar{
-				{Name: "ACCEPT_EULA", Value: "Y"},
-				{Name: "MSSQL_PID", Value: "Developer"},
-				{Name: "MSSQL_SA_PASSWORD", Value: "P@ssw0rd0995"},
-			},
-			startupCmd:   []string{"/opt/mssql-tools18/bin/sqlcmd", "-C", "-U", "sa", "-P", "P@ssw0rd0995", "-Q", "SELECT 1"},
-			readinessCmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-C", "-U", "sa", "-P", "P@ssw0rd0995", "-Q", "SELECT 1"},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported database image %q", image)
-	}
+type devDBResources struct {
+	deployment *appsv1.Deployment
+	template   string
 }
 
-func (cfg *dbConfig) manifest(image string) ([]byte, error) {
-	selector := map[string]string{"app": cfg.name}
-	labels := map[string]string{"app": cfg.name}
-	svc := &corev1.Service{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: cfg.name,
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: selector,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       cfg.scheme,
-					Port:       int32(cfg.port),
-					TargetPort: intstr.FromString(cfg.scheme),
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
+func (r devDBResources) DSN(podIP string) (string, error) {
+	podIP = strings.TrimSpace(podIP)
+	if podIP == "" {
+		return "", fmt.Errorf("empty pod IP")
 	}
-	replicas := int32(1)
-	container := corev1.Container{
-		Name:  cfg.name,
-		Image: image,
-		Ports: []corev1.ContainerPort{
-			{
-				Name:          cfg.scheme,
-				ContainerPort: int32(cfg.port),
-			},
-		},
+	if r.template == "" {
+		return "", nil
 	}
-	if len(cfg.env) > 0 {
-		envs := make([]corev1.EnvVar, 0, len(cfg.env))
-		for _, env := range cfg.env {
-			envs = append(envs, corev1.EnvVar{Name: env.Name, Value: env.Value})
-		}
-		container.Env = envs
-	}
-	if len(cfg.startupCmd) > 0 {
-		container.StartupProbe = &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				Exec: &corev1.ExecAction{Command: cfg.startupCmd},
-			},
-			FailureThreshold: 30,
-			PeriodSeconds:    10,
-		}
-	}
-	if len(cfg.readinessCmd) > 0 {
-		container.ReadinessProbe = &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				Exec: &corev1.ExecAction{Command: cfg.readinessCmd},
-			},
-			PeriodSeconds:    5,
-			FailureThreshold: 3,
-		}
-	}
-	dep := &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: cfg.name,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: selector},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{container},
-				},
-			},
-		},
-	}
-	svcYAML, err := yaml.Marshal(svc)
+	u, err := url.Parse(r.template)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	depYAML, err := yaml.Marshal(dep)
+	if port := u.Port(); port != "" {
+		u.Host = net.JoinHostPort(podIP, port)
+	} else {
+		u.Host = podIP
+	}
+	return u.String(), nil
+}
+
+func (r devDBResources) writeManifest(dir string) (string, error) {
+	manifest, err := yaml.Marshal(r.deployment)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	manifest := append(svcYAML, []byte("---\n")...)
-	manifest = append(manifest, depYAML...)
-	return manifest, nil
-}
-
-func (cfg *dbConfig) dsn(namespace string) string {
-	u := &url.URL{
-		Scheme: cfg.scheme,
-		User:   url.UserPassword(cfg.user, cfg.pass),
-		Host:   fmt.Sprintf("%s.%s:%d", cfg.name, namespace, cfg.port),
-	}
-	if cfg.database != "" {
-		u.Path = cfg.database
-	}
-	if cfg.query != nil {
-		u.RawQuery = cfg.query.Encode()
-	}
-	return u.String()
-}
-
-func writeManifest(dir string, content []byte) (string, error) {
 	f, err := os.CreateTemp(dir, "db-*.yaml")
 	if err != nil {
 		return "", err
 	}
-	if _, err := f.Write(content); err != nil {
+	if _, err := f.Write(manifest); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", err

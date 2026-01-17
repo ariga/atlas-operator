@@ -1,11 +1,5 @@
-db mysql:latest DB_URL
+db mysql DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/mysql
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=mysql pods
-
 # Create configmap to store the migrations directory
 kubectl create configmap migration-dir --from-file=migrations-v1
 
@@ -44,7 +38,7 @@ atlas schema inspect -u ${DB_URL} --exclude=atlas_schema_revisions
 cmp stdout schema-v1.hcl
 -- schema-v1.hcl --
 table "posts" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null = false
     type = int
@@ -75,7 +69,7 @@ table "posts" {
   }
 }
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null = false
     type = int
@@ -92,13 +86,13 @@ table "users" {
     columns = [column.id]
   }
 }
-schema "myapp" {
+schema "dev" {
   charset = "utf8mb4"
   collate = "utf8mb4_0900_ai_ci"
 }
 -- schema-v2.hcl --
 table "posts" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null = false
     type = int
@@ -134,7 +128,7 @@ table "posts" {
   }
 }
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null = false
     type = int
@@ -151,7 +145,7 @@ table "users" {
     columns = [column.id]
   }
 }
-schema "myapp" {
+schema "dev" {
   charset = "utf8mb4"
   collate = "utf8mb4_0900_ai_ci"
 }

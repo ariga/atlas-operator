@@ -1,12 +1,12 @@
-db postgres:15.4 DB_URL
-db postgres:15.4 DB_DEV_URL postgres-dev
+db postgres DB_URL postgres database
+db postgres DB_DEV_URL postgres-dev database
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 kubectl create configmap db-dev-creds --from-literal=url=${DB_DEV_URL}
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 # Create the schema
-kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE SCHEMA tenant_1;'
-kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE SCHEMA tenant_2;'
+kubectl exec -i deploy/postgres -- psql -U postgres -d postgres -c 'CREATE SCHEMA tenant_1;'
+kubectl exec -i deploy/postgres -- psql -U postgres -d postgres -c 'CREATE SCHEMA tenant_2;'
 
 # Inspect the schema to ensure it's correct
 atlas schema inspect -u ${DB_URL}

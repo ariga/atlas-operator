@@ -133,14 +133,15 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	case apierrors.IsNotFound(err):
 		switch {
 		case podSpec == nil:
-			podSpec, devURL, err = automaticDevDBSpec(targetURL)
+			drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+			podSpec, devURL, err = AutomaticDevDBSpec(drv, drv.SchemaBound(targetURL), os.Getenv)
 			if err != nil {
 				return "", fmt.Errorf("failed to create dev database spec: %w", err)
 			}
 		case devURL == "":
 			return "", fmt.Errorf("devURL is required when devDB is provided")
 		}
-		deploy = deploymentDevDB(key, drv, *podSpec, devURL)
+		deploy = DeploymentDevDB(key, drv, *podSpec, devURL)
 		// Set the owner reference to the given object
 		// This will ensure that the deployment is deleted when the owner is deleted.
 		if err := ctrl.SetControllerReference(sc, deploy, r.scheme); err != nil {
@@ -186,7 +187,8 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
-func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
+// DeploymentDevDB returns the dev database Deployment manifest for the given configuration.
+func DeploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
 	labels := map[string]string{
 		labelEngine:                    drv.String(),
 		labelInstance:                  key.Name,
@@ -195,6 +197,10 @@ func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec co
 		"app.kubernetes.io/created-by": "controller-manager",
 	}
 	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
@@ -217,9 +223,8 @@ func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec co
 	}
 }
 
-// automaticDevDBSpec returns a PodSpec for a development database based on the target URL.
-func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
-	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+// AutomaticDevDBSpec returns a PodSpec and connection URL for the given driver.
+func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool, getenv func(string) string) (*corev1.PodSpec, string, error) {
 	var (
 		user string
 		pass string
@@ -248,7 +253,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		// URLs
 		user, pass, path = "postgres", "pass", "postgres"
 		q.Set("sslmode", "disable")
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			q.Set("search_path", "public")
 		}
 		// Containers
@@ -269,7 +274,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		// URLs
 		user, pass, path = "sa", "P@ssw0rd0995", ""
 		q.Set("database", "master")
-		if !drv.SchemaBound(targetURL) {
+		if !schemaBound {
 			q.Set("mode", "DATABASE")
 		}
 		// Containers
@@ -286,8 +291,8 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		}
 		c.Env = []corev1.EnvVar{
 			{Name: "MSSQL_SA_PASSWORD", Value: pass},
-			{Name: "MSSQL_PID", Value: os.Getenv("MSSQL_PID")},
-			{Name: "ACCEPT_EULA", Value: os.Getenv("MSSQL_ACCEPT_EULA")},
+			{Name: "MSSQL_PID", Value: getenv("MSSQL_PID")},
+			{Name: "ACCEPT_EULA", Value: getenv("MSSQL_ACCEPT_EULA")},
 		}
 		c.SecurityContext.RunAsUser = ptr.To[int64](10001)
 		c.SecurityContext.Capabilities.Add = []corev1.Capability{
@@ -318,7 +323,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		c.Env = []corev1.EnvVar{
 			{Name: "MYSQL_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MYSQL_DATABASE", Value: path,
@@ -344,7 +349,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		c.Env = []corev1.EnvVar{
 			{Name: "MARIADB_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MARIADB_DATABASE", Value: path,
@@ -368,7 +373,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 			{Name: "CLICKHOUSE_USER", Value: user},
 			{Name: "CLICKHOUSE_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "CLICKHOUSE_DB", Value: path,
@@ -381,16 +386,15 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 	default:
 		return nil, "", fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
-	conn := &url.URL{
-		Scheme:   c.Ports[0].Name,
-		User:     url.UserPassword(user, pass),
-		Host:     fmt.Sprintf("localhost:%d", c.Ports[0].ContainerPort),
-		Path:     path,
-		RawQuery: q.Encode(),
-	}
 	return &corev1.PodSpec{
-		Containers: []corev1.Container{c},
-	}, conn.String(), nil
+			Containers: []corev1.Container{c},
+		}, (&url.URL{
+			Scheme:   drv.String(),
+			User:     url.UserPassword(user, pass),
+			Host:     fmt.Sprintf("localhost:%d", c.Ports[0].ContainerPort),
+			Path:     path,
+			RawQuery: q.Encode(),
+		}).String(), nil
 }
 
 func readyPod(pods []corev1.Pod) (*corev1.Pod, error) {

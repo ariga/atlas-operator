@@ -1,11 +1,5 @@
-db mysql:latest DB_URL
+db mysql DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/mysql
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=mysql pods
-
 # Create the schema
 kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/mysql
@@ -26,7 +20,7 @@ stdout 'destructive changes detected:'
 stdout '- ALTER TABLE `users` DROP COLUMN `short_bio`'
 -- schema.hcl --
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null           = false
     type           = int
@@ -52,7 +46,7 @@ table "users" {
     columns = [column.email]
   }
 }
-schema "myapp" {
+schema "dev" {
   charset = "utf8mb4"
   collate = "utf8mb4_0900_ai_ci"
 }
