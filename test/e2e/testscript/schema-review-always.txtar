@@ -1,5 +1,5 @@
-db postgres:15.4 DB_URL
-db postgres:15.4 DEV_URL postgres-dev
+db postgres DB_URL
+db postgres DEV_URL postgres-dev
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Create the secret to store ATLAS_TOKEN
@@ -8,7 +8,7 @@ kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOK
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
 # List all schema plans and remove them, it may come from previous failure runs
-atlas schema plan list --format="{{range .}}{{println .URL}}{{end}}" --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=file:///tmp/${NAMESPACE}/empty.hcl --to=file:///tmp/${NAMESPACE}/schema-v1.hcl
+atlas schema plan list --format='{{range .}}{{println .URL}}{{end}}' --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=file:///tmp/${NAMESPACE}/empty.hcl --to=file:///tmp/${NAMESPACE}/schema-v1.hcl
 plans-rm stdout
 
 # Create the schema
@@ -27,7 +27,7 @@ kubectl-wait-ready AtlasSchema/postgres
 atlas schema inspect -u ${DB_URL}
 cmp stdout schema-v1.hcl
 kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/postgres
-stdout lhl512tzvwQXJ9lroGuRNzGS6fiic8r9ohGMV\+\/Ij0w\=
+stdout rciTGcccIQBXUxF5uA4dee8CP1BDnZKOVdIYyGJyegA=
 
 # Apply again without any change in the schema, it should be a no-op
 kubectl patch -f schema.yaml --type merge --patch-file patch-comment.yaml
@@ -38,7 +38,7 @@ kubectl-wait-ready AtlasSchema/postgres
 atlas schema inspect -u ${DB_URL}
 cmp stdout schema-v1.hcl
 kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/postgres
-stdout lhl512tzvwQXJ9lroGuRNzGS6fiic8r9ohGMV\+\/Ij0w\=
+stdout rciTGcccIQBXUxF5uA4dee8CP1BDnZKOVdIYyGJyegA=
 -- empty.hcl --
 schema "public" {
   comment = "standard public schema"

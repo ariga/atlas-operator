@@ -1,5 +1,5 @@
-db postgres:15.4 DB_URL
-db postgres:15.4 DEV_URL postgres-dev
+db postgres DB_URL
+db postgres DEV_URL postgres-dev
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 
 # Create the secret to store ATLAS_TOKEN
@@ -11,7 +11,7 @@ kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
 atlas schema push atlas-operator --tag=plan-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
 atlas schema push atlas-operator --tag=plan-v2 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v2.hcl
 # List all schema plans and remove them, it may come from previous failure runs
-atlas schema plan list --format="{{range .}}{{println .URL}}{{end}}" --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=atlas://atlas-operator?tag=plan-v1 --to=atlas://atlas-operator?tag=plan-v2
+atlas schema plan list --format='{{range .}}{{println .URL}}{{end}}' --dev-url=${DEV_URL} --repo=atlas://atlas-operator --from=atlas://atlas-operator?tag=plan-v1 --to=atlas://atlas-operator?tag=plan-v2
 plans-rm stdout
 
 # Create the schema

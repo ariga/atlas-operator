@@ -1,11 +1,5 @@
-db mysql:latest DB_URL
+db mysql DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/mysql
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=mysql pods
-
 # Create the configmap to store the schema.sql
 kubectl create configmap mysql-schema --from-file=./schema-v1 --dry-run=client -o yaml
 stdin stdout

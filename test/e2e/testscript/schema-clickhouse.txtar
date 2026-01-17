@@ -1,11 +1,5 @@
-db clickhouse/clickhouse-server:latest DB_URL
+db clickhouse DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/clickhouse
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=clickhouse pods
-
 # Create the secret to store ATLAS_TOKEN
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
@@ -23,7 +17,7 @@ atlas schema inspect -u ${DB_URL}
 cmp stdout schema-v1.hcl
 -- schema-v1.hcl --
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   engine = MergeTree
   settings = {
     index_granularity = 8192
@@ -47,7 +41,7 @@ table "users" {
     columns = [column.id]
   }
 }
-schema "myapp" {
+schema "dev" {
   engine = Atomic
 }
 -- schema-v1/schema.sql --

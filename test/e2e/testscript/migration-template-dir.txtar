@@ -1,5 +1,5 @@
-db postgres:15.4 MIGRATE_DB_URL
-db postgres:15.4 MIGRATE_DB_DEV_URL postgres-dev
+db postgres MIGRATE_DB_URL
+db postgres MIGRATE_DB_DEV_URL postgres-dev
 kubectl create secret generic migrate-db-creds --from-literal=url=${MIGRATE_DB_URL}
 kubectl create configmap migrate-db-dev-creds --from-literal=url=${MIGRATE_DB_DEV_URL}
 # Create the secret to store ATLAS_TOKEN

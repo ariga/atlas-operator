@@ -1,5 +1,5 @@
-db postgres:15.4 SCHEMA_DB_URL
-db postgres:15.4 SCHEMA_DB_DEV_URL postgres-dev
+db postgres SCHEMA_DB_URL
+db postgres SCHEMA_DB_DEV_URL postgres-dev
 kubectl create secret generic schema-db-creds --from-literal=url=${SCHEMA_DB_URL}
 kubectl create configmap schema-db-dev-creds --from-literal=url=${SCHEMA_DB_DEV_URL}
 # Create the secret to store ATLAS_TOKEN

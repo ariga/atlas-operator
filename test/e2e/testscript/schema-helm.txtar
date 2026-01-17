@@ -1,11 +1,5 @@
 env RELEASE=pgschema
-db postgres:15.4 DB_URL
-
-# Wait for the database deployment to start
-kubectl-wait-available deploy/postgres
-# Wait for pods to become ready before installing the chart
-kubectl-wait-ready -l app=postgres pods
-
+db postgres DB_URL
 helm version
 # Ensure we using Helm v4 for testing
 stdout 'version\.BuildInfo{Version:"v4\.'

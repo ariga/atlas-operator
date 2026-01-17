@@ -1,11 +1,5 @@
-db mysql:latest DB_URL
+db mysql DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/mysql
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=mysql pods
-
 # Sync the $WORK directory to the controller pod
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
 env DEV_URL=${DB_URL}
@@ -39,14 +33,14 @@ atlas schema inspect -u ${DB_URL}
 cmp stdout schema-v2.hcl
 -- schema-v1.hcl --
 table "ignore_me" {
-  schema = schema.myapp
+  schema = schema.dev
   column "c" {
     null = true
     type = int
   }
 }
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null           = false
     type           = int
@@ -72,20 +66,20 @@ table "users" {
     columns = [column.email]
   }
 }
-schema "myapp" {
+schema "dev" {
   charset = "utf8mb4"
   collate = "utf8mb4_0900_ai_ci"
 }
 -- schema-v2.hcl --
 table "ignore_me" {
-  schema = schema.myapp
+  schema = schema.dev
   column "c" {
     null = true
     type = int
   }
 }
 table "users" {
-  schema = schema.myapp
+  schema = schema.dev
   column "id" {
     null           = false
     type           = int
@@ -115,7 +109,7 @@ table "users" {
     columns = [column.email]
   }
 }
-schema "myapp" {
+schema "dev" {
   charset = "utf8mb4"
   collate = "utf8mb4_0900_ai_ci"
 }
@@ -137,7 +131,7 @@ create table users (
   primary key (id)
 );
 -- ignore.sql --
-create table myapp.ignore_me (c int);
+create table dev.ignore_me (c int);
 -- schema.yaml --
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
