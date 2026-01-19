@@ -484,7 +484,7 @@ make install
 
 Start [Skaffold](https://skaffold.dev/)
 ```
-skaffold dev
+skaffold dev --profile kustomize
 ```
 
 ### License
