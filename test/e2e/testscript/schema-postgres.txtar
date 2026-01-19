@@ -1,11 +1,5 @@
-db postgres:15.4 DB_URL
+db postgres DB_URL
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
-
-# Wait for the first pod created
-kubectl-wait-available deploy/postgres
-# Wait for the DB ready before creating the schema
-kubectl-wait-ready -l app=postgres pods
-
 # Create the schema
 kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/postgres
