@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "atlas-operator.fullname" . }}
+  name: {{ include "atlas-operator.fullname" . }}-controller-manager
   labels:
     app.kubernetes.io/component: manager
     app.kubernetes.io/created-by: atlas-operator
@@ -9,7 +9,7 @@ metadata:
     control-plane: controller-manager
   {{- include "atlas-operator.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.controllerManager.replicas }}
   {{- with .Values.revisionHistoryLimit }}
   revisionHistoryLimit: {{ . }}
   {{- end }}
@@ -22,22 +22,21 @@ spec:
       labels:
         control-plane: controller-manager
       {{- include "atlas-operator.selectorLabels" . | nindent 8 }}
-      {{- with .Values.podLabels }}
-      {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
-        {{- toYaml . | nindent 8 }}
         kubectl.kubernetes.io/default-container: manager
-      {{- end }}
     spec:
-      {{- with .Values.extraVolumes }}
-      volumes:
-      {{- toYaml . | nindent 6 }}
-      {{- end }}
       containers:
-      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+      - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+        command:
+        - /manager
+        env:
+        - name: PREWARM_DEVDB
+          value: {{ quote .Values.controllerManager.manager.env.prewarmDevdb }}
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
+          | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.controllerManager.manager.imagePullPolicy }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -51,42 +50,16 @@ spec:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        resources:
-          {{- toYaml .Values.resources | nindent 10 }}
-        securityContext:
-          {{- toYaml .Values.containerSecurityContext | nindent 10 }}
-        env:
-        - name: PREWARM_DEVDB
-          value: "{{ .Values.prewarmDevDB }}"
-        - name: ALLOW_CUSTOM_CONFIG
-          value: "{{ .Values.allowCustomConfig }}"
-        {{- with .Values.extraEnvs }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-        {{- with .Values.extraVolumeMounts }}
-        volumeMounts:
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
+          }}
+        securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
+          | nindent 10 }}
+      imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
+      nodeSelector: {{- toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
+      securityContext: {{- toYaml .Values.controllerManager.podSecurityContext | nindent
+        8 }}
       serviceAccountName: {{ include "atlas-operator.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.priorityClassName }}
-      priorityClassName: {{ . | quote }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      tolerations: {{- toYaml .Values.controllerManager.tolerations | nindent 8 }}
+      topologySpreadConstraints: {{- toYaml .Values.controllerManager.topologySpreadConstraints
+        | nindent 8 }}
