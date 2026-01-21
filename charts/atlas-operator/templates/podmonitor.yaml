@@ -1,0 +1,54 @@
+{{- if .Values.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  labels:
+    {{- include "atlas-operator.labels" . | nindent 4 }}
+    {{- with .Values.podMonitor.labels }}
+    {{- tpl (toYaml .) $ | nindent 4 }}
+    {{- end }}
+  name: {{ include "atlas-operator.fullname" . }}
+  namespace: {{ default .Release.Namespace .Values.podMonitor.namespace }}
+spec:
+  podMetricsEndpoints:
+    - port: metrics
+      {{- with .Values.podMonitor.path }}
+      path: {{ . }}
+      {{- end }}
+      {{- with .Values.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.podMonitor.scheme }}
+      scheme: {{ . }}
+      {{- end }}
+      {{- with .Values.podMonitor.bearerTokenSecret }}
+      bearerTokenSecret: {{ . }}
+      {{- end }}
+      {{- with .Values.podMonitor.tlsConfig }}
+      tlsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      honorLabels: {{ .Values.podMonitor.honorLabels }}
+      {{- with .Values.podMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with .Values.podMonitor.podTargetLabels }}
+  podTargetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  jobLabel: {{ default "app.kubernetes.io/name" .Values.podMonitor.jobLabel }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "atlas-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

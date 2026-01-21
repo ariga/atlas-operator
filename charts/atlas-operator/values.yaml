@@ -82,3 +82,36 @@ extraVolumeMounts: []
 #     mountPath: /extra-volume
 #     readOnly: true
 
+# -- PodMonitor defines monitoring for a set of pods.
+# ref. https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#monitoring.coreos.com/v1.PodMonitor
+podMonitor:
+  enabled: false
+  # Namespace in which to deploy the PodMonitor. Defaults to the release namespace.
+  namespace: ""
+  # Additional labels to be defined on a PodMonitor object, e.g. setting a label to match podMonitorSelector if one is used in Prometheus
+  labels: {}
+    # release: kube-prometheus-stack
+  # PodTargetLabels defines the labels which are transferred from the associated Kubernetes Pod object.
+  podTargetLabels: []
+  # The label to use to retrieve the job name from. Defaults to app.kubernetes.io/name.
+  jobLabel: ""
+
+  # HTTP scheme to use for scraping.
+  scheme: "http"
+  # HTTP path from which to scrape for metrics.
+  path: "/metrics"
+  # Secret to mount to read bearer token for scraping targets.
+  bearerTokenSecret: {}
+  # TLS configuration to use when scraping the target.
+  tlsConfig: {}
+  # Interval at which Prometheus scrapes the metrics from the target.
+  interval: ""
+  # Timeout after which Prometheus considers the scrape to be failed.
+  scrapeTimeout: ""
+  # When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+  honorLabels: true
+
+  # relabelings configures the relabeling rules to apply the target’s metadata labels
+  relabelings: []
+  # metricRelabelings configures the relabeling rules to apply to the samples before ingestion.
+  metricRelabelings: []
