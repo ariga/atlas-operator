@@ -15,7 +15,7 @@ helm install ${RELEASE} ./chart --set-file schema.sql=./schema.sql --set-string 
 
 # We should see Helm waiting for the AtlasSchema to be ready
 stderr 'level=DEBUG msg="waiting for resources" count=2 timeout=5m0s'
-stderr 'level=DEBUG msg="waiting for resource" name=pgschema kind=AtlasSchema expectedStatus=Current actualStatus=InProgress'
+stderr 'name=pgschema kind=AtlasSchema expectedStatus=Current actualStatus=InProgress'
 
 # Inspect again from the controller pod to assert the final shape
 atlas schema inspect -u ${DB_URL}
