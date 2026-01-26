@@ -97,6 +97,9 @@ spec:
         - name: cockroachdb-dev-foo
           image: cockroachdb/cockroach:latest
           args: ["start-single-node", "--insecure"]
+          env:
+            - name: COCKROACH_DATABASE
+              value: dev
           ports:
             - containerPort: 26257
               name: cockroachdb
