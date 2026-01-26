@@ -68,7 +68,12 @@ spec:
             failureThreshold: 3
           startupProbe:
             exec:
-              command: ["cockroach", "init", "--insecure"]
+              command:
+                - cockroach
+                - sql
+                - --insecure
+                - -e
+                - SELECT 1
             failureThreshold: 30
             periodSeconds: 10
 
@@ -107,6 +112,11 @@ spec:
             failureThreshold: 3
           startupProbe:
             exec:
-              command: ["cockroach", "init", "--insecure"]
+              command:
+                - cockroach
+                - sql
+                - --insecure
+                - -e
+                - SELECT 1
             failureThreshold: 30
             periodSeconds: 10
