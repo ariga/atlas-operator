@@ -112,14 +112,17 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
 func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL, podSpec *corev1.PodSpec, devURL string) (string, error) {
-	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+	drv, err := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+	if err != nil {
+		return "", err
+	}
 	if drv == dbv1alpha1.DriverSQLite {
 		return "sqlite://db?mode=memory", nil
 	}
 	// make sure we have a dev db running
 	key := nameDevDB(sc)
 	deploy := &appsv1.Deployment{}
-	switch err := r.Get(ctx, key, deploy); {
+	switch err = r.Get(ctx, key, deploy); {
 	// The dev database already exists.
 	case err == nil && (deploy.Spec.Replicas == nil || *deploy.Spec.Replicas == 0):
 		// If it is scaled down, scale it up.
@@ -133,7 +136,11 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	case apierrors.IsNotFound(err):
 		switch {
 		case podSpec == nil:
-			podSpec, devURL, err = automaticDevDBSpec(targetURL)
+			schemaBound, err := drv.SchemaBound(targetURL)
+			if err != nil {
+				return "", fmt.Errorf("failed to determine if target URL is schema bound: %w", err)
+			}
+			podSpec, devURL, err = AutomaticDevDBSpec(drv, schemaBound)
 			if err != nil {
 				return "", fmt.Errorf("failed to create dev database spec: %w", err)
 			}
@@ -217,9 +224,8 @@ func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec co
 	}
 }
 
-// automaticDevDBSpec returns a PodSpec for a development database based on the target URL.
-func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
-	drv := dbv1alpha1.DriverBySchema(targetURL.Scheme)
+// AutomaticDevDBSpec returns a PodSpec for a development database based on the target URL.
+func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpec, string, error) {
 	var (
 		user string
 		pass string
@@ -248,7 +254,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		// URLs
 		user, pass, path = "postgres", "pass", "postgres"
 		q.Set("sslmode", "disable")
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			q.Set("search_path", "public")
 		}
 		// Containers
@@ -269,7 +275,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		// URLs
 		user, pass, path = "sa", "P@ssw0rd0995", ""
 		q.Set("database", "master")
-		if !drv.SchemaBound(targetURL) {
+		if !schemaBound {
 			q.Set("mode", "DATABASE")
 		}
 		// Containers
@@ -318,7 +324,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		c.Env = []corev1.EnvVar{
 			{Name: "MYSQL_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MYSQL_DATABASE", Value: path,
@@ -344,7 +350,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		c.Env = []corev1.EnvVar{
 			{Name: "MARIADB_ROOT_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "MARIADB_DATABASE", Value: path,
@@ -368,7 +374,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 			{Name: "CLICKHOUSE_USER", Value: user},
 			{Name: "CLICKHOUSE_PASSWORD", Value: pass},
 		}
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			path = "dev"
 			c.Env = append(c.Env, corev1.EnvVar{
 				Name: "CLICKHOUSE_DB", Value: path,
@@ -382,7 +388,7 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		// URLs
 		user, pass, path = "root", "", "defaultdb"
 		q.Set("sslmode", "disable")
-		if drv.SchemaBound(targetURL) {
+		if schemaBound {
 			q.Set("search_path", "public")
 		}
 		// Containers
