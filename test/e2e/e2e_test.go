@@ -286,6 +286,7 @@ type (
 		pass         string
 		query        url.Values
 		env          []dbEnvVar
+		args         []string
 		startupCmd   []string
 		readinessCmd []string
 	}
@@ -363,6 +364,21 @@ func newDBConfig(image string) (*dbConfig, error) {
 			startupCmd:   []string{"clickhouse-client", "-q", "SELECT 1"},
 			readinessCmd: []string{"clickhouse-client", "-q", "SELECT 1"},
 		}, nil
+	case strings.Contains(img, "cockroach"):
+		return &dbConfig{
+			name:     "cockroachdb",
+			scheme:   "crdb",
+			port:     26257,
+			database: "defaultdb",
+			user:     "root",
+			pass:     "pass",
+			query: url.Values{
+				"sslmode": {"disable"},
+			},
+			args:         []string{"start-single-node", "--insecure"},
+			startupCmd:   []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
+			readinessCmd: []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
+		}, nil
 	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
 		return &dbConfig{
 			name:   "sqlserver",
@@ -416,6 +432,9 @@ func (cfg *dbConfig) manifest(image string) ([]byte, error) {
 				ContainerPort: int32(cfg.port),
 			},
 		},
+	}
+	if len(cfg.args) > 0 {
+		container.Args = cfg.args
 	}
 	if len(cfg.env) > 0 {
 		envs := make([]corev1.EnvVar, 0, len(cfg.env))
