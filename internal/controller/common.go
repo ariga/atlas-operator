@@ -222,15 +222,13 @@ func searchBlock(parent *hclwrite.Body, target *hclwrite.Block) *hclwrite.Block 
 		return slices.Compare(b.Labels(), target.Labels()) == 0
 	})
 	// If not found, and the target is an env block, try to find the unnamed env block.
+	if idx == -1 && isEnvBlock(target) {
+		idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
+			return len(b.Labels()) == 0
+		})
+	}
 	if idx == -1 {
-		if isEnvBlock(target) {
-			idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
-				return len(b.Labels()) == 0
-			})
-		}
-		if idx == -1 {
-			return nil
-		}
+		return nil
 	}
 	return typBlocks[idx]
 }
