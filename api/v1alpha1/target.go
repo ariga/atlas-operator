@@ -97,18 +97,22 @@ func (s TargetSpec) DatabaseURL(ctx context.Context, r client.Reader, ns string)
 		s.Credentials.Host = val
 	}
 	if s.Credentials.Host != "" {
-		return s.Credentials.URL(), nil
+		return s.Credentials.URL()
 	}
 	return nil, nil
 }
 
 // URL returns the URL for the database.
-func (c *Credentials) URL() *url.URL {
+func (c *Credentials) URL() (*url.URL, error) {
+	drv, err := DriverBySchema(c.Scheme)
+	if err != nil {
+		return nil, err
+	}
 	u := &url.URL{
 		Scheme: c.Scheme,
 		Path:   c.Database,
 	}
-	if DriverBySchema(c.Scheme) == "sqlserver" && c.Database != "" {
+	if drv == DriverSQLServer && c.Database != "" {
 		u.Path = ""
 		if c.Parameters == nil {
 			c.Parameters = map[string]string{}
@@ -130,7 +134,7 @@ func (c *Credentials) URL() *url.URL {
 		host = fmt.Sprintf("%s:%d", host, c.Port)
 	}
 	u.Host = host
-	return u
+	return u, nil
 }
 
 func getSecretValue(
@@ -182,31 +186,31 @@ const (
 // e.g. mysql+unix -> mysql
 // it also handles aliases.
 // e.g. mariadb -> mysql
-func DriverBySchema(schema string) Driver {
+func DriverBySchema(schema string) (Driver, error) {
 	p := strings.SplitN(schema, "+", 2)
 	switch drv := strings.ToLower(p[0]); drv {
 	case "sqlite", "libsql":
-		return DriverSQLite
+		return DriverSQLite, nil
 	case "mysql":
-		return DriverMySQL
+		return DriverMySQL, nil
 	case "mariadb", "maria":
-		return DriverMariaDB
+		return DriverMariaDB, nil
 	case "postgres", "postgresql":
-		return DriverPostgres
+		return DriverPostgres, nil
 	case "sqlserver", "azuresql", "mssql":
-		return DriverSQLServer
+		return DriverSQLServer, nil
 	case "clickhouse":
-		return DriverClickHouse
+		return DriverClickHouse, nil
 	case "redshift":
-		return DriverRedshift
+		return DriverRedshift, nil
 	case "crdb":
-		return DriverCockroachDB
+		return DriverCockroachDB, nil
 	case "dsql":
-		return DriverDSQL
+		return DriverDSQL, nil
 	case "oracle":
-		return DriverOracle
+		return DriverOracle, nil
 	default:
-		panic(fmt.Sprintf("unknown driver %q", drv))
+		return "", fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
 }
 
@@ -216,19 +220,19 @@ func (d Driver) String() string {
 }
 
 // SchemaBound returns true if the driver requires a schema.
-func (d Driver) SchemaBound(u url.URL) bool {
+func (d Driver) SchemaBound(u url.URL) (bool, error) {
 	switch d {
 	case DriverSQLite:
-		return true
+		return true, nil
 	case DriverPostgres, DriverRedshift,
 		DriverCockroachDB, DriverDSQL: // PG-like
-		return u.Query().Get("search_path") != ""
+		return u.Query().Get("search_path") != "", nil
 	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
-		return u.Path != ""
+		return u.Path != "", nil
 	case DriverSQLServer, DriverOracle:
 		m := u.Query().Get("mode")
-		return m == "" || strings.ToLower(m) == "schema"
+		return m == "" || strings.ToLower(m) == "schema", nil
 	default:
-		panic(fmt.Sprintf("unsupported driver %q", d))
+		return false, fmt.Errorf("unsupported driver %q", d)
 	}
 }
