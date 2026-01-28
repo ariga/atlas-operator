@@ -378,6 +378,35 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		c.SecurityContext.Capabilities.Add = []corev1.Capability{
 			"SYS_NICE", "NET_ADMIN", "IPC_LOCK",
 		}
+	case dbv1alpha1.DriverCockroachDB:
+		// URLs
+		user, pass, path = "root", "", "defaultdb"
+		q.Set("sslmode", "disable")
+		if drv.SchemaBound(targetURL) {
+			q.Set("search_path", "public")
+		}
+		// Containers
+		c.Image = "cockroachdb/cockroach:latest"
+		c.Args = []string{
+			"start-single-node",
+			"--insecure",
+			"--certs-dir=/cockroach/cockroach-data",
+			"--store=/cockroach/cockroach-data",
+		}
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 26257},
+		}
+		c.StartupProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"cockroach", "sql", "--insecure",
+				"-e", "SELECT 1",
+			},
+		}
+		c.VolumeMounts = []corev1.VolumeMount{
+			{Name: "data", MountPath: "/cockroach/cockroach-data"},
+		}
+		c.SecurityContext.RunAsUser = ptr.To[int64](1000)
+		// c.SecurityContext.ReadOnlyRootFilesystem = ptr.To(false)
 	default:
 		return nil, "", fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
@@ -388,8 +417,18 @@ func automaticDevDBSpec(targetURL url.URL) (*corev1.PodSpec, string, error) {
 		Path:     path,
 		RawQuery: q.Encode(),
 	}
+	var volumes []corev1.Volume
+	for _, vm := range c.VolumeMounts {
+		volumes = append(volumes, corev1.Volume{
+			Name: vm.Name,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
 	return &corev1.PodSpec{
 		Containers: []corev1.Container{c},
+		Volumes:    volumes,
 	}, conn.String(), nil
 }
 
