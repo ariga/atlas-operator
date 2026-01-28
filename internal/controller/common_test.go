@@ -126,7 +126,7 @@ env {
 }`,
 		},
 		{
-			name: "merge named block to unnamed block",
+			name: "merge named env block to unnamed env block",
 			args: args{
 				dst: `
 env {
@@ -165,6 +165,83 @@ env {
 env "example" {
   key  = "value"
   key2 = "value2"
+}`,
+		},
+		{
+			name: "two diff blocks - unlabeled and labeled clickhouse",
+			args: args{
+				dst: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+				src: ``,
+			},
+			expected: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+		},
+		{
+			name: "merge user config diff clickhouse into operator diff",
+			args: args{
+				atlasEnv: "kubernetes",
+				dst: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_column = true
+    }
+  }
+}`,
+				src: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+			},
+			expected: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_column = true
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
 }`,
 		},
 	}

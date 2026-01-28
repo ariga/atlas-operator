@@ -221,16 +221,23 @@ func searchBlock(parent *hclwrite.Body, target *hclwrite.Block) *hclwrite.Block 
 	idx := slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
 		return slices.Compare(b.Labels(), target.Labels()) == 0
 	})
+	// If not found, and the target is an env block, try to find the unnamed env block.
 	if idx == -1 {
-		// No block matched, check if there is an unnamed env block.
-		idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
-			return len(b.Labels()) == 0
-		})
+		if isEnvBlock(target) {
+			idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
+				return len(b.Labels()) == 0
+			})
+		}
 		if idx == -1 {
 			return nil
 		}
 	}
 	return typBlocks[idx]
+}
+
+// isEnvBlock returns true if the block is an "env" block.
+func isEnvBlock(blk *hclwrite.Block) bool {
+	return blk.Type() == "env"
 }
 
 // mergeBlock merges the source block into the destination block.
