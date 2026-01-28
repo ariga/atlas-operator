@@ -225,7 +225,9 @@ func TestCredentials_URL(t *testing.T) {
 		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {
-			require.Equal(t, tt.exp, tt.c.URL().String())
+			u, err := tt.c.URL()
+			require.NoError(t, err)
+			require.Equal(t, tt.exp, u.String())
 		})
 	}
 }
