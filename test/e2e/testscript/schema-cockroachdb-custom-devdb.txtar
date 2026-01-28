@@ -11,12 +11,15 @@ kubectl create configmap crdb-schema --from-file=./schema-v1 --dry-run=client -o
 stdin stdout
 kubectl apply -f -
 
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
 # Create the schema
 kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/cockroachdb
 
 kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/cockroachdb
-stdout oAoRLC2AXyGha6pKDollSqBB5ovjB\+qK78aAN9dkOow\=
+stdout '7BtKxuV5P3\+QOy5gmPS2UDHjgCWzF0di\+PqzcrUB0\/8='
 
 # Make sure the dev database with the custom container is created
 kubectl get deployment cockroachdb-atlas-dev-db -o jsonpath='{.spec.template.spec.containers[0].name}'
@@ -39,11 +42,16 @@ spec:
     secretKeyRef:
       name: db-creds
       key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
   schema:
     configMapKeyRef:
       key: schema.sql
       name: crdb-schema
-  devURL: postgres://root:pass@localhost:26257/dev?sslmode=disable
+  devURL: crdb://root:pass@localhost:26257/dev?sslmode=disable
   devDB:
     spec:
       containers:

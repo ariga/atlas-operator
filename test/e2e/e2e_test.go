@@ -367,7 +367,7 @@ func newDBConfig(image string) (*dbConfig, error) {
 	case strings.Contains(img, "cockroach"):
 		return &dbConfig{
 			name:     "cockroachdb",
-			scheme:   "postgres",
+			scheme:   "crdb",
 			port:     26257,
 			database: "defaultdb",
 			user:     "root",

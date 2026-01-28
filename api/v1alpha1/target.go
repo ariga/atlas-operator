@@ -165,13 +165,16 @@ func getConfigMapValue(
 type Driver string
 
 const (
-	DriverPostgres   Driver = "postgres"
-	DriverMySQL      Driver = "mysql"
-	DriverMariaDB    Driver = "mariadb"
-	DriverSQLite     Driver = "sqlite"
-	DriverSQLServer  Driver = "sqlserver"
-	DriverClickHouse Driver = "clickhouse"
-	DriverRedshift   Driver = "redshift"
+	DriverClickHouse  Driver = "clickhouse"
+	DriverCockroachDB Driver = "crdb"
+	DriverDSQL        Driver = "dsql"
+	DriverMariaDB     Driver = "mariadb"
+	DriverMySQL       Driver = "mysql"
+	DriverOracle      Driver = "oracle"
+	DriverPostgres    Driver = "postgres"
+	DriverRedshift    Driver = "redshift"
+	DriverSQLite      Driver = "sqlite"
+	DriverSQLServer   Driver = "sqlserver"
 )
 
 // DriverBySchema returns the driver from the given schema.
@@ -196,6 +199,12 @@ func DriverBySchema(schema string) Driver {
 		return DriverClickHouse
 	case "redshift":
 		return DriverRedshift
+	case "crdb":
+		return DriverCockroachDB
+	case "dsql":
+		return DriverDSQL
+	case "oracle":
+		return DriverOracle
 	default:
 		panic(fmt.Sprintf("unknown driver %q", drv))
 	}
@@ -209,13 +218,14 @@ func (d Driver) String() string {
 // SchemaBound returns true if the driver requires a schema.
 func (d Driver) SchemaBound(u url.URL) bool {
 	switch d {
-	case DriverPostgres, DriverRedshift: // PG-like
+	case DriverSQLite:
+		return true
+	case DriverPostgres, DriverRedshift,
+		DriverCockroachDB, DriverDSQL: // PG-like
 		return u.Query().Get("search_path") != ""
 	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
 		return u.Path != ""
-	case DriverSQLite:
-		return true
-	case DriverSQLServer:
+	case DriverSQLServer, DriverOracle:
 		m := u.Query().Get("mode")
 		return m == "" || strings.ToLower(m) == "schema"
 	default:
