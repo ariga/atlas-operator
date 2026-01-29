@@ -60,7 +60,7 @@ jobs:
         with:
           context: .
           build-args: |
-            ATLAS_VERSION=${{ steps.atlas.outputs.version }}
+            ATLAS_VERSION=extended-latest
             OPERATOR_VERSION=${{ github.ref_name }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
