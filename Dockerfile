@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.23 as atlas
 RUN apk add --no-cache curl
-ARG ATLAS_VERSION=latest
+ARG ATLAS_VERSION=extended-latest
 ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh
 
