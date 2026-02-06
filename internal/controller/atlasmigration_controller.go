@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -268,7 +269,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return r.resultErr(res, err, "ReadingMigrationData")
 	}
 	defer wd.Close()
-	c, err := r.atlasClient(wd.Path(), nil)
+	c, err := r.atlasClient(wd.Path(), nil, filepath.Join(res.Namespace, res.Name))
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}

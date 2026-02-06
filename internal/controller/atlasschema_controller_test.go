@@ -405,7 +405,7 @@ func TestSchemaConfigMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that the schema was applied.
-	cli, err := tt.r.atlasClient("", nil)
+	cli, err := tt.r.atlasClient("", nil, "")
 	require.NoError(t, err)
 	inspect, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -489,7 +489,7 @@ func Test_FirstRunDestructive(t *testing.T) {
 	require.Contains(t, ev, "FirstRunDestructive")
 	require.Contains(t, ev, "Warning")
 
-	cli, err := tt.r.atlasClient("", nil)
+	cli, err := tt.r.atlasClient("", nil, "")
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -538,7 +538,7 @@ func TestDiffPolicy(t *testing.T) {
 	tt.initDB("create table x (c int);")
 	_, err := tt.r.Reconcile(context.Background(), req())
 	require.NoError(t, err)
-	cli, err := tt.r.atlasClient("", nil)
+	cli, err := tt.r.atlasClient("", nil, "")
 	require.NoError(t, err)
 	ins, err := cli.SchemaInspect(context.Background(), &atlasexec.SchemaInspectParams{
 		URL:    tt.dburl,
@@ -717,7 +717,7 @@ type test struct {
 func cliTest(t *testing.T) *test {
 	tt := newTest(t)
 	var err error
-	tt.r.atlasClient = func(dir string, c *Cloud) (AtlasExec, error) {
+	tt.r.atlasClient = func(dir string, c *Cloud, _ string) (AtlasExec, error) {
 		cli, err := atlasexec.NewClient(dir, "atlas")
 		if err != nil {
 			return nil, err
