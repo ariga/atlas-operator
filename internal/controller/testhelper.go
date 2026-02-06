@@ -135,9 +135,9 @@ func newRunner[T interface {
 		recorder: r,
 		scheme:   scheme,
 	}, true)
-	a.SetAtlasClient(func(s string) (AtlasExec, error) {
+	a.SetAtlasClient(func(s string, c *Cloud, home string) (AtlasExec, error) {
 		if mock == nil {
-			return NewAtlasExec(s)
+			return NewAtlasExec(s, c, home)
 		}
 		return mock, nil
 	})
