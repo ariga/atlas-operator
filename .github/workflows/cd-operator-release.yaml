@@ -19,6 +19,9 @@ on:
       - master
     paths:
       - 'charts/atlas-operator/Chart.yaml'
+concurrency:
+  group: operator-release
+  cancel-in-progress: false
 jobs:
   detect-version:
     name: Detect Version Change
