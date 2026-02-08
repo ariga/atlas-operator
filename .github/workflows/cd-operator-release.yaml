@@ -13,19 +13,50 @@
 # limitations under the License.
 
 name: CD - Operator Release
-run-name: Release Operator ${{ github.ref_name }}
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
+    paths:
+      - 'charts/atlas-operator/Chart.yaml'
 jobs:
+  detect-version:
+    name: Detect Version Change
+    runs-on: ubuntu-slim
+    outputs:
+      semver: ${{ steps.check.outputs.semver }}
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check if tag already exists
+        id: check
+        run: |
+          VERSION=$(grep '^appVersion:' charts/atlas-operator/Chart.yaml | awk '{print $2}')
+          echo "semver=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected version: v${VERSION}"
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $VERSION does not exist, proceeding with release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
   helm-test:
+    needs: [detect-version]
+    if: needs.detect-version.outputs.should_release == 'true'
     uses: ./.github/workflows/ci-test-helm.yaml
   docker-build:
-    name: Build
+    name: Build and Push Image
+    needs: [detect-version]
+    if: needs.detect-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Set up QEMU
@@ -47,7 +78,7 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
           tags: |
-            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=sha,prefix=sha-
           labels: |
             io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
             org.opencontainers.image.title=atlas-operator
@@ -61,7 +92,7 @@ jobs:
           context: .
           build-args: |
             ATLAS_VERSION=extended-latest
-            OPERATOR_VERSION=${{ github.ref_name }}
+            OPERATOR_VERSION=${{ needs.detect-version.outputs.version }}
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
@@ -79,29 +110,53 @@ jobs:
         uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: 'trivy-results.sarif'
-  helm-push:
-    name: Push to ghcr.io
-    needs: [docker-build, helm-test]
+  release:
+    name: Create Release
+    needs: [detect-version, docker-build, helm-test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: charts/
+    env:
+      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
+      VERSION: ${{ needs.detect-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
       - name: Setup Helm
         uses: azure/setup-helm@v4
-      - name: Validate semver syntax
-        run: echo "${{ github.ref_name }}" | grep -e "^v[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}.[[:digit:]]\{1,3\}$"
-      - name: Get Semantic Version
-        id: semver
-        run: |
-          VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
-          echo "::set-output name=version::$VERSION"
-      - name: Helm package
-        run: helm package atlas-operator
-      - name: login to gcr using helm
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to ghcr.io using helm
         run: |
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io --username ${{ github.repository_owner }} --password-stdin
-      - name: helm push
+      - name: Tag and push Docker image
         run: |
-          helm push atlas-operator-${{ steps.semver.outputs.version }}.tgz oci://ghcr.io/ariga/charts
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${{ needs.detect-version.outputs.semver }}" \
+            "${IMAGE}:sha-${GITHUB_SHA::7}"
+      - name: Package & push Helm chart
+        run: |
+          helm package atlas-operator
+          helm push atlas-operator-${{ needs.detect-version.outputs.semver }}.tgz oci://ghcr.io/ariga/charts
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "Created and pushed tag: $VERSION"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --verify-tag \
+            --generate-notes
