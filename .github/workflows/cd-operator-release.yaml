@@ -120,6 +120,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     defaults:
       run:
         working-directory: charts/
