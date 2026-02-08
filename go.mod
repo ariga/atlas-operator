@@ -4,10 +4,10 @@ go 1.25.5
 
 require (
 	ariga.io/atlas v1.1.1-0.20260207035821-6d81150f68d8
-	github.com/hashicorp/hcl/v2 v2.18.1
+	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/rogpeppe/go-internal v1.13.1
 	github.com/stretchr/testify v1.11.1
-	github.com/zclconf/go-cty v1.14.4
+	github.com/zclconf/go-cty v1.16.3
 	golang.org/x/mod v0.26.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
@@ -53,7 +53,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zclconf/go-cty-yaml v1.1.0 // indirect
