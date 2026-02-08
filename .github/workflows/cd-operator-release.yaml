@@ -38,7 +38,7 @@ jobs:
       - name: Check if tag already exists
         id: check
         run: |
-          VERSION=$(grep '^appVersion:' charts/atlas-operator/Chart.yaml | awk '{print $2}')
+          VERSION=$(yq '.appVersion' charts/atlas-operator/Chart.yaml)
           TAG="v${VERSION}"
           echo "semver=${VERSION}" >> $GITHUB_OUTPUT
           echo "version=${TAG}" >> $GITHUB_OUTPUT
