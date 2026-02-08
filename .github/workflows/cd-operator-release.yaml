@@ -19,6 +19,7 @@ on:
       - master
     paths:
       - 'charts/atlas-operator/Chart.yaml'
+  workflow_dispatch:
 concurrency:
   group: operator-release
   cancel-in-progress: false
