@@ -278,14 +278,14 @@ func Test_backoffDelayAt(t *testing.T) {
 			args: args{
 				retry: 1,
 			},
-			want: 5 * time.Second,
+			want: retryDuration,
 		},
 		{
 			name: "2",
 			args: args{
 				retry: 2,
 			},
-			want: 10 * time.Second,
+			want: 2 * retryDuration,
 		},
 		{
 			name: "20",

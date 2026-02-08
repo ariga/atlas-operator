@@ -133,23 +133,6 @@ func memDir(m map[string]string) (migrate.Dir, error) {
 	return f, nil
 }
 
-// isChecksumErr returns true if the error is a checksum error.
-func isChecksumErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "checksum mismatch")
-}
-
-// isConnectionErr returns true if the error is a connection error.
-func isConnectionErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "connection timed out") ||
-		strings.Contains(err.Error(), "connection refused")
-}
-
 // transientError is an error that should be retried.
 type transientError struct {
 	err error
@@ -301,8 +284,10 @@ func mapsSorted[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 	}
 }
 
+const retryDuration = 5 * time.Second
+
 // backoffDelayAt returns the backoff delay at the given retry count.
 // Backoff is exponential with base 5.
 func backoffDelayAt(retry int) time.Duration {
-	return time.Duration(retry) * 5 * time.Second
+	return time.Duration(retry) * retryDuration
 }

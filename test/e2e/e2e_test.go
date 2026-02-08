@@ -88,7 +88,7 @@ func TestOperator(t *testing.T) {
 			break
 		}
 		// Wait 5s before retrying
-		<-time.After(time.Second * 5)
+		<-time.After(5 * time.Second)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	t.Cleanup(func() {

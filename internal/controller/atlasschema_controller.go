@@ -321,7 +321,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
-			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+			return ctrl.Result{RequeueAfter: retryDuration}, nil
 		// Deploy the changes using the approved plan.
 		case len(plans) == 1 && plans[0].Status == "APPROVED":
 			log.Info("found an approved schema plan, applying", "plan", plans[0].URL)
@@ -554,9 +554,7 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err 
 func (r *AtlasSchemaReconciler) resultErr(
 	res *dbv1alpha1.AtlasSchema, err error, reason string,
 ) (ctrl.Result, error) {
-	if isConnectionErr(err) {
-		err = transient(err)
-	}
+	err = transient(err)
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
 	if res.IsExceedBackoffLimit() {
@@ -586,7 +584,7 @@ func (r *AtlasSchemaReconciler) resultPending(
 	res.SetNotReady(reason, message)
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
 	return ctrl.Result{
-		RequeueAfter: time.Second * 5,
+		RequeueAfter: retryDuration,
 	}, nil
 }
 

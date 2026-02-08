@@ -26,7 +26,6 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -290,10 +289,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	// Check if there are any pending migration files
 	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: data.EnvName, Vars: data.Vars})
 	if err != nil {
-		if isChecksumErr(err) {
-			return r.resultErr(res, err, "Migrating")
-		}
-		return r.resultCLIErr(res, transient(err), "Migrating")
+		return r.resultErr(res, err, "Migrating")
 	}
 	switch {
 	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
@@ -336,7 +332,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		}
 		run, err := c.MigrateDown(ctx, params)
 		if err != nil {
-			return r.resultCLIErr(res, err, "Migrating")
+			return r.resultErr(res, err, "Migrating")
 		}
 		switch run.Status {
 		case StatePending:
@@ -384,7 +380,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 			Vars: data.Vars,
 		})
 		if err != nil {
-			return r.resultCLIErr(res, err, "Migrating")
+			return r.resultErr(res, err, "Migrating")
 		}
 		if len(reports) != 1 {
 			return r.resultErr(res, fmt.Errorf("unexpected number of reports: %d", len(reports)), "Migrating")
@@ -562,24 +558,7 @@ func (r *AtlasMigrationReconciler) resultErr(
 	if e, ok := err.(interface{ Reason() string }); ok {
 		reason = e.Reason()
 	}
-	if isConnectionErr(err) {
-		err = transient(err)
-	}
-	res.SetNotReady(reason, err.Error())
-	r.recordErrEvent(res, err)
-	if res.IsExceedBackoffLimit() {
-		r.recorder.Event(res, corev1.EventTypeWarning, "BackoffLimitExceeded", "backoff limit exceeded")
-		return result(err, 0)
-	}
-	return result(err, backoffDelayAt(res.Status.Failed))
-}
-
-func (r *AtlasMigrationReconciler) resultCLIErr(
-	res *dbv1alpha1.AtlasMigration, err error, reason string,
-) (ctrl.Result, error) {
-	if e, ok := err.(interface{ Reason() string }); ok {
-		reason = e.Reason()
-	}
+	err = transient(err)
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
 	if res.IsExceedBackoffLimit() {
@@ -594,7 +573,7 @@ func (r *AtlasMigrationReconciler) resultPending(
 	res.SetNotReady(reason, message)
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
 	return ctrl.Result{
-		RequeueAfter: time.Second * 5,
+		RequeueAfter: retryDuration,
 	}, nil
 }
 
