@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"ariga.io/atlas/atlasexec"
@@ -33,8 +34,8 @@ const lintDirName = "lint-migrations"
 // - 1.sql: the current schema.
 // - 2.sql: the pending changes.
 // Then it runs `atlas migrate lint` in the temporary directory.
-func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData, vars atlasexec.VarArgs) error {
-	cli, err := r.atlasClient(wd.Path(), data.Cloud)
+func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingDir, data *managedData, vars atlasexec.VarArgs, namespace, name string) error {
+	cli, err := r.atlasClient(wd.Path(), data.Cloud, filepath.Join(namespace, name))
 	if err != nil {
 		return err
 	}

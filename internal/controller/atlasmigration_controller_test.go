@@ -793,7 +793,7 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, wd.Close())
 	})
-	cli, err := tt.r.atlasClient(wd.Path(), md.Cloud)
+	cli, err := tt.r.atlasClient(wd.Path(), md.Cloud, "")
 	require.NoError(t, err)
 	report, err := cli.MigrateStatus(context.Background(), &atlasexec.MigrateStatusParams{
 		Env: "test",

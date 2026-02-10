@@ -13,6 +13,26 @@
 # limitations under the License.
 
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: controller-manager
+  namespace: system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: persistentvolumeclaim
+    app.kubernetes.io/instance: controller-manager
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
 kind: Namespace
 metadata:
   labels:
@@ -79,6 +99,10 @@ spec:
         # versions < 1.19 or on vendors versions which do NOT support this field by default (i.e. Openshift < 4.11 ).
         # seccompProfile:
         #   type: RuntimeDefault
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: controller-manager
       containers:
       - command:
         - /manager
@@ -86,7 +110,9 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
-        env: []
+        env:
+        - name: DATA_DIR
+          value: "/data"
         securityContext:
           runAsUser: 1000
           allowPrivilegeEscalation: false
@@ -114,5 +140,8 @@ spec:
           requests:
             cpu: 250m
             memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
