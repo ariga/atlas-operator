@@ -170,7 +170,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
 		return err
 	}
-	cli, err := r.atlasClient(wd.Path(), nil)
+	cli, err := r.atlasClient(wd.Path())
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
