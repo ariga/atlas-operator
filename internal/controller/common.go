@@ -83,7 +83,7 @@ type (
 	}
 )
 
-// NewAtlasExec returns a new AtlasExec with the given directory and cloud configuration.
+// NewAtlasExec returns a new AtlasExec with the given working-directory.
 // The atlas binary is expected to be in the $PATH.
 func NewAtlasExec(dir string) (AtlasExec, error) {
 	return atlasexec.NewClient(dir, "atlas")
