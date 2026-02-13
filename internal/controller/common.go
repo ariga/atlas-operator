@@ -74,7 +74,7 @@ type (
 	}
 	// AtlasExecFn is a function that returns an AtlasExec
 	// with the working directory.
-	AtlasExecFn func(string, *Cloud) (AtlasExec, error)
+	AtlasExecFn func(string) (AtlasExec, error)
 	// Cloud holds the cloud configuration.
 	Cloud struct {
 		Token string
@@ -83,21 +83,10 @@ type (
 	}
 )
 
-// NewAtlasExec returns a new AtlasExec with the given directory and cloud configuration.
+// NewAtlasExec returns a new AtlasExec with the given working-directory.
 // The atlas binary is expected to be in the $PATH.
-func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
-	cli, err := atlasexec.NewClient(dir, "atlas")
-	if err != nil {
-		return nil, err
-	}
-	if c != nil && c.Token != "" {
-		env := atlasexec.NewOSEnviron()
-		env["ATLAS_TOKEN"] = c.Token
-		if err = cli.SetEnv(env); err != nil {
-			return nil, err
-		}
-	}
-	return cli, nil
+func NewAtlasExec(dir string) (AtlasExec, error) {
+	return atlasexec.NewClient(dir, "atlas")
 }
 
 func getConfigMap(ctx context.Context, r client.Reader, ns string, ref *corev1.LocalObjectReference) (*corev1.ConfigMap, error) {
