@@ -82,3 +82,24 @@ extraVolumeMounts: []
 #     mountPath: /extra-volume
 #     readOnly: true
 
+atlas-agent:
+    # Set this to true to install the Atlas Agent alongside the operator.
+    enabled: false
+    # Provide additional values for the agent chart.
+    # # The secret containing the Atlas Cloud API key for the agent to use.
+    # apiKeySecret:
+    #   name:
+    #   key:
+
+    # # Set this to "false" to prevent the agent from automatically updating the Atlas binary.
+    # autoUpdate: true
+
+    # # Set this to debug or error to change the log level of the agent.
+    # logLevel: info
+
+    # extraEnvs: []
+
+    # # Metrics configuration
+    # metrics:
+    #   enabled: true
+    #   port: 8081

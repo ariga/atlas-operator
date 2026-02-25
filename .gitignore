@@ -28,3 +28,4 @@ Dockerfile.cross
 .env.secret
 .env*
 test/e2e/logs/*
+*.tgz
