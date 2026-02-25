@@ -8,3 +8,4 @@ dependencies:
   - name: atlas-agent
     version: 0.38.1
     repository: oci://ghcr.io/ariga/charts
+    condition: atlas-agent.enabled
