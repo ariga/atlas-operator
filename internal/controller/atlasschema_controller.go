@@ -311,16 +311,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return r.resultCLIErr(res, fmt.Errorf("multiple schema plans found: %s", strings.Join(planURLs, ", ")), "ListingPlans")
 		// There are no pending plans, but Atlas has been asked to review the changes ALWAYS.
 		case len(plans) == 0 && data.Policy.Lint.Review == dbv1alpha1.LintReviewAlways:
-			fromHash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
-				Env:    data.EnvName,
-				URL:    "env://url",
-				Format: "{{ .Hash }}",
-				Vars:   data.Vars,
-			})
-			if err != nil {
-				return r.resultErr(res, err, "CalculatingHash")
-			}
-			log.Info("no plans was found", "fromHash", fromHash, "toHash", hash)
+			log.Info("no plans was found", "toHash", hash)
 			// Create a plan for the pending changes.
 			return createPlan()
 		// The plan is pending approval, show the plan to the user.
