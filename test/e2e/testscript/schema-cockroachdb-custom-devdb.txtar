@@ -19,7 +19,7 @@ kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/cockroachdb
 
 kubectl get -o jsonpath --template='{.status.observed_hash}' AtlasSchema/cockroachdb
-stdout '7BtKxuV5P3\+QOy5gmPS2UDHjgCWzF0di\+PqzcrUB0\/8='
+stdout 'wa4lDTCrIsbIcV5zmh\/yjjBZjoIXi8aF9BcrMJxMUco='
 
 # Make sure the dev database with the custom container is created
 kubectl get deployment cockroachdb-atlas-dev-db -o jsonpath='{.spec.template.spec.containers[0].name}'
