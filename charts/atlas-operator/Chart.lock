@@ -1,0 +1,6 @@
+dependencies:
+- name: atlas-agent
+  repository: oci://ghcr.io/ariga/charts
+  version: 0.38.1
+digest: sha256:5849d63dca52c7667a52222296a930f9bab4abd9983fc219ee8f02837467d34f
+generated: "2026-02-25T17:22:40.577877+02:00"
