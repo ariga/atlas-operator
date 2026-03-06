@@ -465,7 +465,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 
 ### Support
 
-Need help? File issues on the [Atlas Issue Tracker](https://github.com/ariga/atlas/issues) or join
+Need help? File issues on the [Atlas Issue Tracker](https://github.com/ariga/atlas/issues/new?labels=operator) or join
 our [Discord](https://discord.gg/zZ6sWVg6NT) server.
 
 ### Development
