@@ -52,6 +52,9 @@ table "users" {
     unique  = true
     columns = [column.email]
   }
+  storage_params {
+    schema_locked = true
+  }
 }
 schema "public" {
 }
