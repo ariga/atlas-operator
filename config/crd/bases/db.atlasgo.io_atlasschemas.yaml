@@ -8688,6 +8688,11 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              prewarmDevDB:
+                description: |-
+                  PrewarmDevDB controls whether the automatically managed dev DB should be kept warm after reconciliation.
+                  If not specified, the operator-wide default is used.
+                type: boolean
               envName:
                 description: |-
                   EnvName defines the environment name that defined in the project configuration.
