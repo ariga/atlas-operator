@@ -69,6 +69,8 @@ type (
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
 		// WhoAmI runs the `whoami` command.
 		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
+		// Login runs the `login` command (e.g. with --grant-only for offline tokens).
+		Login(context.Context, *atlasexec.LoginParams) error
 		// SetStdout specifies a writer to stream stdout to for every command.
 		SetStdout(io.Writer)
 		// SetStderr specifies a writer to stream stderr to for every command.

@@ -113,6 +113,7 @@ func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusP
 	return m.status.res, m.status.err
 }
 
+func (m *mockAtlasExec) Login(context.Context, *atlasexec.LoginParams) error { return nil }
 func (m *mockAtlasExec) SetStdout(io.Writer) {}
 func (m *mockAtlasExec) SetStderr(io.Writer) {}
 

@@ -170,9 +170,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
 		return err
 	}
-	cli, err := r.atlasClient(wd.Path(), nil, filepath.Join(res.Namespace, res.Name))
+	cli, err := r.atlasClient(wd.Path(), data.Cloud, filepath.Join(res.Namespace, res.Name))
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+	}
+	if data.Cloud != nil && data.Cloud.Token != "" {
+		if err := cli.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
+			return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+		}
 	}
 	// Calculate the hash of the current schema.
 	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{

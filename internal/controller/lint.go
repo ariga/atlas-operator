@@ -39,6 +39,11 @@ func (r *AtlasSchemaReconciler) lint(ctx context.Context, wd *atlasexec.WorkingD
 	if err != nil {
 		return err
 	}
+	if data.Cloud != nil && data.Cloud.Token != "" {
+		if err := cli.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
+			return err
+		}
+	}
 	plans, err := cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
 		Env:    data.EnvName,
 		Vars:   vars,

@@ -3,7 +3,7 @@ module github.com/ariga/atlas-operator
 go 1.25.5
 
 require (
-	ariga.io/atlas v1.1.1-0.20260308105132-c57f9007e040
+	ariga.io/atlas v1.1.1-0.20260316181358-9138a9fe419e
 	github.com/hashicorp/hcl/v2 v2.18.1
 	github.com/rogpeppe/go-internal v1.13.1
 	github.com/stretchr/testify v1.11.1
