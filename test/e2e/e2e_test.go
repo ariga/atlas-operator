@@ -272,6 +272,19 @@ func TestOperator(t *testing.T) {
 					))
 				}
 			},
+			// controller-exec runs a command inside the controller pod (e.g. to inspect DATA_DIR).
+			"controller-exec": func(ts *testscript.TestScript, neg bool, args []string) {
+				if len(args) < 1 {
+					ts.Fatalf("usage: controller-exec <command> [args...]")
+				}
+				execArgs := append([]string{"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--"}, args...)
+				err := ts.Exec("kubectl", execArgs...)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
+				}
+			},
 		},
 	})
 }

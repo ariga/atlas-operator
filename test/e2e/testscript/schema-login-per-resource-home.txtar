@@ -1,0 +1,67 @@
+# Test that each resource gets its own HOME under DATA_DIR (namespace/name).
+# Two AtlasSchemas in the same namespace must have separate .atlas directories.
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas schema push atlas-operator --tag=registry-a --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-a.hcl
+atlas schema push atlas-operator --tag=registry-b --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-b.hcl
+
+kubectl apply -f schema-a.yaml
+kubectl apply -f schema-b.yaml
+kubectl-wait-ready AtlasSchema/postgres-a
+kubectl-wait-ready AtlasSchema/postgres-b
+
+# Each resource must have its own directory and .atlas under DATA_DIR.
+controller-exec test -d /data/${NAMESPACE}/postgres-a/.atlas
+controller-exec test -d /data/${NAMESPACE}/postgres-b/.atlas
+-- schema-a.hcl --
+table "users_a" {
+  schema = schema.public
+  column "id" { null = false; type = integer }
+  primary_key { columns = [column.id] }
+}
+schema "public" {}
+-- schema-b.hcl --
+table "users_b" {
+  schema = schema.public
+  column "id" { null = false; type = integer }
+  primary_key { columns = [column.id] }
+}
+schema "public" {}
+-- schema-a.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres-a
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-a
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+-- schema-b.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres-b
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-b
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
