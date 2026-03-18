@@ -13,6 +13,19 @@
 # limitations under the License.
 
 apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: namespace
+    app.kubernetes.io/instance: system
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: atlas-operator
+    app.kubernetes.io/part-of: atlas-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: system
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: controller-manager
@@ -31,19 +44,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    control-plane: controller-manager
-    app.kubernetes.io/name: namespace
-    app.kubernetes.io/instance: system
-    app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: atlas-operator
-    app.kubernetes.io/part-of: atlas-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: system
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -92,6 +92,8 @@ spec:
       #               - linux
       securityContext:
         runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         # TODO(user): For common cases that do not require escalating privileges
         # it is recommended to ensure that all your Pods/Containers are restrictive.
         # More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted

@@ -275,7 +275,7 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 	}
 	if data.Cloud != nil && data.Cloud.Token != "" {
 		if err := c.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
-			return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
 		}
 	}
 	var whoami *atlasexec.WhoAmI

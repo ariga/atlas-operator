@@ -29,6 +29,8 @@ const (
 	ReasonCreatingAtlasClient = "CreatingAtlasClient"
 	// ReasonCreatingWorkingDir represents the reason for creating a working directory.
 	ReasonCreatingWorkingDir = "CreatingWorkingDir"
+	// ReasonLogin represents the reason for logging in to Atlas.
+	ReasonLogin = "Login"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.

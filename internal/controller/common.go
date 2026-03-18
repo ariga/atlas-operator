@@ -76,8 +76,8 @@ type (
 		// SetStderr specifies a writer to stream stderr to for every command.
 		SetStderr(io.Writer)
 	}
-	// AtlasExecFn is a function that returns an AtlasExec
-	// with the working directory and HOME directory.
+	// AtlasExecFn is a function that returns an AtlasExec configured
+	// with the given working directory, cloud configuration, and HOME directory.
 	AtlasExecFn func(dir string, c *Cloud, home string) (AtlasExec, error)
 	// Cloud holds the cloud configuration.
 	Cloud struct {
@@ -109,6 +109,10 @@ func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
 			return nil, fmt.Errorf("creating resource home directory: %w", err)
 		}
 		env["HOME"] = homeDir
+	} else if env["HOME"] == "" {
+		// Ensure HOME is set to a safe default when not provided by the environment
+		// and no DATA_DIR-based home directory is configured.
+		env["HOME"] = "/tmp"
 	}
 	if c != nil && c.Token != "" {
 		env["ATLAS_TOKEN"] = c.Token

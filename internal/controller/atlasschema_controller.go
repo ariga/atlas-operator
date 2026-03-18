@@ -176,7 +176,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if data.Cloud != nil && data.Cloud.Token != "" {
 		if err := cli.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
-			return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
 		}
 	}
 	// Calculate the hash of the current schema.
