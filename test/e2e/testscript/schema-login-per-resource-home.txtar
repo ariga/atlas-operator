@@ -1,43 +1,32 @@
 # Test that each resource gets its own HOME under DATA_DIR (namespace/name).
-# Two AtlasSchemas in the same namespace must have separate .atlas directories.
+# This applies two resources against the same DB using the same desired state and
+# verifies each gets its own .atlas directory.
 db postgres:15.4 DB_URL
 db postgres:15.4 DEV_URL postgres-dev
 kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-atlas schema push atlas-operator --tag=registry-a --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-a.hcl
-atlas schema push atlas-operator --tag=registry-b --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-b.hcl
+atlas schema push atlas-operator --tag=registry-shared --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema.hcl
 
 kubectl apply -f schema-a.yaml
-kubectl apply -f schema-b.yaml
 kubectl-wait-ready AtlasSchema/postgres-a
-kubectl-wait-ready AtlasSchema/postgres-b
 
-# Each resource must have its own directory and .atlas under DATA_DIR.
+# Each resource must have its own .atlas directory under DATA_DIR.
 controller-exec test -d /data/${NAMESPACE}/postgres-a/.atlas
+
+kubectl apply -f schema-b.yaml
+kubectl-wait-ready AtlasSchema/postgres-b
 controller-exec test -d /data/${NAMESPACE}/postgres-b/.atlas
--- schema-a.hcl --
-table "users_a" {
+-- schema.hcl --
+table "users" {
   schema = schema.public
-  column "id" { 
-    null = false 
-    type = integer 
+  column "id" {
+    null = false
+    type = integer
   }
-  primary_key { 
-    columns = [column.id] 
-  }
-}
-schema "public" {}
--- schema-b.hcl --
-table "users_b" {
-  schema = schema.public
-  column "id" { 
-    null = false 
-    type = integer 
-  }
-  primary_key { 
-    columns = [column.id] 
+  primary_key {
+    columns = [column.id]
   }
 }
 schema "public" {}
@@ -52,7 +41,7 @@ spec:
       name: db-creds
       key: url
   schema:
-    url: atlas://atlas-operator?tag=registry-a
+    url: atlas://atlas-operator?tag=registry-shared
   cloud:
     tokenFrom:
       secretKeyRef:
@@ -69,7 +58,7 @@ spec:
       name: db-creds
       key: url
   schema:
-    url: atlas://atlas-operator?tag=registry-b
+    url: atlas://atlas-operator?tag=registry-shared
   cloud:
     tokenFrom:
       secretKeyRef:

@@ -162,10 +162,17 @@ func TestOperator(t *testing.T) {
 			},
 			// atlas runs the atlas binary in the controller-manager pod
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", "exec",
-					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
-				)
+				execArgs := []string{
+					"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--",
+					"env",
+					"HOME=/tmp",
+					"XDG_CACHE_HOME=/tmp/.cache",
+					"GOCACHE=/tmp/.cache/go-build",
+					"ATLAS_TOKEN=" + ts.Getenv("ATLAS_TOKEN"),
+					"atlas",
+				}
+				execArgs = append(execArgs, args...)
+				err := ts.Exec("kubectl", execArgs...)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {
@@ -266,10 +273,16 @@ func TestOperator(t *testing.T) {
 					if p == "" {
 						continue
 					}
-					ts.Check(ts.Exec("kubectl", "exec",
-						"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), p),
-					))
+					execArgs := []string{
+						"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--",
+						"env",
+						"HOME=/tmp",
+						"XDG_CACHE_HOME=/tmp/.cache",
+						"GOCACHE=/tmp/.cache/go-build",
+						"ATLAS_TOKEN=" + ts.Getenv("ATLAS_TOKEN"),
+						"atlas", "schema", "plan", "rm", "--url=" + p,
+					}
+					ts.Check(ts.Exec("kubectl", execArgs...))
 				}
 			},
 			// controller-exec runs a command inside the controller pod (e.g. to inspect DATA_DIR).
