@@ -190,6 +190,8 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 ADDLICENSE = $(LOCALBIN)/addlicense
+HELMIFY ?= $(LOCALBIN)/helmify
+YQ ?= $(LOCALBIN)/yq
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.0
@@ -197,6 +199,8 @@ CONTROLLER_TOOLS_VERSION ?= v0.20.0
 ENVTEST_VERSION ?= release-0.22
 GOLANGCI_LINT_VERSION ?= v2.8.0
 ADDLICENSE_VERSION ?= v1.2.0
+HELMIFY_VERSION ?= v0.4.19
+YQ_VERSION ?= v4.40.3
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -227,8 +231,25 @@ license: addlicense ## Add license headers to all files.
 	@echo "Adding license headers to all files..."
 	$(ADDLICENSE) -ignore "**/*.sql" -ignore "charts/**/*" -l apache -c "The Atlas Operator Authors." .
 
+.PHONY: helmify
+helmify: $(HELMIFY) ## Download helmify locally if necessary. If wrong version is installed, it will be overwritten.
+$(HELMIFY): $(LOCALBIN)
+	test -s $(LOCALBIN)/helmify && $(LOCALBIN)/helmify --version | grep -q $(HELMIFY_VERSION) || \
+	GOBIN=$(LOCALBIN) go install -ldflags "-X main.version=$(HELMIFY_VERSION)" github.com/arttor/helmify/cmd/helmify@$(HELMIFY_VERSION)
+
+.PHONY: yq
+yq: $(YQ) ## Download yq locally if necessary. If wrong version is installed, it will be overwritten.
+$(YQ): $(LOCALBIN)
+	test -s $(LOCALBIN)/yq && $(LOCALBIN)/yq --version | grep -q $(YQ_VERSION) || \
+	GOBIN=$(LOCALBIN) go install -ldflags "-X cmd.Version=$(YQ_VERSION)" github.com/mikefarah/yq/v4@$(YQ_VERSION)
+
+.PHONY: helm
+helm: manifests kustomize license helmify yq
+	$(KUSTOMIZE) build config/helm | $(HELMIFY) -crd-dir -generate-defaults -image-pull-secrets charts/atlas-operator
+	$(YQ) -i '.controllerManager.manager.image.tag = ""' charts/atlas-operator/values.yaml
+
 .PHONY: cli-gen
-cli-gen: generate manifests chart-manifests license
+cli-gen: generate manifests helm license
 
 .PHONY: chart-manifests
 chart-manifests: manifests license kustomize
