@@ -1,0 +1,66 @@
+# Test that each resource gets its own HOME under DATA_DIR (namespace/name).
+# This applies two resources against the same DB using the same desired state and
+# verifies each gets its own .atlas directory.
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas schema push atlas-operator --tag=registry-shared --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema.hcl
+
+kubectl apply -f schema-a.yaml
+kubectl-wait-ready AtlasSchema/postgres-a
+
+# Each resource must have its own .atlas directory under DATA_DIR.
+controller-exec test -d /data/${NAMESPACE}/postgres-a/.atlas
+
+kubectl apply -f schema-b.yaml
+kubectl-wait-ready AtlasSchema/postgres-b
+controller-exec test -d /data/${NAMESPACE}/postgres-b/.atlas
+-- schema.hcl --
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {}
+-- schema-a.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres-a
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-shared
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+-- schema-b.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres-b
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-shared
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN

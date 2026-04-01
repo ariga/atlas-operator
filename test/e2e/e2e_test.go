@@ -160,12 +160,16 @@ func TestOperator(t *testing.T) {
 				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app="+cfg.name))
 				ts.Setenv(envVar, cfg.dsn(ns))
 			},
-			// atlas runs the atlas binary in the controller-manager pod
+			// atlas runs the atlas binary in the controller-manager pod.
+			// Args are joined and passed through sh -c so they match the script line
+			// after testscript tokenization (double-quoted spans are not merged).
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", "exec",
-					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
+				shellCmd := fmt.Sprintf(
+					"HOME=/tmp XDG_CACHE_HOME=/tmp/.cache GOCACHE=/tmp/.cache/go-build ATLAS_TOKEN=%s atlas %s",
+					ts.Getenv("ATLAS_TOKEN"),
+					strings.Join(args, " "),
 				)
+				err := ts.Exec("kubectl", "exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c", shellCmd)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {
@@ -266,10 +270,29 @@ func TestOperator(t *testing.T) {
 					if p == "" {
 						continue
 					}
-					ts.Check(ts.Exec("kubectl", "exec",
-						"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), p),
-					))
+					execArgs := []string{
+						"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--",
+						"env",
+						"HOME=/tmp",
+						"XDG_CACHE_HOME=/tmp/.cache",
+						"GOCACHE=/tmp/.cache/go-build",
+						"ATLAS_TOKEN=" + ts.Getenv("ATLAS_TOKEN"),
+						"atlas", "schema", "plan", "rm", "--url=" + p,
+					}
+					ts.Check(ts.Exec("kubectl", execArgs...))
+				}
+			},
+			// controller-exec runs a command inside the controller pod (e.g. to inspect DATA_DIR).
+			"controller-exec": func(ts *testscript.TestScript, neg bool, args []string) {
+				if len(args) < 1 {
+					ts.Fatalf("usage: controller-exec <command> [args...]")
+				}
+				execArgs := append([]string{"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--"}, args...)
+				err := ts.Exec("kubectl", execArgs...)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
 				}
 			},
 		},

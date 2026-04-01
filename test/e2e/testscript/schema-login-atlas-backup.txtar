@@ -1,0 +1,49 @@
+# Test that the operator runs atlas login (with --grant-only) per resource and stores
+# .atlas under DATA_DIR in a resource-specific directory (namespace/name).
+# Requires the controller to be deployed with DATA_DIR set (e.g. config/manager).
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas schema push atlas-operator --tag=registry-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
+
+kubectl apply -f schema.yaml
+kubectl-wait-ready AtlasSchema/postgres
+
+# Verify per-resource HOME: the operator sets HOME to DATA_DIR/namespace/name and runs
+# atlas login --grant-only, so .atlas must exist under that path.
+controller-exec test -d /data/${NAMESPACE}/postgres/.atlas
+
+# Show the directory contents for debugging
+controller-exec ls -la /data/${NAMESPACE}/postgres/
+-- schema-v1.hcl --
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {}
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    url: atlas://atlas-operator?tag=registry-v1
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN

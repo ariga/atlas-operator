@@ -22,6 +22,8 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -67,14 +69,16 @@ type (
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
 		// WhoAmI runs the `whoami` command.
 		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
+		// Login runs the `login` command (e.g. with --grant-only for offline tokens).
+		Login(context.Context, *atlasexec.LoginParams) error
 		// SetStdout specifies a writer to stream stdout to for every command.
 		SetStdout(io.Writer)
 		// SetStderr specifies a writer to stream stderr to for every command.
 		SetStderr(io.Writer)
 	}
-	// AtlasExecFn is a function that returns an AtlasExec
-	// with the working directory.
-	AtlasExecFn func(string) (AtlasExec, error)
+	// AtlasExecFn is a function that returns an AtlasExec configured
+	// with the given working directory, cloud configuration, and HOME directory.
+	AtlasExecFn func(dir string, c *Cloud, home string) (AtlasExec, error)
 	// Cloud holds the cloud configuration.
 	Cloud struct {
 		Token string
@@ -83,10 +87,40 @@ type (
 	}
 )
 
-// NewAtlasExec returns a new AtlasExec with the given working-directory.
+const (
+	// envDataDir is the environment variable for the data directory.
+	envDataDir = "DATA_DIR"
+)
+
+// NewAtlasExec returns a new AtlasExec with the given directory and cloud configuration.
 // The atlas binary is expected to be in the $PATH.
-func NewAtlasExec(dir string) (AtlasExec, error) {
-	return atlasexec.NewClient(dir, "atlas")
+// If DATA_DIR is set, it creates a resource-specific directory and sets HOME to it,
+// allowing Atlas CLI to store its data (.atlas) under the mounted PVC.
+func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
+	cli, err := atlasexec.NewClient(dir, "atlas")
+	if err != nil {
+		return nil, err
+	}
+	env := atlasexec.NewOSEnviron()
+	// If DATA_DIR is set, create a resource-specific directory and set HOME.
+	if dataDir := os.Getenv(envDataDir); dataDir != "" {
+		homeDir := filepath.Join(dataDir, home)
+		if err := os.MkdirAll(homeDir, 0755); err != nil {
+			return nil, fmt.Errorf("creating resource home directory: %w", err)
+		}
+		env["HOME"] = homeDir
+	} else if env["HOME"] == "" {
+		// Ensure HOME is set to a safe default when not provided by the environment
+		// and no DATA_DIR-based home directory is configured.
+		env["HOME"] = "/tmp"
+	}
+	if c != nil && c.Token != "" {
+		env["ATLAS_TOKEN"] = c.Token
+	}
+	if err = cli.SetEnv(env); err != nil {
+		return nil, err
+	}
+	return cli, nil
 }
 
 func getConfigMap(ctx context.Context, r client.Reader, ns string, ref *corev1.LocalObjectReference) (*corev1.ConfigMap, error) {

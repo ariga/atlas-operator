@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -268,9 +269,14 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migratio
 		return r.resultErr(res, err, "ReadingMigrationData")
 	}
 	defer wd.Close()
-	c, err := r.atlasClient(wd.Path())
+	c, err := r.atlasClient(wd.Path(), data.Cloud, filepath.Join(res.Namespace, res.Name))
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+	}
+	if data.Cloud != nil && data.Cloud.Token != "" {
+		if err := c.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
+			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
+		}
 	}
 	var whoami *atlasexec.WhoAmI
 	switch whoami, err = c.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {

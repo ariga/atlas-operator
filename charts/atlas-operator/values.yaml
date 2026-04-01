@@ -70,6 +70,21 @@ extraEnvs: []
 #        key: BAR
 #        name: config-map-resource
 
+# Persistent volume configuration
+persistence:
+  enabled: false
+  # Storage class name for the PVC
+  # storageClassName: ""
+  # Access modes for the PVC
+  accessModes:
+    - ReadWriteOnce
+  # Size of the persistent volume
+  size: 1Gi
+  # Mount path inside the container
+  mountPath: /data
+  # Annotations for the PVC
+  annotations: {}
+
 extraVolumes: []
 # extraVolumes:
 #   - name: extra-volume
