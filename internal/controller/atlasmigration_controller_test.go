@@ -60,6 +60,7 @@ func TestReconcile_Notfound(t *testing.T) {
 }
 
 func TestMigration_ConfigMap(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
 	meta := migrationObjmeta()
 	obj := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
@@ -150,6 +151,7 @@ func TestMigration_ConfigMap(t *testing.T) {
 }
 
 func TestMigration_Local(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
 	meta := migrationObjmeta()
 	obj := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: meta,
@@ -1251,6 +1253,7 @@ func migrationReq() ctrl.Request {
 
 // migrationCliTest initializes a test with a real CLI and a temporary SQLite database.
 func migrationCliTest(t *testing.T) *migrationTest {
+	t.Setenv("DATA_DIR", t.TempDir())
 	tt := newMigrationTest(t)
 	var err error
 	tt.r.atlasClient = NewAtlasExec
