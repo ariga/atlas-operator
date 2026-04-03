@@ -100,6 +100,7 @@ func TestReconcile_ReadyButDiff(t *testing.T) {
 }
 
 func TestReconcile_Reconcile(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
 	meta := objmeta()
 	obj := &dbv1alpha1.AtlasSchema{
 		ObjectMeta: meta,
@@ -725,6 +726,7 @@ func cliTest(t *testing.T) *test {
 		env := atlasexec.NewOSEnviron()
 		// Avoid local .atlas login interference.
 		env["HOME"] = t.TempDir()
+		env["DATA_DIR"] = t.TempDir()
 		if err = cli.SetEnv(env); err != nil {
 			return nil, err
 		}
@@ -739,6 +741,7 @@ func cliTest(t *testing.T) *test {
 }
 
 func newTest(t *testing.T) *test {
+	t.Setenv("DATA_DIR", t.TempDir())
 	scheme := runtime.NewScheme()
 	dbv1alpha1.AddToScheme(scheme)
 	m := &mockClient{

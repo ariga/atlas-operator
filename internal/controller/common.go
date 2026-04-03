@@ -102,18 +102,15 @@ func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
 		return nil, err
 	}
 	env := atlasexec.NewOSEnviron()
-	// If DATA_DIR is set, create a resource-specific directory and set HOME.
-	if dataDir := os.Getenv(envDataDir); dataDir != "" {
-		homeDir := filepath.Join(dataDir, home)
-		if err := os.MkdirAll(homeDir, 0755); err != nil {
-			return nil, fmt.Errorf("creating resource home directory: %w", err)
-		}
-		env["HOME"] = homeDir
-	} else if env["HOME"] == "" {
-		// Ensure HOME is set to a safe default when not provided by the environment
-		// and no DATA_DIR-based home directory is configured.
-		env["HOME"] = "/tmp"
+	dataDir := os.Getenv(envDataDir)
+	if dataDir == "" {
+		dataDir = "/tmp/data"
 	}
+	homeDir := filepath.Join(dataDir, home)
+	if err := os.MkdirAll(homeDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating resource home directory: %w", err)
+	}
+	env["HOME"] = homeDir
 	if c != nil && c.Token != "" {
 		env["ATLAS_TOKEN"] = c.Token
 	}
