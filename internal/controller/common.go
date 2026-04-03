@@ -102,6 +102,7 @@ func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
 		return nil, err
 	}
 	env := atlasexec.NewOSEnviron()
+	cacheHome := ""
 	// If DATA_DIR is set, create a resource-specific directory and set HOME.
 	if dataDir := os.Getenv(envDataDir); dataDir != "" {
 		homeDir := filepath.Join(dataDir, home)
@@ -109,10 +110,19 @@ func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
 			return nil, fmt.Errorf("creating resource home directory: %w", err)
 		}
 		env["HOME"] = homeDir
-	} else if env["HOME"] == "" {
+		cacheHome = filepath.Join(homeDir, ".cache")
+	} else if env["HOME"] == "" || env["HOME"] == "/" {
 		// Ensure HOME is set to a safe default when not provided by the environment
 		// and no DATA_DIR-based home directory is configured.
 		env["HOME"] = "/tmp"
+		cacheHome = "/tmp/.cache"
+	}
+	if cacheHome != "" {
+		if err := os.MkdirAll(cacheHome, 0755); err != nil {
+			return nil, fmt.Errorf("creating cache directory: %w", err)
+		}
+		env["XDG_CACHE_HOME"] = cacheHome
+		env["GOCACHE"] = filepath.Join(cacheHome, "go-build")
 	}
 	if c != nil && c.Token != "" {
 		env["ATLAS_TOKEN"] = c.Token
