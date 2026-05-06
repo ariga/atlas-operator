@@ -223,9 +223,25 @@ func TestCredentials_URL(t *testing.T) {
 			},
 			exp: "sqlserver://sa:P%40ssw0rd0995@:1433?database=master",
 		},
+		{
+			c: v1alpha1.Credentials{
+				Scheme:   "crdb",
+				User:     "root",
+				Password: "password",
+				Host:     "localhost",
+				Port:     26257,
+				Database: "defaultdb",
+				Parameters: map[string]string{
+					"sslmode": "disable",
+				},
+			},
+			exp: "crdb://root:password@localhost:26257/defaultdb?sslmode=disable",
+		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {
-			require.Equal(t, tt.exp, tt.c.URL().String())
+			u, err := tt.c.URL()
+			require.NoError(t, err)
+			require.Equal(t, tt.exp, u.String())
 		})
 	}
 }

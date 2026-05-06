@@ -22,6 +22,8 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -67,14 +69,16 @@ type (
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
 		// WhoAmI runs the `whoami` command.
 		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
+		// Login runs the `login` command (e.g. with --grant-only for offline tokens).
+		Login(context.Context, *atlasexec.LoginParams) error
 		// SetStdout specifies a writer to stream stdout to for every command.
 		SetStdout(io.Writer)
 		// SetStderr specifies a writer to stream stderr to for every command.
 		SetStderr(io.Writer)
 	}
-	// AtlasExecFn is a function that returns an AtlasExec
-	// with the working directory.
-	AtlasExecFn func(string, *Cloud) (AtlasExec, error)
+	// AtlasExecFn is a function that returns an AtlasExec configured
+	// with the given working directory, cloud configuration, and HOME directory.
+	AtlasExecFn func(dir string, c *Cloud, home string) (AtlasExec, error)
 	// Cloud holds the cloud configuration.
 	Cloud struct {
 		Token string
@@ -83,19 +87,35 @@ type (
 	}
 )
 
+const (
+	// envDataDir is the environment variable for the data directory.
+	envDataDir = "DATA_DIR"
+)
+
 // NewAtlasExec returns a new AtlasExec with the given directory and cloud configuration.
 // The atlas binary is expected to be in the $PATH.
-func NewAtlasExec(dir string, c *Cloud) (AtlasExec, error) {
+// If DATA_DIR is set, it creates a resource-specific directory and sets HOME to it,
+// allowing Atlas CLI to store its data (.atlas) under the mounted PVC.
+func NewAtlasExec(dir string, c *Cloud, home string) (AtlasExec, error) {
 	cli, err := atlasexec.NewClient(dir, "atlas")
 	if err != nil {
 		return nil, err
 	}
+	env := atlasexec.NewOSEnviron()
+	dataDir := os.Getenv(envDataDir)
+	if dataDir == "" {
+		dataDir = "/tmp/data"
+	}
+	homeDir := filepath.Join(dataDir, home)
+	if err := os.MkdirAll(homeDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating resource home directory: %w", err)
+	}
+	env["HOME"] = homeDir
 	if c != nil && c.Token != "" {
-		env := atlasexec.NewOSEnviron()
 		env["ATLAS_TOKEN"] = c.Token
-		if err = cli.SetEnv(env); err != nil {
-			return nil, err
-		}
+	}
+	if err = cli.SetEnv(env); err != nil {
+		return nil, err
 	}
 	return cli, nil
 }
@@ -131,23 +151,6 @@ func memDir(m map[string]string) (migrate.Dir, error) {
 		}
 	}
 	return f, nil
-}
-
-// isChecksumErr returns true if the error is a checksum error.
-func isChecksumErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "checksum mismatch")
-}
-
-// isConnectionErr returns true if the error is a connection error.
-func isConnectionErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "connection timed out") ||
-		strings.Contains(err.Error(), "connection refused")
 }
 
 // transientError is an error that should be retried.
@@ -221,16 +224,21 @@ func searchBlock(parent *hclwrite.Body, target *hclwrite.Block) *hclwrite.Block 
 	idx := slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
 		return slices.Compare(b.Labels(), target.Labels()) == 0
 	})
-	if idx == -1 {
-		// No block matched, check if there is an unnamed env block.
+	// If not found, and the target is an env block, try to find the unnamed env block.
+	if idx == -1 && isEnvBlock(target) {
 		idx = slices.IndexFunc(typBlocks, func(b *hclwrite.Block) bool {
 			return len(b.Labels()) == 0
 		})
-		if idx == -1 {
-			return nil
-		}
+	}
+	if idx == -1 {
+		return nil
 	}
 	return typBlocks[idx]
+}
+
+// isEnvBlock returns true if the block is an "env" block.
+func isEnvBlock(blk *hclwrite.Block) bool {
+	return blk.Type() == "env"
 }
 
 // mergeBlock merges the source block into the destination block.
@@ -296,8 +304,10 @@ func mapsSorted[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 	}
 }
 
+const retryDuration = 5 * time.Second
+
 // backoffDelayAt returns the backoff delay at the given retry count.
 // Backoff is exponential with base 5.
 func backoffDelayAt(retry int) time.Duration {
-	return time.Duration(retry) * 5 * time.Second
+	return time.Duration(retry) * retryDuration
 }

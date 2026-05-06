@@ -87,3 +87,13 @@ spec:
       name: clickhouse-schema
   exclude:
     - ignore_me
+  envName: "kubernetes"
+  config: |
+    env "kubernetes" {
+      diff "clickhouse" {
+        session_settings {
+          match = "*"
+          values = {}
+        }
+      }
+    }

@@ -88,7 +88,7 @@ func TestOperator(t *testing.T) {
 			break
 		}
 		// Wait 5s before retrying
-		<-time.After(time.Second * 5)
+		<-time.After(5 * time.Second)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
 	t.Cleanup(func() {
@@ -160,12 +160,16 @@ func TestOperator(t *testing.T) {
 				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app="+cfg.name))
 				ts.Setenv(envVar, cfg.dsn(ns))
 			},
-			// atlas runs the atlas binary in the controller-manager pod
+			// atlas runs the atlas binary in the controller-manager pod.
+			// Args are joined and passed through sh -c so they match the script line
+			// after testscript tokenization (double-quoted spans are not merged).
 			"atlas": func(ts *testscript.TestScript, neg bool, args []string) {
-				err := ts.Exec("kubectl", "exec",
-					"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-					fmt.Sprintf("ATLAS_TOKEN=%s atlas %s", ts.Getenv("ATLAS_TOKEN"), strings.Join(args, " ")),
+				shellCmd := fmt.Sprintf(
+					"HOME=/tmp XDG_CACHE_HOME=/tmp/.cache GOCACHE=/tmp/.cache/go-build ATLAS_TOKEN=%s atlas %s",
+					ts.Getenv("ATLAS_TOKEN"),
+					strings.Join(args, " "),
 				)
+				err := ts.Exec("kubectl", "exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c", shellCmd)
 				if !neg {
 					ts.Check(err)
 				} else if err == nil {
@@ -266,10 +270,29 @@ func TestOperator(t *testing.T) {
 					if p == "" {
 						continue
 					}
-					ts.Check(ts.Exec("kubectl", "exec",
-						"-n", nsController, ts.Getenv("CONTROLLER"), "--", "sh", "-c",
-						fmt.Sprintf("ATLAS_TOKEN=%s atlas schema plan rm --url=%s", ts.Getenv("ATLAS_TOKEN"), p),
-					))
+					execArgs := []string{
+						"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--",
+						"env",
+						"HOME=/tmp",
+						"XDG_CACHE_HOME=/tmp/.cache",
+						"GOCACHE=/tmp/.cache/go-build",
+						"ATLAS_TOKEN=" + ts.Getenv("ATLAS_TOKEN"),
+						"atlas", "schema", "plan", "rm", "--url=" + p,
+					}
+					ts.Check(ts.Exec("kubectl", execArgs...))
+				}
+			},
+			// controller-exec runs a command inside the controller pod (e.g. to inspect DATA_DIR).
+			"controller-exec": func(ts *testscript.TestScript, neg bool, args []string) {
+				if len(args) < 1 {
+					ts.Fatalf("usage: controller-exec <command> [args...]")
+				}
+				execArgs := append([]string{"exec", "-n", nsController, ts.Getenv("CONTROLLER"), "--"}, args...)
+				err := ts.Exec("kubectl", execArgs...)
+				if !neg {
+					ts.Check(err)
+				} else if err == nil {
+					ts.Fatalf("unexpected success")
 				}
 			},
 		},
@@ -286,6 +309,7 @@ type (
 		pass         string
 		query        url.Values
 		env          []dbEnvVar
+		args         []string
 		startupCmd   []string
 		readinessCmd []string
 	}
@@ -363,6 +387,21 @@ func newDBConfig(image string) (*dbConfig, error) {
 			startupCmd:   []string{"clickhouse-client", "-q", "SELECT 1"},
 			readinessCmd: []string{"clickhouse-client", "-q", "SELECT 1"},
 		}, nil
+	case strings.Contains(img, "cockroach"):
+		return &dbConfig{
+			name:     "cockroachdb",
+			scheme:   "crdb",
+			port:     26257,
+			database: "defaultdb",
+			user:     "root",
+			pass:     "pass",
+			query: url.Values{
+				"sslmode": {"disable"},
+			},
+			args:         []string{"start-single-node", "--insecure"},
+			startupCmd:   []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
+			readinessCmd: []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
+		}, nil
 	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
 		return &dbConfig{
 			name:   "sqlserver",
@@ -416,6 +455,9 @@ func (cfg *dbConfig) manifest(image string) ([]byte, error) {
 				ContainerPort: int32(cfg.port),
 			},
 		},
+	}
+	if len(cfg.args) > 0 {
+		container.Args = cfg.args
 	}
 	if len(cfg.env) > 0 {
 		envs := make([]corev1.EnvVar, 0, len(cfg.env))

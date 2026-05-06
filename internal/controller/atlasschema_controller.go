@@ -170,15 +170,20 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		_, err = wd.WriteFile("atlas.hcl", buf.Bytes())
 		return err
 	}
-	cli, err := r.atlasClient(wd.Path(), nil)
+	cli, err := r.atlasClient(wd.Path(), data.Cloud, filepath.Join(res.Namespace, res.Name))
 	if err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+	}
+	if data.Cloud != nil && data.Cloud.Token != "" {
+		if err := cli.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
+			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
+		}
 	}
 	// Calculate the hash of the current schema.
 	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 		Env:    data.EnvName,
 		URL:    data.targetURL(),
-		Format: `{{ .Hash }}`,
+		Format: "{{ .Hash }}",
 		Vars:   data.Vars,
 	})
 	if err != nil {
@@ -243,7 +248,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				tag, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
 					Env:    data.EnvName,
 					URL:    desiredURL,
-					Format: `{{ .Hash | base64url }}`,
+					Format: "{{ .Hash | base64url }}",
 					Vars:   data.Vars,
 				})
 				if err != nil {
@@ -311,6 +316,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return r.resultCLIErr(res, fmt.Errorf("multiple schema plans found: %s", strings.Join(planURLs, ", ")), "ListingPlans")
 		// There are no pending plans, but Atlas has been asked to review the changes ALWAYS.
 		case len(plans) == 0 && data.Policy.Lint.Review == dbv1alpha1.LintReviewAlways:
+			log.Info("no plans was found", "toHash", hash)
 			// Create a plan for the pending changes.
 			return createPlan()
 		// The plan is pending approval, show the plan to the user.
@@ -321,7 +327,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
-			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+			return ctrl.Result{RequeueAfter: retryDuration}, nil
 		// Deploy the changes using the approved plan.
 		case len(plans) == 1 && plans[0].Status == "APPROVED":
 			log.Info("found an approved schema plan, applying", "plan", plans[0].URL)
@@ -345,7 +351,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}); err != nil {
 			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
-		err = r.lint(ctx, wd, data, data.Vars)
+		err = r.lint(ctx, wd, data, data.Vars, res.Namespace, res.Name)
 		switch d := (*destructiveErr)(nil); {
 		case errors.As(err, &d):
 			reason, msg := d.FirstRun()
@@ -371,7 +377,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	// Run the linting policy.
 	case shouldLint:
-		if err = r.lint(ctx, wd, data, nil); err != nil {
+		if err = r.lint(ctx, wd, data, nil, res.Namespace, res.Name); err != nil {
 			return r.resultCLIErr(res, err, "LintPolicyError")
 		}
 		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
@@ -554,9 +560,7 @@ func (r *AtlasSchemaReconciler) recordErrEvent(res *dbv1alpha1.AtlasSchema, err 
 func (r *AtlasSchemaReconciler) resultErr(
 	res *dbv1alpha1.AtlasSchema, err error, reason string,
 ) (ctrl.Result, error) {
-	if isConnectionErr(err) {
-		err = transient(err)
-	}
+	err = transient(err)
 	res.SetNotReady(reason, err.Error())
 	r.recordErrEvent(res, err)
 	if res.IsExceedBackoffLimit() {
@@ -586,7 +590,7 @@ func (r *AtlasSchemaReconciler) resultPending(
 	res.SetNotReady(reason, message)
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
 	return ctrl.Result{
-		RequeueAfter: time.Second * 5,
+		RequeueAfter: retryDuration,
 	}, nil
 }
 

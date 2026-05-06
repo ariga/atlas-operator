@@ -1,0 +1,129 @@
+db postgres:15.4 DB_URL
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before creating the schema
+kubectl-wait-ready -l app=postgres pods
+
+# Create the schema without index
+kubectl apply -f schema.yaml
+kubectl-wait-ready AtlasSchema/postgres
+# Inspect the schema to ensure it's correct
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+
+# Patch to add index with concurrent_index policy
+kubectl patch AtlasSchema/postgres --type merge --patch-file patch-add-index.yaml
+# Ensure the controller is aware of the change
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/postgres
+kubectl-wait-ready AtlasSchema/postgres
+# Verify concurrent index creation statement was used
+kubectl get AtlasSchema/postgres -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'CREATE INDEX CONCURRENTLY'
+# Inspect the schema to ensure the index was created
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v2.hcl
+
+# Patch to remove index with concurrent_index policy
+kubectl patch AtlasSchema/postgres --type merge --patch-file patch-remove-index.yaml
+# Ensure the controller is aware of the change
+kubectl wait --for=condition=ready=false --timeout=2h AtlasSchema/postgres
+kubectl-wait-ready AtlasSchema/postgres
+# Verify concurrent index drop statement was used
+kubectl get AtlasSchema/postgres -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'DROP INDEX CONCURRENTLY'
+# Inspect the schema to ensure the index was dropped
+atlas schema inspect -u ${DB_URL}
+cmp stdout schema-v1.hcl
+-- schema-v1.hcl --
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  column "name" {
+    null = false
+    type = character_varying(255)
+  }
+  column "email" {
+    null = false
+    type = character_varying(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- schema-v2.hcl --
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = integer
+  }
+  column "name" {
+    null = false
+    type = character_varying(255)
+  }
+  column "email" {
+    null = false
+    type = character_varying(255)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "email_idx" {
+    columns = [column.email]
+  }
+}
+schema "public" {
+  comment = "standard public schema"
+}
+-- patch-add-index.yaml --
+spec:
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        email varchar(255) not null,
+        primary key (id)
+      );
+      create index email_idx on users (email);
+-- patch-remove-index.yaml --
+spec:
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        email varchar(255) not null,
+        primary key (id)
+      );
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  policy:
+    diff:
+      concurrent_index:
+        create: true
+        drop: true
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        email varchar(255) not null,
+        primary key (id)
+      );

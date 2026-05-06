@@ -126,7 +126,7 @@ env {
 }`,
 		},
 		{
-			name: "merge named block to unnamed block",
+			name: "merge named env block to unnamed env block",
 			args: args{
 				dst: `
 env {
@@ -167,6 +167,83 @@ env "example" {
   key2 = "value2"
 }`,
 		},
+		{
+			name: "two diff blocks - unlabeled and labeled clickhouse",
+			args: args{
+				dst: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+				src: ``,
+			},
+			expected: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+		},
+		{
+			name: "merge user config diff clickhouse into operator diff",
+			args: args{
+				atlasEnv: "kubernetes",
+				dst: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_column = true
+    }
+  }
+}`,
+				src: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+			},
+			expected: `
+env "kubernetes" {
+  diff {
+    skip {
+      drop_column = true
+      drop_schema = true
+      drop_table  = true
+    }
+  }
+  diff "clickhouse" {
+    cluster {
+      name = "{cluster}"
+    }
+  }
+}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,14 +278,14 @@ func Test_backoffDelayAt(t *testing.T) {
 			args: args{
 				retry: 1,
 			},
-			want: 5 * time.Second,
+			want: retryDuration,
 		},
 		{
 			name: "2",
 			args: args{
 				retry: 2,
 			},
-			want: 10 * time.Second,
+			want: 2 * retryDuration,
 		},
 		{
 			name: "20",
