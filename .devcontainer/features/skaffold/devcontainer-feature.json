@@ -1,0 +1,16 @@
+{
+  "id": "skaffold",
+  "version": "1.0.0",
+  "name": "Skaffold",
+  "description": "Installs the Skaffold CLI for Kubernetes development.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Skaffold version to install (e.g., 'latest' or 'v2.20.0')."
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/docker-outside-of-docker"
+  ]
+}

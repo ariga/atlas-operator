@@ -1,0 +1,55 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/go .
+{
+	"name": "Go",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/base:2-debian",
+	"features": {
+		"ghcr.io/devcontainers/features/copilot-cli:1": {
+			"version": "latest"
+		},
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"dockerDashComposeVersion": "latest",
+			"installDockerBuildx": true,
+			"moby": false,
+			"version": "latest"
+		},
+		"ghcr.io/devcontainers/features/github-cli:1": {
+			"installDirectlyFromGitHubRelease": true,
+			"version": "latest"
+		},
+		"ghcr.io/devcontainers/features/go:1": {
+			"version": "1.26.3",
+			"golangciLintVersion": "2.10.1"
+		},
+		"ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+			"minikube": "none"
+		},
+		"./features/skaffold": {}
+	},
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"cSpell.words": [
+					"appsv",
+					"corev",
+					"kustomize",
+					"pkgc",
+					"Tmpl"
+				],
+				"go.testTimeout": "300s",
+				"go.testFlags": [
+					"-v",
+					"-count=1"
+				],
+				"editor.fontLigatures": false
+			}
+		}
+	}
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+	// Use 'postCreateCommand' to run commands after the container is created.
+	// "postCreateCommand": "go version",
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "root"
+}
