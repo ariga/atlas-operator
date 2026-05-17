@@ -32,6 +32,7 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,7 +111,14 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() {
-		if err := r.Status().Update(ctx, res); err != nil {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latest := &dbv1alpha1.AtlasSchema{}
+			if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
+				return err
+			}
+			latest.Status = res.Status
+			return r.Status().Update(ctx, latest)
+		}); err != nil {
 			log.Error(err, "failed to update resource status")
 		}
 		// After updating the status, watch the dependent resources
