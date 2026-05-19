@@ -16,6 +16,7 @@ package v1alpha1_test
 
 import (
 	"context"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,20 @@ func TestCredentials_URL(t *testing.T) {
 			},
 			exp: "crdb://root:password@localhost:26257/defaultdb?sslmode=disable",
 		},
+		{
+			c: v1alpha1.Credentials{
+				Scheme:   "ysql",
+				User:     "yugabyte",
+				Host:     "localhost",
+				Port:     5433,
+				Database: "yugabyte",
+				Parameters: map[string]string{
+					"search_path": "public",
+					"sslmode":     "disable",
+				},
+			},
+			exp: "ysql://yugabyte@localhost:5433/yugabyte?search_path=public&sslmode=disable",
+		},
 	} {
 		t.Run(tt.exp, func(t *testing.T) {
 			u, err := tt.c.URL()
@@ -244,6 +259,19 @@ func TestCredentials_URL(t *testing.T) {
 			require.Equal(t, tt.exp, u.String())
 		})
 	}
+}
+
+func TestDriverBySchema_YSQL(t *testing.T) {
+	drv, err := v1alpha1.DriverBySchema("ysql")
+	require.NoError(t, err)
+	require.Equal(t, v1alpha1.DriverYSQL, drv)
+
+	u, err := url.Parse("ysql://yugabyte@localhost:5433/yugabyte?search_path=public&sslmode=disable")
+	require.NoError(t, err)
+
+	schemaBound, err := drv.SchemaBound(*u)
+	require.NoError(t, err)
+	require.True(t, schemaBound)
 }
 
 func requireCondition(t *testing.T, conds []metav1.Condition, condType string) metav1.Condition {
