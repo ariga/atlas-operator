@@ -28,7 +28,7 @@ and apply it to your database using the Kubernetes API.
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 - [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them.
 - [X] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
-- [X] Supported databases: MySQL, MariaDB, PostgreSQL, SQLite, TiDB, CockroachDB, YugabyteDB (YSQL)
+- [X] Supported databases: MySQL, MariaDB, PostgreSQL, SQLite, SQL Server, ClickHouse, CockroachDB, YugabyteDB (YSQL)
 
 ### Declarative schema migrations
 
