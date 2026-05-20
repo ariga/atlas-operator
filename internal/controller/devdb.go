@@ -288,11 +288,9 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 		}
 		c.StartupProbe.Exec = &corev1.ExecAction{
 			Command: []string{
-				"bin/ysqlsh",
-				"-h", "127.0.0.1",
-				"-U", user,
-				"-d", path,
-				"-c", "SELECT 1",
+				"sh",
+				"-ec",
+				fmt.Sprintf("bin/ysqlsh -h \"$(hostname)\" -U %s -d %s -c 'SELECT 1'", user, path),
 			},
 		}
 	case dbv1alpha1.DriverSQLServer:
