@@ -309,6 +309,7 @@ type (
 		pass         string
 		query        url.Values
 		env          []dbEnvVar
+		command      []string
 		args         []string
 		startupCmd   []string
 		readinessCmd []string
@@ -402,6 +403,21 @@ func newDBConfig(image string) (*dbConfig, error) {
 			startupCmd:   []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
 			readinessCmd: []string{"cockroach", "sql", "--insecure", "-e", "SELECT 1"},
 		}, nil
+	case strings.Contains(img, "yugabyte"):
+		return &dbConfig{
+			name:     "yugabyte",
+			scheme:   "ysql",
+			port:     5433,
+			database: "yugabyte",
+			user:     "yugabyte",
+			query: url.Values{
+				"search_path": {"public"},
+				"sslmode":     {"disable"},
+			},
+			command:      []string{"bin/yugabyted", "start", "--background=false"},
+			startupCmd:   []string{"sh", "-ec", "bin/ysqlsh -h \"$(hostname)\" -U yugabyte -d yugabyte -c 'SELECT 1'"},
+			readinessCmd: []string{"sh", "-ec", "bin/ysqlsh -h \"$(hostname)\" -U yugabyte -d yugabyte -c 'SELECT 1'"},
+		}, nil
 	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
 		return &dbConfig{
 			name:   "sqlserver",
@@ -455,6 +471,9 @@ func (cfg *dbConfig) manifest(image string) ([]byte, error) {
 				ContainerPort: int32(cfg.port),
 			},
 		},
+	}
+	if len(cfg.command) > 0 {
+		container.Command = cfg.command
 	}
 	if len(cfg.args) > 0 {
 		container.Args = cfg.args
@@ -514,9 +533,16 @@ func (cfg *dbConfig) manifest(image string) ([]byte, error) {
 }
 
 func (cfg *dbConfig) dsn(namespace string) string {
+	var userInfo *url.Userinfo
+	switch {
+	case cfg.user != "" && cfg.pass != "":
+		userInfo = url.UserPassword(cfg.user, cfg.pass)
+	case cfg.user != "":
+		userInfo = url.User(cfg.user)
+	}
 	u := &url.URL{
 		Scheme: cfg.scheme,
-		User:   url.UserPassword(cfg.user, cfg.pass),
+		User:   userInfo,
 		Host:   fmt.Sprintf("%s.%s:%d", cfg.name, namespace, cfg.port),
 	}
 	if cfg.database != "" {

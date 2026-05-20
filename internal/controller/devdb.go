@@ -271,6 +271,27 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 			{Name: "POSTGRES_PASSWORD", Value: pass},
 		}
 		c.SecurityContext.RunAsUser = ptr.To[int64](999)
+	case dbv1alpha1.DriverYSQL:
+		// URLs
+		user, path = "yugabyte", "yugabyte"
+		q.Set("sslmode", "disable")
+		if schemaBound {
+			q.Set("search_path", "public")
+		}
+		// Containers
+		c.Image = "yugabytedb/yugabyte:latest"
+		c.SecurityContext = nil
+		c.Command = []string{"bin/yugabyted", "start", "--background=false"}
+		c.Ports = []corev1.ContainerPort{
+			{Name: drv.String(), ContainerPort: 5433},
+		}
+		c.StartupProbe.Exec = &corev1.ExecAction{
+			Command: []string{
+				"sh",
+				"-ec",
+				fmt.Sprintf("bin/ysqlsh -h \"$(hostname)\" -U %s -d %s -c 'SELECT 1'", user, path),
+			},
+		}
 	case dbv1alpha1.DriverSQLServer:
 		// URLs
 		user, pass, path = "sa", "P@ssw0rd0995", ""
@@ -416,9 +437,16 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 	default:
 		return nil, "", fmt.Errorf(`devdb: unsupported driver %q. You need to provide the devURL on the resource: https://atlasgo.io/integrations/kubernetes/operator#devurl`, drv)
 	}
+	var userInfo *url.Userinfo
+	switch {
+	case user != "" && pass != "":
+		userInfo = url.UserPassword(user, pass)
+	case user != "":
+		userInfo = url.User(user)
+	}
 	conn := &url.URL{
 		Scheme:   c.Ports[0].Name,
-		User:     url.UserPassword(user, pass),
+		User:     userInfo,
 		Host:     fmt.Sprintf("localhost:%d", c.Ports[0].ContainerPort),
 		Path:     path,
 		RawQuery: q.Encode(),

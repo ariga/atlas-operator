@@ -118,8 +118,11 @@ func (c *Credentials) URL() (*url.URL, error) {
 	default:
 		u.Path = c.Database
 	}
-	if c.User != "" || c.Password != "" {
+	switch {
+	case c.User != "" && c.Password != "":
 		u.User = url.UserPassword(c.User, c.Password)
+	case c.User != "":
+		u.User = url.User(c.User)
 	}
 	if len(c.Parameters) > 0 {
 		qs := url.Values{}
@@ -181,6 +184,7 @@ const (
 	DriverSpanner     Driver = "spanner"
 	DriverSQLite      Driver = "sqlite"
 	DriverSQLServer   Driver = "sqlserver"
+	DriverYSQL        Driver = "ysql"
 )
 
 // DriverBySchema returns the driver from the given schema.
@@ -199,6 +203,8 @@ func DriverBySchema(schema string) (Driver, error) {
 		return DriverMariaDB, nil
 	case "postgres", "postgresql":
 		return DriverPostgres, nil
+	case "ysql":
+		return DriverYSQL, nil
 	case "sqlserver", "azuresql", "mssql":
 		return DriverSQLServer, nil
 	case "clickhouse":
@@ -233,7 +239,7 @@ func (d Driver) SchemaBound(u url.URL) (bool, error) {
 	case DriverSQLite:
 		return true, nil
 	case DriverPostgres, DriverRedshift,
-		DriverCockroachDB, DriverDSQL: // PG-like
+		DriverCockroachDB, DriverDSQL, DriverYSQL: // PG-like
 		return u.Query().Get("search_path") != "", nil
 	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
 		return u.Path != "", nil
