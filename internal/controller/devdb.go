@@ -280,8 +280,7 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 		}
 		// Containers
 		c.Image = "yugabytedb/yugabyte:latest"
-		c.Env = []corev1.EnvVar{{Name: "HOME", Value: "/tmp"}}
-		c.SecurityContext.RunAsUser = ptr.To[int64](1000)
+		c.SecurityContext = nil
 		c.Command = []string{"bin/yugabyted", "start", "--background=false"}
 		c.Ports = []corev1.ContainerPort{
 			{Name: drv.String(), ContainerPort: 5433},
