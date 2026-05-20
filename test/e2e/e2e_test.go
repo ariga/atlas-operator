@@ -415,8 +415,8 @@ func newDBConfig(image string) (*dbConfig, error) {
 				"sslmode":     {"disable"},
 			},
 			command:      []string{"bin/yugabyted", "start", "--background=false"},
-			startupCmd:   []string{"bin/ysqlsh", "-h", "127.0.0.1", "-U", "yugabyte", "-d", "yugabyte", "-c", "SELECT 1"},
-			readinessCmd: []string{"bin/ysqlsh", "-h", "127.0.0.1", "-U", "yugabyte", "-d", "yugabyte", "-c", "SELECT 1"},
+			startupCmd:   []string{"sh", "-ec", "bin/ysqlsh -h \"$(hostname)\" -U yugabyte -d yugabyte -c 'SELECT 1'"},
+			readinessCmd: []string{"sh", "-ec", "bin/ysqlsh -h \"$(hostname)\" -U yugabyte -d yugabyte -c 'SELECT 1'"},
 		}, nil
 	case strings.Contains(img, "mssql") || strings.Contains(img, "sqlserver"):
 		return &dbConfig{
