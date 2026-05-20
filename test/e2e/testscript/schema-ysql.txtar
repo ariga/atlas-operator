@@ -19,7 +19,7 @@ kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/ysql
 
 # Inspect the schema to ensure it's correct
-atlas schema inspect -u ${DB_URL}
+atlas schema inspect -u "${DB_URL}"
 cmp stdout schema-v1.hcl
 
 # Make sure the dev database is automatically created
