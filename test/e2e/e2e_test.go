@@ -158,6 +158,7 @@ func TestOperator(t *testing.T) {
 				ts.Check(ts.Exec("kubectl", "-n", ns, "apply", "-f", manifestPath))
 				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=available", "--timeout=2h", "deployment/"+cfg.name))
 				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=condition=ready", "--timeout=2h", "pod", "-l", "app="+cfg.name))
+				ts.Check(ts.Exec("kubectl", "-n", ns, "wait", "--for=jsonpath={.subsets[0].addresses[0].ip}", "--timeout=2h", "endpoints/"+cfg.name))
 				ts.Setenv(envVar, cfg.dsn(ns))
 			},
 			// atlas runs the atlas binary in the controller-manager pod.
