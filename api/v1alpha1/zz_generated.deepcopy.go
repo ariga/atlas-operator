@@ -91,6 +91,11 @@ func (in *AtlasMigrationSpec) DeepCopyInto(out *AtlasMigrationSpec) {
 	in.Cloud.DeepCopyInto(&out.Cloud)
 	in.Dir.DeepCopyInto(&out.Dir)
 	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
+	if in.PrewarmDevDB != nil {
+		in, out := &in.PrewarmDevDB, &out.PrewarmDevDB
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ProtectedFlows != nil {
 		in, out := &in.ProtectedFlows, &out.ProtectedFlows
 		*out = new(ProtectFlows)
@@ -197,6 +202,11 @@ func (in *AtlasSchemaSpec) DeepCopyInto(out *AtlasSchemaSpec) {
 	in.Schema.DeepCopyInto(&out.Schema)
 	in.Cloud.DeepCopyInto(&out.Cloud)
 	in.DevURLFrom.DeepCopyInto(&out.DevURLFrom)
+	if in.PrewarmDevDB != nil {
+		in, out := &in.PrewarmDevDB, &out.PrewarmDevDB
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Exclude != nil {
 		in, out := &in.Exclude, &out.Exclude
 		*out = make([]string, len(*in))
