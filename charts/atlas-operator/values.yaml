@@ -31,7 +31,7 @@ podSecurityContext:
   runAsNonRoot: true
 
 containerSecurityContext:
-  runAsUser: 1000
+  runAsUser: 65532
   allowPrivilegeEscalation: false
   capabilities:
     drop:
@@ -82,6 +82,9 @@ persistence:
   size: 1Gi
   # Mount path inside the container
   mountPath: /data
+  # fsGroup to set on the pod security context, ensuring the volume is writable
+  # by the container's user (65532)
+  fsGroup: 65532
   # Annotations for the PVC
   annotations: {}
 
