@@ -27,7 +27,7 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: Install Atlas CLI
-        uses: ariga/setup-atlas@50e8000b32f475818655b84116e65a9a7c85cf10 # master
+        uses: ariga/setup-atlas@747818cc9a4d896aae962ffdde7015337930a4c9 # master
       - name: Generate
         run: |
           make cli-gen
