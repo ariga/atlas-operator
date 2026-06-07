@@ -116,7 +116,7 @@ spec:
         - name: DATA_DIR
           value: "/data"
         securityContext:
-          runAsUser: 1000
+          runAsUser: 65532
           allowPrivilegeEscalation: false
           capabilities:
             drop:
