@@ -13,6 +13,14 @@ rbac:
   create: true
   aggregateClusterRoles: false
 
+crds:
+  # CustomResourceDefinitions are cluster-scoped and shared by every release.
+  # When installing multiple releases of this chart in the same cluster (for
+  # example, one per team, each scoped with `labelSelector`), only one release
+  # should own the CRDs. Set this to false on the additional releases to avoid
+  # "invalid ownership metadata" conflicts.
+  create: true
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
@@ -55,6 +63,12 @@ prewarmDevDB: true
 # Warning: This setting enables users to use the `external` and `sql` data sources
 # which can be used to execute arbitrary commands and queries. Use with caution.
 allowCustomConfig: false
+
+# Restrict the operator to only manage AtlasSchema and AtlasMigration resources
+# matching this label selector (e.g. "app=foo" or "team in (a,b)").
+# Leave empty to manage all resources. This is useful when running multiple
+# operator instances in the same namespace, each handling specific resources.
+labelSelector: ""
 
 # -- Additional environment variables to set
 extraEnvs: []

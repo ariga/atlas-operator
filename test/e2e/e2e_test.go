@@ -91,6 +91,15 @@ func TestOperator(t *testing.T) {
 		<-time.After(5 * time.Second)
 	}
 	require.NotEmpty(t, controllerPod, "controller-manager pod not found")
+	// Discover the image used by the running controller so tests can deploy a
+	// second, label-scoped operator from the same locally-built image.
+	controllerImage, err := kind("kubectl", "get", "pod",
+		"-n", nsController, controllerPod,
+		"-o", "jsonpath", "--template", "{.spec.containers[0].image}",
+	)
+	require.NoError(t, err)
+	imageRepo, imageTag := splitImageRef(strings.TrimSpace(controllerImage))
+	chartDir := filepath.Join(dir, "charts", "atlas-operator")
 	t.Cleanup(func() {
 		logs, err := kind("kubectl", "logs", "-n", nsController, controllerPod)
 		require.NoError(t, err)
@@ -108,6 +117,11 @@ func TestOperator(t *testing.T) {
 			e.Setenv("ATLAS_TOKEN", os.Getenv("ATLAS_TOKEN"))
 			// Ensure the test in running in the right kube context
 			e.Setenv("KUBECONFIG", kubeconfig)
+			// Expose the operator chart and the locally-built image so tests can
+			// deploy additional, differently-configured operator instances.
+			e.Setenv("CHART", chartDir)
+			e.Setenv("CONTROLLER_IMAGE_REPO", imageRepo)
+			e.Setenv("CONTROLLER_IMAGE_TAG", imageTag)
 			// Creating a namespace for the test
 			ns := fmt.Sprintf("e2e-%s-%d", path.Base(e.WorkDir), time.Now().UnixMicro())
 			e.Setenv("NAMESPACE", ns)
@@ -294,6 +308,35 @@ func TestOperator(t *testing.T) {
 					ts.Check(err)
 				} else if err == nil {
 					ts.Fatalf("unexpected success")
+				}
+			},
+			// wait-log polls the combined logs of the pods selected by a label
+			// selector in the given namespace until the pattern appears, failing
+			// after a timeout. Useful to assert that a specific operator instance
+			// has reconciled a specific resource.
+			"wait-log": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg {
+					ts.Fatalf("unsupported: ! wait-log")
+				}
+				if len(args) != 3 {
+					ts.Fatalf("usage: wait-log <namespace> <label-selector> <pattern>")
+				}
+				ns, selector, pattern := args[0], args[1], args[2]
+				deadline := time.Now().Add(3 * time.Minute)
+				var (
+					out string
+					err error
+				)
+				for {
+					out, err = kind("kubectl", "logs", "-n", ns, "-l", selector, "--tail=-1")
+					if err == nil && strings.Contains(out, pattern) {
+						return
+					}
+					if time.Now().After(deadline) {
+						ts.Fatalf("wait-log: pattern %q not found in logs (ns=%q selector=%q) within timeout (last err: %v)\n%s",
+							pattern, ns, selector, err, out)
+					}
+					time.Sleep(3 * time.Second)
 				}
 			},
 		},
@@ -579,6 +622,19 @@ func pipeFile(perm fs.FileMode, p string, fn func(w io.Writer) error) error {
 	}
 	defer fs.Close()
 	return fn(fs)
+}
+
+// splitImageRef splits a container image reference into its repository and tag,
+// dropping any digest. The tag defaults to "latest" when none is present.
+func splitImageRef(ref string) (repo, tag string) {
+	if at := strings.IndexByte(ref, '@'); at != -1 {
+		ref = ref[:at]
+	}
+	repo, tag = ref, "latest"
+	if i := strings.LastIndexByte(ref, ':'); i > strings.LastIndexByte(ref, '/') {
+		repo, tag = ref[:i], ref[i+1:]
+	}
+	return repo, tag
 }
 
 func getProjectDir() (string, error) {
