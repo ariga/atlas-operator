@@ -322,7 +322,9 @@ func TestOperator(t *testing.T) {
 					ts.Fatalf("usage: wait-log <namespace> <label-selector> <pattern>")
 				}
 				ns, selector, pattern := args[0], args[1], args[2]
-				deadline := time.Now().Add(3 * time.Minute)
+				ticker := time.NewTicker(3 * time.Second)
+				defer ticker.Stop()
+				timeout := time.After(3 * time.Minute)
 				var (
 					out string
 					err error
@@ -332,11 +334,12 @@ func TestOperator(t *testing.T) {
 					if err == nil && strings.Contains(out, pattern) {
 						return
 					}
-					if time.Now().After(deadline) {
+					select {
+					case <-timeout:
 						ts.Fatalf("wait-log: pattern %q not found in logs (ns=%q selector=%q) within timeout (last err: %v)\n%s",
 							pattern, ns, selector, err, out)
+					case <-ticker.C:
 					}
-					time.Sleep(3 * time.Second)
 				}
 			},
 		},
