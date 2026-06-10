@@ -53,9 +53,14 @@ spec:
       containers:
       - image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        {{- with .Values.labelSelector }}
+        {{- if or .Values.labelSelector .Values.watchNamespaces }}
         args:
-        - --label-selector={{ . }}
+        {{- with .Values.labelSelector }}
+        - --label-selector={{ join "," . }}
+        {{- end }}
+        {{- with .Values.watchNamespaces }}
+        - --namespace={{ join "," . }}
+        {{- end }}
         {{- end }}
         livenessProbe:
           httpGet:

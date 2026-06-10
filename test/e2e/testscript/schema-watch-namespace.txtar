@@ -1,0 +1,73 @@
+# Verify the operator's --namespace support: an operator configured to watch a
+# specific namespace only processes AtlasSchema resources in that namespace.
+#
+# The default operator deployed by the harness watches all namespaces, so we
+# install a SECOND operator scoped to the test namespace via Helm and assert
+# through *its own* logs that it reconciles only the in-namespace resource.
+# Using in-memory SQLite means each operator applies the schema in its own
+# process with no shared state, so the two operators never interfere.
+
+# Render the values file for the scoped operator (expands ${NAMESPACE} and the
+# image env vars).
+cat scoped-values.yaml.tmpl > scoped-values.yaml
+
+# Install an operator scoped to the test namespace. crds.create=false because
+# the default operator already owns the CRDs in the cluster.
+helm install scoped ${CHART} -f scoped-values.yaml --wait --debug
+
+# Create a resource in the watched namespace...
+kubectl apply -f schema-in-scope.yaml
+
+# ...and one in a different namespace the scoped operator does not watch.
+exec kubectl create namespace ${NAMESPACE}-2
+exec kubectl apply -n ${NAMESPACE}-2 -f schema-out-scope.yaml
+
+# The scoped operator must reconcile the in-namespace resource...
+wait-log ${NAMESPACE} app.kubernetes.io/instance=scoped in-scope
+
+# ...while the default cluster-wide operator processes the out-of-namespace one,
+# proving "out-scope" is a valid resource that would be handled if it lived in a
+# watched namespace.
+wait-log ${CONTROLLER_NS} control-plane=controller-manager out-scope
+
+# Give the scoped operator extra time: if it were watching all namespaces it
+# would have logged "out-scope" by now (it has already reconciled "in-scope").
+exec sleep 15
+
+# Assert the scoped operator only ever saw the in-namespace resource.
+kubectl logs -l app.kubernetes.io/instance=scoped --tail=-1
+stdout 'in-scope'
+! stdout 'out-scope'
+
+# Clean up the scoped operator and the extra namespace.
+helm uninstall scoped --wait
+exec kubectl delete namespace ${NAMESPACE}-2
+
+-- scoped-values.yaml.tmpl --
+image:
+  repository: ${CONTROLLER_IMAGE_REPO}
+  tag: "${CONTROLLER_IMAGE_TAG}"
+crds:
+  create: false
+watchNamespaces:
+  - "${NAMESPACE}"
+-- schema-in-scope.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: in-scope
+spec:
+  url: sqlite://file?mode=memory
+  schema:
+    sql: |
+      create table t_in_scope (id integer primary key);
+-- schema-out-scope.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: out-scope
+spec:
+  url: sqlite://file?mode=memory
+  schema:
+    sql: |
+      create table t_out_scope (id integer primary key);
