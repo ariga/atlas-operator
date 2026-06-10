@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -81,6 +82,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var labelSelector string
+	var watchNamespaces string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -99,6 +101,10 @@ func main() {
 			"AtlasSchema and AtlasMigration resources the operator manages. When empty, all "+
 			"resources are managed. Use this to run multiple operator instances in the same "+
 			"namespace, each handling resources matching different labels.")
+	flag.StringVar(&watchNamespaces, "namespace", "",
+		"A comma-separated list of namespaces that restricts where the operator watches "+
+			"for AtlasSchema and AtlasMigration resources. When empty, the operator watches "+
+			"all namespaces (cluster scope).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -107,13 +113,19 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	cacheOpts, err := cacheOptions(labelSelector)
+	namespaces := parseNamespaces(watchNamespaces)
+	cacheOpts, err := cacheOptions(labelSelector, namespaces)
 	if err != nil {
 		setupLog.Error(err, "invalid label selector", "selector", labelSelector)
 		os.Exit(1)
 	}
 	if labelSelector != "" {
 		setupLog.Info("restricting managed resources to label selector", "selector", labelSelector)
+	}
+	if len(namespaces) > 0 {
+		setupLog.Info("restricting watch to namespaces", "namespaces", namespaces)
+	} else {
+		setupLog.Info("watching all namespaces (cluster scope)")
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
@@ -207,29 +219,53 @@ func main() {
 	}
 }
 
-// cacheOptions builds the manager's cache options from the given label selector.
-// When the selector is empty, the returned options leave the cache unrestricted,
-// preserving the default behavior of managing every resource.
+// cacheOptions builds the manager's cache options from the given label selector
+// and the list of namespaces to watch.
 //
-// When set, only AtlasSchema and AtlasMigration resources matching the selector
-// are watched, cached, and therefore reconciled. This makes it possible to run
-// multiple operator instances in the same namespace, each owning a distinct set
-// of resources. Referenced ConfigMaps and Secrets are intentionally left
-// unfiltered, since they usually do not carry the operator's labels.
-func cacheOptions(labelSelector string) (cache.Options, error) {
+// When namespaces is empty, the operator watches all namespaces (cluster scope).
+// Otherwise the cache (and therefore the operator) is restricted to the given
+// namespaces, which also limits the referenced ConfigMaps and Secrets it reads.
+//
+// When labelSelector is set, only AtlasSchema and AtlasMigration resources
+// matching the selector are watched, cached, and therefore reconciled. This
+// makes it possible to run multiple operator instances side by side, each
+// owning a distinct set of resources. Referenced ConfigMaps and Secrets are
+// intentionally left unfiltered by label, since they usually do not carry the
+// operator's labels.
+func cacheOptions(labelSelector string, namespaces []string) (cache.Options, error) {
 	opts := cache.Options{}
-	if labelSelector == "" {
-		return opts, nil
+	if len(namespaces) > 0 {
+		opts.DefaultNamespaces = make(map[string]cache.Config, len(namespaces))
+		for _, ns := range namespaces {
+			opts.DefaultNamespaces[ns] = cache.Config{}
+		}
 	}
-	selector, err := labels.Parse(labelSelector)
-	if err != nil {
-		return opts, fmt.Errorf("parsing label selector %q: %w", labelSelector, err)
-	}
-	opts.ByObject = map[client.Object]cache.ByObject{
-		&dbv1alpha1.AtlasSchema{}:    {Label: selector},
-		&dbv1alpha1.AtlasMigration{}: {Label: selector},
+	if labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			return opts, fmt.Errorf("parsing label selector %q: %w", labelSelector, err)
+		}
+		// Leaving ByObject.Namespaces nil lets controller-runtime default it
+		// from DefaultNamespaces, so the label filter and namespace scope are
+		// combined for the managed resources.
+		opts.ByObject = map[client.Object]cache.ByObject{
+			&dbv1alpha1.AtlasSchema{}:    {Label: selector},
+			&dbv1alpha1.AtlasMigration{}: {Label: selector},
+		}
 	}
 	return opts, nil
+}
+
+// parseNamespaces splits a comma-separated namespace list into a clean slice,
+// trimming whitespace and dropping empty entries.
+func parseNamespaces(s string) []string {
+	var out []string
+	for _, ns := range strings.Split(s, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
 }
 
 // checkForUpdate checks for version updates and security advisories for the Atlas Operator.

@@ -70,6 +70,11 @@ allowCustomConfig: false
 # operator instances in the same namespace, each handling specific resources.
 labelSelector: ""
 
+# Restrict the operator to only watch AtlasSchema and AtlasMigration resources
+# in these namespaces. Leave empty to watch all namespaces (cluster scope).
+# e.g. watchNamespaces: ["team-a", "team-b"]
+watchNamespaces: []
+
 # -- Additional environment variables to set
 extraEnvs: []
 # extraEnvs:
