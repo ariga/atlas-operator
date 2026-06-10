@@ -65,10 +65,11 @@ prewarmDevDB: true
 allowCustomConfig: false
 
 # Restrict the operator to only manage AtlasSchema and AtlasMigration resources
-# matching this label selector (e.g. "app=foo" or "team in (a,b)").
-# Leave empty to manage all resources. This is useful when running multiple
-# operator instances in the same namespace, each handling specific resources.
-labelSelector: ""
+# matching these label selector requirements (ANDed together). Leave empty to
+# manage all resources. This is useful when running multiple operator instances
+# in the same namespace, each handling specific resources.
+# e.g. labelSelector: ["app=foo", "env in (prod,staging)"]
+labelSelector: []
 
 # Restrict the operator to only watch AtlasSchema and AtlasMigration resources
 # in these namespaces. Leave empty to watch all namespaces (cluster scope).

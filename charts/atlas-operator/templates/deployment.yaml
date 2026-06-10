@@ -56,7 +56,7 @@ spec:
         {{- if or .Values.labelSelector .Values.watchNamespaces }}
         args:
         {{- with .Values.labelSelector }}
-        - --label-selector={{ . }}
+        - --label-selector={{ join "," . }}
         {{- end }}
         {{- with .Values.watchNamespaces }}
         - --namespace={{ join "," . }}

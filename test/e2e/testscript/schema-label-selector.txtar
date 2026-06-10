@@ -45,7 +45,8 @@ image:
   tag: "${CONTROLLER_IMAGE_TAG}"
 crds:
   create: false
-labelSelector: "team=alpha"
+labelSelector:
+  - "team=alpha"
 -- schema-alpha.yaml --
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasSchema
