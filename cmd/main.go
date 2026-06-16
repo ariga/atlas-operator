@@ -29,6 +29,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"ariga.io/atlas/atlasexec"
 	"golang.org/x/mod/semver"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -127,7 +128,12 @@ func main() {
 	} else {
 		setupLog.Info("watching all namespaces (cluster scope)")
 	}
-
+	if v, err := atlasVersion(context.Background()); err != nil {
+		setupLog.Error(err, "unable to get atlas version")
+		os.Exit(1)
+	} else {
+		setupLog.Info("detected atlas version", "version", v)
+	}
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancelation and
@@ -266,6 +272,19 @@ func parseNamespaces(s string) []string {
 		}
 	}
 	return out
+}
+
+// atlasVersion runs `atlas version` and returns its string representation.
+func atlasVersion(ctx context.Context) (string, error) {
+	c, err := atlasexec.NewClient(os.TempDir(), "atlas")
+	if err != nil {
+		return "", fmt.Errorf("creating atlas client: %w", err)
+	}
+	v, err := c.Version(ctx)
+	if err != nil {
+		return "", fmt.Errorf("running atlas version: %w", err)
+	}
+	return v.String(), nil
 }
 
 // checkForUpdate checks for version updates and security advisories for the Atlas Operator.
