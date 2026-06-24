@@ -56,6 +56,10 @@ type (
 		recorder record.EventRecorder
 		prewarm  bool
 	}
+	devDBOwner interface {
+		client.Object
+		GetPrewarmDevDB() *bool
+	}
 )
 
 var errWaitDevDB = transient(errors.New("waiting for dev database to be ready"))
@@ -77,8 +81,9 @@ func newDevDB(mgr Manager, r record.EventRecorder, prewarm bool) *devDBReconcile
 // cleanUp clean up any resources created by the controller
 func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 	key := nameDevDB(sc)
+	prewarm := r.prewarmEnabled(sc)
 	// If prewarmDevDB is false, scale down the deployment to 0
-	if !r.prewarm {
+	if !prewarm {
 		deploy := &appsv1.Deployment{}
 		err := r.Get(ctx, key, deploy)
 		if err != nil {
@@ -191,6 +196,15 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	// If the connection template is not found, there is an issue with
 	// the pod spec and the error is not transient.
 	return "", errors.New("no connection template annotation found")
+}
+
+func (r *devDBReconciler) prewarmEnabled(sc client.Object) bool {
+	if owner, ok := sc.(devDBOwner); ok {
+		if override := owner.GetPrewarmDevDB(); override != nil {
+			return *override
+		}
+	}
+	return r.prewarm
 }
 
 func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
