@@ -264,13 +264,9 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, res *dbv1alpha
 		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
 	}
 
-	if err := s.devDB(ctx); err != nil {
-		if p, ok := errors.AsType[*pendingError](err); ok {
-			return r.resultPending(res, p.reason, p.message)
-		}
-		return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
-	}
-
+	// Build the working directory and Atlas client without a dev database, so
+	// we can run `migrate status` first. When there are no pending migrations,
+	// the loop exits early and avoids the cost of spinning up a dev database.
 	if err := s.workingDir(ctx); err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
 	}
@@ -285,6 +281,10 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, res *dbv1alpha
 
 	if err := s.whoAmI(ctx); err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
+	}
+
+	if err := s.migrateStatus(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonMigrating)
 	}
 
 	if err := s.applyChanges(ctx); err != nil {
@@ -351,7 +351,9 @@ func (s *migrationRun) devDB(ctx context.Context) error {
 
 // workingDir creates a working directory for the Atlas CLI.
 // The working directory contains the atlas.hcl config
-// and the migrations directory (if any).
+// and the migrations directory (if any). At this point the config is rendered
+// without a dev database URL; prepareDevDB re-renders it once a dev database
+// is spun up.
 func (s *migrationRun) workingDir(context.Context) error {
 	wd, err := atlasexec.NewWorkingDir(
 		atlasexec.WithAtlasHCL(s.data.render),
@@ -399,25 +401,52 @@ func (s *migrationRun) whoAmI(ctx context.Context) error {
 	}
 }
 
-// applyChanges checks if there are any pending migration files,
-// then applies them, or migrates the database down when it is ahead
-// of the migration directory.
-func (s *migrationRun) applyChanges(ctx context.Context) error {
+// migrateStatus runs `migrate status` to check whether there are any pending
+// migration files. It does not require a dev database, so it can run before
+// one is created.
+func (s *migrationRun) migrateStatus(ctx context.Context) error {
 	s.log.Info("reconciling migration", "env", s.data.EnvName)
 	status, err := s.cli.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: s.data.EnvName, Vars: s.data.Vars})
 	if err != nil {
 		return err
 	}
 	s.status = status
-	switch {
+	return nil
+}
+
+// applyChanges applies the pending migration files on the target database, or
+// migrates the database down when it is ahead of the migration directory. When
+// there are no changes to apply, it marks the resource as ready without
+// spinning up a dev database.
+func (s *migrationRun) applyChanges(ctx context.Context) error {
+	switch status := s.status; {
 	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
+		if err := s.prepareDevDB(ctx); err != nil {
+			return err
+		}
 		return s.migrateDown(ctx)
 	case len(status.Pending) == 0:
 		s.noPendingChanges()
 		return nil
 	default:
+		if err := s.prepareDevDB(ctx); err != nil {
+			return err
+		}
 		return s.migrateApply(ctx)
 	}
+}
+
+// prepareDevDB spins up the dev database (when needed) and re-renders the
+// atlas.hcl config so it includes the dev database URL. This is deferred until
+// we know there is work to do, to avoid the cost of a dev database when there
+// are no pending migrations.
+func (s *migrationRun) prepareDevDB(ctx context.Context) error {
+	if err := s.devDB(ctx); err != nil {
+		return err
+	}
+	// Re-render atlas.hcl now that the dev database URL is known.
+	// "atlas.hcl" is the file name used by atlasexec.WithAtlasHCL.
+	return s.wd.CreateFile("atlas.hcl", s.data.render)
 }
 
 // migrateDown migrates the database down to the last available version.
