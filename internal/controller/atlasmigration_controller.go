@@ -235,24 +235,16 @@ const (
 
 type (
 	// migrationRun holds the state shared between the steps of a single
-	// reconciliation of an AtlasMigration resource. Steps run in order and
-	// populate the fields below as they go.
+	// reconciliation of an AtlasMigration resource.
 	migrationRun struct {
 		r   *AtlasMigrationReconciler
 		res *dbv1alpha1.AtlasMigration
 		log logr.Logger
 		// Populated by the steps as they run.
-		data   *migrationData           // set by stepExtractData
-		wd     *atlasexec.WorkingDir    // set by stepWorkingDir
-		cli    AtlasExec                // set by stepAtlasClient
-		status *atlasexec.MigrateStatus // set by stepApplyChanges
-	}
-	// migrationStep is one unit of the reconcile flow. reason is the default
-	// failure reason used when fn returns an error that does not implement
-	// interface{ Reason() string }.
-	migrationStep struct {
-		reason string
-		fn     func(context.Context) error
+		data   *migrationData
+		wd     *atlasexec.WorkingDir
+		cli    AtlasExec
+		status *atlasexec.MigrateStatus
 	}
 )
 
@@ -264,26 +256,48 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, res *dbv1alpha
 		log: ctrl.Log.WithName("atlas_migration.reconcile"),
 	}
 	defer s.close()
-	for _, step := range []migrationStep{
-		{dbv1alpha1.ReasonReadingMigrationData, s.stepExtractData},
-		{dbv1alpha1.ReasonGettingDevDB, s.stepDevDB},
-		{dbv1alpha1.ReasonReadingMigrationData, s.stepWorkingDir},
-		{dbv1alpha1.ReasonCreatingAtlasClient, s.stepAtlasClient},
-		{dbv1alpha1.ReasonLogin, s.stepLogin},
-		{dbv1alpha1.ReasonWhoAmI, s.stepWhoAmI},
-		{dbv1alpha1.ReasonMigrating, s.stepApplyChanges},
-		{dbv1alpha1.ReasonStoringDirState, s.stepStoreDirState},
-	} {
-		if err := step.fn(ctx); err != nil {
-			if errors.Is(err, errRequeue) {
-				return ctrl.Result{Requeue: true}, nil
-			}
-			if p, ok := err.(*pendingError); ok {
-				return r.resultPending(res, p.reason, p.message)
-			}
-			return r.resultErr(res, err, step.reason)
+
+	if err := s.extractData(ctx); err != nil {
+		if errors.Is(err, errRequeue) {
+			return ctrl.Result{Requeue: true}, nil
 		}
+		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
 	}
+
+	if err := s.devDB(ctx); err != nil {
+		if p, ok := errors.AsType[*pendingError](err); ok {
+			return r.resultPending(res, p.reason, p.message)
+		}
+		return r.resultErr(res, err, dbv1alpha1.ReasonGettingDevDB)
+	}
+
+	if err := s.workingDir(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
+	}
+
+	if err := s.atlasClient(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
+	}
+
+	if err := s.login(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
+	}
+
+	if err := s.whoAmI(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
+	}
+
+	if err := s.applyChanges(ctx); err != nil {
+		if p, ok := errors.AsType[*pendingError](err); ok {
+			return r.resultPending(res, p.reason, p.message)
+		}
+		return r.resultErr(res, err, dbv1alpha1.ReasonMigrating)
+	}
+
+	if err := s.storeDirState(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonStoringDirState)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -294,8 +308,8 @@ func (s *migrationRun) close() {
 	}
 }
 
-// stepExtractData extracts the migration data from the resource.
-func (s *migrationRun) stepExtractData(ctx context.Context) error {
+// extractData extracts the migration data from the resource.
+func (s *migrationRun) extractData(ctx context.Context) error {
 	data, err := s.r.extractData(ctx, s.res)
 	if err != nil {
 		return err
@@ -311,11 +325,11 @@ func (s *migrationRun) stepExtractData(ctx context.Context) error {
 	return nil
 }
 
-// stepDevDB spins up a dev database for the migration, if needed.
+// devDB spins up a dev database for the migration, if needed.
 //
 // TODO(giautm): Create DevDB and run linter for new migration
 // files before applying it to the target database.
-func (s *migrationRun) stepDevDB(ctx context.Context) error {
+func (s *migrationRun) devDB(ctx context.Context) error {
 	data, res := s.data, s.res
 	var err error
 	switch {
@@ -335,10 +349,10 @@ func (s *migrationRun) stepDevDB(ctx context.Context) error {
 	return nil
 }
 
-// stepWorkingDir creates a working directory for the Atlas CLI.
+// workingDir creates a working directory for the Atlas CLI.
 // The working directory contains the atlas.hcl config
 // and the migrations directory (if any).
-func (s *migrationRun) stepWorkingDir(context.Context) error {
+func (s *migrationRun) workingDir(context.Context) error {
 	wd, err := atlasexec.NewWorkingDir(
 		atlasexec.WithAtlasHCL(s.data.render),
 		atlasexec.WithMigrations(s.data.Dir),
@@ -350,8 +364,8 @@ func (s *migrationRun) stepWorkingDir(context.Context) error {
 	return nil
 }
 
-// stepAtlasClient creates the Atlas client for the working directory.
-func (s *migrationRun) stepAtlasClient(context.Context) error {
+// atlasClient creates the Atlas client for the working directory.
+func (s *migrationRun) atlasClient(context.Context) error {
 	cli, err := s.r.atlasClient(s.wd.Path(), s.data.Cloud, filepath.Join(s.res.Namespace, s.res.Name))
 	if err != nil {
 		return err
@@ -360,16 +374,16 @@ func (s *migrationRun) stepAtlasClient(context.Context) error {
 	return nil
 }
 
-// stepLogin logs in to Atlas Cloud, when a token is provided.
-func (s *migrationRun) stepLogin(ctx context.Context) error {
+// login logs in to Atlas Cloud, when a token is provided.
+func (s *migrationRun) login(ctx context.Context) error {
 	if s.data.Cloud == nil || s.data.Cloud.Token == "" {
 		return nil
 	}
 	return s.cli.Login(ctx, &atlasexec.LoginParams{Token: s.data.Cloud.Token, GrantOnly: true})
 }
 
-// stepWhoAmI verifies the connection to Atlas Cloud.
-func (s *migrationRun) stepWhoAmI(ctx context.Context) error {
+// whoAmI verifies the connection to Atlas Cloud.
+func (s *migrationRun) whoAmI(ctx context.Context) error {
 	switch whoami, err := s.cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: s.data.Vars}); {
 	case errors.Is(err, atlasexec.ErrRequireLogin):
 		s.log.Info("the resource is not connected to Atlas Cloud")
@@ -385,10 +399,10 @@ func (s *migrationRun) stepWhoAmI(ctx context.Context) error {
 	}
 }
 
-// stepApplyChanges checks if there are any pending migration files,
+// applyChanges checks if there are any pending migration files,
 // then applies them, or migrates the database down when it is ahead
 // of the migration directory.
-func (s *migrationRun) stepApplyChanges(ctx context.Context) error {
+func (s *migrationRun) applyChanges(ctx context.Context) error {
 	s.log.Info("reconciling migration", "env", s.data.EnvName)
 	status, err := s.cli.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: s.data.EnvName, Vars: s.data.Vars})
 	if err != nil {
@@ -528,9 +542,9 @@ func (s *migrationRun) migrateApply(ctx context.Context) error {
 	return nil
 }
 
-// stepStoreDirState compresses the migration directory then stores it in the
+// storeDirState compresses the migration directory then stores it in the
 // secret for later use when atlas runs the migration down.
-func (s *migrationRun) stepStoreDirState(ctx context.Context) error {
+func (s *migrationRun) storeDirState(ctx context.Context) error {
 	if s.data.Dir == nil {
 		return nil
 	}
@@ -552,12 +566,12 @@ func (e *ProtectedFlowError) Reason() string {
 	return e.reason
 }
 
-// errRequeue stops the step chain and requeues the resource immediately,
+// errRequeue stops the reconciliation and requeues the resource immediately,
 // without reporting an error.
 var errRequeue = errors.New("requeue")
 
 type (
-	// pendingError stops the step chain and reports the resource as waiting
+	// pendingError stops the reconciliation and reports the resource as waiting
 	// for an external action (e.g. plan approval) via resultPending.
 	pendingError struct {
 		reason  string
