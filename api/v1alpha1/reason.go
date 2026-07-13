@@ -31,6 +31,12 @@ const (
 	ReasonCreatingWorkingDir = "CreatingWorkingDir"
 	// ReasonLogin represents the reason for logging in to Atlas.
 	ReasonLogin = "Login"
+	// ReasonReadingMigrationData represents the reason for getting the data of an AtlasMigration resource.
+	ReasonReadingMigrationData = "ReadingMigrationData"
+	// ReasonMigrating represents the reason for migrating a database.
+	ReasonMigrating = "Migrating"
+	// ReasonStoringDirState represents the reason for storing the state of an AtlasMigration resource.
+	ReasonStoringDirState = "StoringDirState"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.
