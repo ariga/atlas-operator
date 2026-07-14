@@ -55,8 +55,10 @@ tolerations: []
 
 affinity: {}
 
-# By default, the operator will recreate devdb pods after migration
+# By default, the operator will recreate devdb pods after migration.
 # Set this to true to keep the devdb pods around.
+# This is the global default and can be overridden per AtlasSchema or
+# AtlasMigration resource with spec.prewarmDevDB.
 prewarmDevDB: true
 
 # Enable this to allow custom project configuration
