@@ -975,7 +975,7 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, c)
 	ev := tt.events()
-	require.Len(t, ev, 2)
+	require.Len(t, ev, 1)
 	require.Equal(t, "Normal Applied Version 20230412003626 applied", ev[0])
 }
 
