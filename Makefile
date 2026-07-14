@@ -232,7 +232,9 @@ cli-gen: generate manifests chart-manifests license
 
 .PHONY: chart-manifests
 chart-manifests: manifests license kustomize
-	$(KUSTOMIZE) build config/crd -o charts/atlas-operator/templates/crds/crd.yaml
+	@echo '{{- if .Values.crds.create }}' > charts/atlas-operator/templates/crds/crd.yaml
+	$(KUSTOMIZE) build config/crd >> charts/atlas-operator/templates/crds/crd.yaml
+	@echo '{{- end }}' >> charts/atlas-operator/templates/crds/crd.yaml
 
 .PHONY: prep-release
 prep-release: ## Prepare the release by updating the version in Chart.yaml.

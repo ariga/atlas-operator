@@ -1,0 +1,60 @@
+# This test verifies that the reconciliation loop runs `migrate status` before
+# spinning up a dev database, so that when there are no pending migrations the
+# loop exits early WITHOUT creating a dev database.
+db postgres:15.4 DB_URL
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Wait for the first pod created
+kubectl-wait-available deploy/postgres
+# Wait for the DB ready before applying the migration
+kubectl-wait-ready -l app=postgres pods
+
+# Create configmap to store the migrations directory
+kubectl create configmap migration-dir --from-file=migrations
+
+# Phase 1: there are pending migrations, so the operator spins up a dev
+# database to apply them.
+kubectl apply -f migration.yaml
+kubectl-wait-ready AtlasMigration/pg
+kubectl wait --timeout=2h --for=jsonpath='{.status.lastAppliedVersion}'=20240101000000 AtlasMigration/pg
+
+# The dev database deployment was created to apply the pending migration.
+kubectl get deployment pg-atlas-dev-db
+
+# Phase 2: recreate the resource against a database that is already at the
+# latest version. `migrate status` reports no pending migrations, so the loop
+# marks the resource ready without ever spinning up a dev database.
+kubectl delete AtlasMigration/pg
+# Remove the dev database left over from phase 1 (also garbage-collected as an
+# owned resource) so we can assert it is not re-created.
+kubectl delete deployment pg-atlas-dev-db --ignore-not-found
+
+kubectl apply -f migration.yaml
+kubectl-wait-ready AtlasMigration/pg
+kubectl wait --timeout=2h --for=jsonpath='{.status.lastAppliedVersion}'=20240101000000 AtlasMigration/pg
+
+# No dev database was created this time, because there were no pending migrations.
+! kubectl get deployment pg-atlas-dev-db
+-- migrations/atlas.sum --
+h1:UqhsC3WJVK8Hkfk51x3ilg7+o//McxwfMErEBeMPzxY=
+20240101000000_init.sql h1:R2jO47qZUcfh/cPpbGx25druKi6FXDMhgqdTwufUO20=
+-- migrations/20240101000000_init.sql --
+-- Create "users" table
+CREATE TABLE "users" (
+  "id" integer NOT NULL,
+  "name" character varying NOT NULL,
+  PRIMARY KEY ("id")
+);
+-- migration.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: pg
+spec:
+  dir:
+    configMapRef:
+      name: "migration-dir"
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url

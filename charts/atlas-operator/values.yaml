@@ -13,6 +13,14 @@ rbac:
   create: true
   aggregateClusterRoles: false
 
+crds:
+  # CustomResourceDefinitions are cluster-scoped and shared by every release.
+  # When installing multiple releases of this chart in the same cluster (for
+  # example, one per team, each scoped with `labelSelector`), only one release
+  # should own the CRDs. Set this to false on the additional releases to avoid
+  # "invalid ownership metadata" conflicts.
+  create: true
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
@@ -31,7 +39,7 @@ podSecurityContext:
   runAsNonRoot: true
 
 containerSecurityContext:
-  runAsUser: 1000
+  runAsUser: 65532
   allowPrivilegeEscalation: false
   capabilities:
     drop:
@@ -55,6 +63,18 @@ prewarmDevDB: true
 # Warning: This setting enables users to use the `external` and `sql` data sources
 # which can be used to execute arbitrary commands and queries. Use with caution.
 allowCustomConfig: false
+
+# Restrict the operator to only manage AtlasSchema and AtlasMigration resources
+# matching these label selector requirements (ANDed together). Leave empty to
+# manage all resources. This is useful when running multiple operator instances
+# in the same namespace, each handling specific resources.
+# e.g. labelSelector: ["app=foo", "env in (prod,staging)"]
+labelSelector: []
+
+# Restrict the operator to only watch AtlasSchema and AtlasMigration resources
+# in these namespaces. Leave empty to watch all namespaces (cluster scope).
+# e.g. watchNamespaces: ["team-a", "team-b"]
+watchNamespaces: []
 
 # -- Additional environment variables to set
 extraEnvs: []
@@ -82,6 +102,9 @@ persistence:
   size: 1Gi
   # Mount path inside the container
   mountPath: /data
+  # fsGroup to set on the pod security context, ensuring the volume is writable
+  # by the container's user (65532)
+  fsGroup: 65532
   # Annotations for the PVC
   annotations: {}
 

@@ -45,6 +45,7 @@ import (
 	"ariga.io/atlas/sql/migrate"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
 	"github.com/ariga/atlas-operator/internal/controller/watch"
+	"github.com/go-logr/logr"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -137,39 +138,8 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		res.SetReconciling("Reconciling")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	data, err := r.extractData(ctx, res)
-	if err != nil {
-		return r.resultErr(res, err, "ReadingMigrationData")
-	}
-	// We need to update the ready condition immediately before doing
-	// any heavy jobs if the hash is different from the last applied.
-	// This is to ensure that other tools know we are still applying the changes.
-	if res.IsReady() && res.IsHashModified(data.ObservedHash) {
-		res.SetReconciling("Current migration data has changed")
-		return ctrl.Result{Requeue: true}, nil
-	}
-	// ====================================================
-	// Starting area to handle the heavy jobs.
-	// Below this line is the main logic of the controller.
-	// ====================================================
-
-	// TODO(giautm): Create DevDB and run linter for new migration
-	// files before applying it to the target database.
-	switch {
-	case data.URL == nil:
-		// The user has not specified a URL for the schema, so no dev database is needed.
-	case res.Spec.DevDB != nil:
-		// The user has provided a custom dev database configuration. spin it up.
-		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, &res.Spec.DevDB.Spec, data.DevURL)
-	case !data.hasDevURL():
-		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
-		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, nil, data.DevURL)
-	}
-	if err != nil {
-		return r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, err.Error())
-	}
 	// Reconcile given resource
-	return r.reconcile(ctx, data, res)
+	return r.reconcile(ctx, res)
 }
 
 func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {
@@ -263,162 +233,351 @@ const (
 	StateApplied  = "APPLIED"
 )
 
-// Reconcile the given AtlasMigration resource.
-func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, data *migrationData, res *dbv1alpha1.AtlasMigration) (ctrl.Result, error) {
-	log := ctrl.Log.WithName("atlas_migration.reconcile")
-	// Create a working directory for the Atlas CLI
-	// The working directory contains the atlas.hcl config
-	// and the migrations directory (if any)
-	wd, err := atlasexec.NewWorkingDir(
-		atlasexec.WithAtlasHCL(data.render),
-		atlasexec.WithMigrations(data.Dir),
-	)
-	if err != nil {
-		return r.resultErr(res, err, "ReadingMigrationData")
+type (
+	// migrationRun holds the state shared between the steps of a single
+	// reconciliation of an AtlasMigration resource.
+	migrationRun struct {
+		r   *AtlasMigrationReconciler
+		res *dbv1alpha1.AtlasMigration
+		log logr.Logger
+		// Populated by the steps as they run.
+		data   *migrationData
+		wd     *atlasexec.WorkingDir
+		cli    AtlasExec
+		status *atlasexec.MigrateStatus
 	}
-	defer wd.Close()
-	c, err := r.atlasClient(wd.Path(), data.Cloud, filepath.Join(res.Namespace, res.Name))
-	if err != nil {
+)
+
+// Reconcile the given AtlasMigration resource.
+func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, res *dbv1alpha1.AtlasMigration) (ctrl.Result, error) {
+	s := &migrationRun{
+		r:   r,
+		res: res,
+		log: ctrl.Log.WithName("atlas_migration.reconcile"),
+	}
+	defer s.close()
+
+	if err := s.extractData(ctx); err != nil {
+		if errors.Is(err, errRequeue) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
+	}
+
+	// Build the working directory and Atlas client without a dev database, so
+	// we can run `migrate status` first. When there are no pending migrations,
+	// the loop exits early and avoids the cost of spinning up a dev database.
+	if err := s.workingDir(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonReadingMigrationData)
+	}
+
+	if err := s.atlasClient(ctx); err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonCreatingAtlasClient)
 	}
-	if data.Cloud != nil && data.Cloud.Token != "" {
-		if err := c.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
-			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
-		}
+
+	if err := s.login(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
 	}
-	var whoami *atlasexec.WhoAmI
-	switch whoami, err = c.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: data.Vars}); {
-	case errors.Is(err, atlasexec.ErrRequireLogin):
-		log.Info("the resource is not connected to Atlas Cloud")
-		if data.Config != nil {
-			err = errors.New("login is required to use custom atlas.hcl config")
-			return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
-		}
-	case err != nil:
+
+	if err := s.whoAmI(ctx); err != nil {
 		return r.resultErr(res, err, dbv1alpha1.ReasonWhoAmI)
-	default:
-		log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
 	}
-	log.Info("reconciling migration", "env", data.EnvName)
-	// Check if there are any pending migration files
-	status, err := c.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: data.EnvName, Vars: data.Vars})
-	if err != nil {
-		return r.resultErr(res, err, "Migrating")
+
+	if err := s.migrateStatus(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonMigrating)
 	}
-	switch {
-	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
-		if !data.MigrateDown {
-			err = &ProtectedFlowError{
-				reason: "ProtectedFlowError",
-				msg:    "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
-			}
-			return r.resultErr(res, err, "ProtectedFlowError")
+
+	if err := s.applyChanges(ctx); err != nil {
+		if p, ok := errors.AsType[*pendingError](err); ok {
+			return r.resultPending(res, p.reason, p.message)
 		}
-		// The downgrade is allowed, apply the last migration version
-		last := status.Available[len(status.Available)-1]
-		log.Info("downgrading to the last available version", "version", last.Version)
-		params := &atlasexec.MigrateDownParams{
-			Env:       data.EnvName,
-			ToVersion: last.Version,
-			Context: &atlasexec.DeployRunContext{
-				TriggerType:    atlasexec.TriggerTypeKubernetes,
-				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
-			},
-			Vars: data.Vars,
-		}
-		// Atlas needs all versions to be present in the directory
-		// to downgrade to a specific version.
-		switch {
-		case data.Cloud != nil && data.RemoteDir != nil:
-			// Use the `latest` tag of the remote directory to fetch all versions.
-			params.DirURL = fmt.Sprintf("atlas://%s", data.RemoteDir.Name)
-		case data.DirLatest != nil:
-			// Copy the dir-state from latest deployment to the different location
-			// (to avoid the conflict with the current migration directory)
-			// then use it to downgrade.
-			current := fmt.Sprintf("migrations-%s", status.Current)
-			if err = wd.CopyFS(current, data.DirLatest); err != nil {
-				return r.resultErr(res, err, "CopyingDirState")
-			}
-			params.DirURL = fmt.Sprintf("file://%s", current)
-		default:
-			return r.resultErr(res, errors.New("unable to downgrade, no dir-state found"), "Migrating")
-		}
-		run, err := c.MigrateDown(ctx, params)
-		if err != nil {
-			return r.resultErr(res, err, "Migrating")
-		}
-		switch run.Status {
-		case StatePending:
-			res.Status.ApprovalURL = run.URL
-			return r.resultPending(res, dbv1alpha1.ReasonApprovalPending, fmt.Sprintf("plan approval pending, review here: %s", run.URL))
-		case StateAborted:
-			res.Status.ApprovalURL = run.URL
-			// Migration is aborted, no need to reapply
-			return r.resultErr(res, fmt.Errorf("plan rejected, review here: %s", run.URL), "PlanRejected")
-		case StateApplied, StateApproved:
-			res.SetReady(dbv1alpha1.AtlasMigrationStatus{
-				ObservedHash:       data.ObservedHash,
-				ApprovalURL:        run.URL,
-				LastApplied:        run.Start.Unix(),
-				LastAppliedVersion: run.Target,
-				LastDeploymentURL:  run.URL,
-			})
-			r.recordApplied(res, run.Target)
-		}
-	case len(status.Pending) == 0:
-		log.Info("no pending migrations")
-		// No pending migrations
-		var lastApplied int64
-		if len(status.Applied) > 0 {
-			lastApplied = status.Applied[len(status.Applied)-1].ExecutedAt.Unix()
-		}
-		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
-			ObservedHash:       data.ObservedHash,
-			LastApplied:        lastApplied,
-			LastAppliedVersion: status.Current,
-		})
-		r.recordApplied(res, status.Current)
-	default:
-		log.Info("applying pending migrations", "count", len(status.Pending))
-		var stderr bytes.Buffer
-		c.SetStderr(&stderr)
-		// There are pending migrations
-		// Execute Atlas CLI migrate command
-		reports, err := c.MigrateApplySlice(ctx, &atlasexec.MigrateApplyParams{
-			Env: data.EnvName,
-			Context: &atlasexec.DeployRunContext{
-				TriggerType:    atlasexec.TriggerTypeKubernetes,
-				TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
-			},
-			Vars: data.Vars,
-		})
-		if err != nil {
-			return r.resultErr(res, err, "Migrating")
-		}
-		if len(reports) != 1 {
-			return r.resultErr(res, fmt.Errorf("unexpected number of reports: %d", len(reports)), "Migrating")
-		}
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			// In some cases, Atlas logs to stderr without returning a nonzero status code. Emit the message to the user.
-			r.recorder.Event(res, corev1.EventTypeWarning, "Migrating", s)
-		}
-		c.SetStderr(nil)
-		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
-			ObservedHash:       data.ObservedHash,
-			LastApplied:        reports[0].End.Unix(),
-			LastAppliedVersion: reports[0].Target,
-		})
-		r.recordApplied(res, reports[0].Target)
+		return r.resultErr(res, err, dbv1alpha1.ReasonMigrating)
 	}
-	if data.Dir != nil {
-		// Compress the migration directory then store it in the secret
-		// for later use when atlas runs the migration down.
-		if err = r.storeDirState(ctx, res, data.Dir); err != nil {
-			return r.resultErr(res, err, "StoringDirState")
-		}
+
+	if err := s.storeDirState(ctx); err != nil {
+		return r.resultErr(res, err, dbv1alpha1.ReasonStoringDirState)
 	}
+
 	return ctrl.Result{}, nil
+}
+
+// close releases the working directory, if one was created.
+func (s *migrationRun) close() {
+	if s.wd != nil {
+		s.wd.Close()
+	}
+}
+
+// extractData extracts the migration data from the resource.
+func (s *migrationRun) extractData(ctx context.Context) error {
+	data, err := s.r.extractData(ctx, s.res)
+	if err != nil {
+		return err
+	}
+	// We need to update the ready condition immediately before doing
+	// any heavy jobs if the hash is different from the last applied.
+	// This is to ensure that other tools know we are still applying the changes.
+	if s.res.IsReady() && s.res.IsHashModified(data.ObservedHash) {
+		s.res.SetReconciling("Current migration data has changed")
+		return errRequeue
+	}
+	s.data = data
+	return nil
+}
+
+// devDB spins up a dev database for the migration, if needed.
+//
+// TODO(giautm): Create DevDB and run linter for new migration
+// files before applying it to the target database.
+func (s *migrationRun) devDB(ctx context.Context) error {
+	data, res := s.data, s.res
+	var err error
+	switch {
+	case data.URL == nil:
+		// The user has not specified a URL for the schema, so no dev database is needed.
+		return nil
+	case res.Spec.DevDB != nil:
+		// The user has provided a custom dev database configuration. spin it up.
+		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, &res.Spec.DevDB.Spec, data.DevURL)
+	case !data.hasDevURL():
+		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
+		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, nil, data.DevURL)
+	}
+	if err != nil {
+		return &pendingError{reason: dbv1alpha1.ReasonGettingDevDB, message: err.Error()}
+	}
+	return nil
+}
+
+// workingDir creates a working directory for the Atlas CLI.
+// The working directory contains the atlas.hcl config
+// and the migrations directory (if any). At this point the config is rendered
+// without a dev database URL; prepareDevDB re-renders it once a dev database
+// is spun up.
+func (s *migrationRun) workingDir(context.Context) error {
+	wd, err := atlasexec.NewWorkingDir(
+		atlasexec.WithAtlasHCL(s.data.render),
+		atlasexec.WithMigrations(s.data.Dir),
+	)
+	if err != nil {
+		return err
+	}
+	s.wd = wd
+	return nil
+}
+
+// atlasClient creates the Atlas client for the working directory.
+func (s *migrationRun) atlasClient(context.Context) error {
+	cli, err := s.r.atlasClient(s.wd.Path(), s.data.Cloud, filepath.Join(s.res.Namespace, s.res.Name))
+	if err != nil {
+		return err
+	}
+	s.cli = cli
+	return nil
+}
+
+// login logs in to Atlas Cloud, when a token is provided.
+func (s *migrationRun) login(ctx context.Context) error {
+	if s.data.Cloud == nil || s.data.Cloud.Token == "" {
+		return nil
+	}
+	return s.cli.Login(ctx, &atlasexec.LoginParams{Token: s.data.Cloud.Token, GrantOnly: true})
+}
+
+// whoAmI verifies the connection to Atlas Cloud.
+func (s *migrationRun) whoAmI(ctx context.Context) error {
+	switch whoami, err := s.cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: s.data.Vars}); {
+	case errors.Is(err, atlasexec.ErrRequireLogin):
+		s.log.Info("the resource is not connected to Atlas Cloud")
+		if s.data.Config != nil {
+			return errors.New("login is required to use custom atlas.hcl config")
+		}
+		return nil
+	case err != nil:
+		return err
+	default:
+		s.log.Info("the resource is connected to Atlas Cloud", "org", whoami.Org)
+		return nil
+	}
+}
+
+// migrateStatus runs `migrate status` to check whether there are any pending
+// migration files. It does not require a dev database, so it can run before
+// one is created.
+func (s *migrationRun) migrateStatus(ctx context.Context) error {
+	s.log.Info("reconciling migration", "env", s.data.EnvName)
+	status, err := s.cli.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: s.data.EnvName, Vars: s.data.Vars})
+	if err != nil {
+		return err
+	}
+	s.status = status
+	return nil
+}
+
+// applyChanges applies the pending migration files on the target database, or
+// migrates the database down when it is ahead of the migration directory. When
+// there are no changes to apply, it marks the resource as ready without
+// spinning up a dev database.
+func (s *migrationRun) applyChanges(ctx context.Context) error {
+	switch status := s.status; {
+	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
+		if err := s.prepareDevDB(ctx); err != nil {
+			return err
+		}
+		return s.migrateDown(ctx)
+	case len(status.Pending) == 0:
+		s.noPendingChanges()
+		return nil
+	default:
+		if err := s.prepareDevDB(ctx); err != nil {
+			return err
+		}
+		return s.migrateApply(ctx)
+	}
+}
+
+// prepareDevDB spins up the dev database (when needed) and re-renders the
+// atlas.hcl config so it includes the dev database URL. This is deferred until
+// we know there is work to do, to avoid the cost of a dev database when there
+// are no pending migrations.
+func (s *migrationRun) prepareDevDB(ctx context.Context) error {
+	if err := s.devDB(ctx); err != nil {
+		return err
+	}
+	// Re-render atlas.hcl now that the dev database URL is known.
+	// "atlas.hcl" is the file name used by atlasexec.WithAtlasHCL.
+	return s.wd.CreateFile("atlas.hcl", s.data.render)
+}
+
+// migrateDown migrates the database down to the last available version.
+func (s *migrationRun) migrateDown(ctx context.Context) error {
+	data, res, status := s.data, s.res, s.status
+	if !data.MigrateDown {
+		return &ProtectedFlowError{
+			reason: "ProtectedFlowError",
+			msg:    "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
+		}
+	}
+	// The downgrade is allowed, apply the last migration version
+	last := status.Available[len(status.Available)-1]
+	s.log.Info("downgrading to the last available version", "version", last.Version)
+	params := &atlasexec.MigrateDownParams{
+		Env:       data.EnvName,
+		ToVersion: last.Version,
+		Context: &atlasexec.DeployRunContext{
+			TriggerType:    atlasexec.TriggerTypeKubernetes,
+			TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
+		},
+		Vars: data.Vars,
+	}
+	// Atlas needs all versions to be present in the directory
+	// to downgrade to a specific version.
+	switch {
+	case data.Cloud != nil && data.RemoteDir != nil:
+		// Use the `latest` tag of the remote directory to fetch all versions.
+		params.DirURL = fmt.Sprintf("atlas://%s", data.RemoteDir.Name)
+	case data.DirLatest != nil:
+		// Copy the dir-state from latest deployment to the different location
+		// (to avoid the conflict with the current migration directory)
+		// then use it to downgrade.
+		current := fmt.Sprintf("migrations-%s", status.Current)
+		if err := s.wd.CopyFS(current, data.DirLatest); err != nil {
+			return &reasonedError{err: err, reason: "CopyingDirState"}
+		}
+		params.DirURL = fmt.Sprintf("file://%s", current)
+	default:
+		return errors.New("unable to downgrade, no dir-state found")
+	}
+	run, err := s.cli.MigrateDown(ctx, params)
+	if err != nil {
+		return err
+	}
+	switch run.Status {
+	case StatePending:
+		res.Status.ApprovalURL = run.URL
+		return &pendingError{
+			reason:  dbv1alpha1.ReasonApprovalPending,
+			message: fmt.Sprintf("plan approval pending, review here: %s", run.URL),
+		}
+	case StateAborted:
+		res.Status.ApprovalURL = run.URL
+		// Migration is aborted, no need to reapply
+		return &reasonedError{
+			err:    fmt.Errorf("plan rejected, review here: %s", run.URL),
+			reason: "PlanRejected",
+		}
+	case StateApplied, StateApproved:
+		res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+			ObservedHash:       data.ObservedHash,
+			ApprovalURL:        run.URL,
+			LastApplied:        run.Start.Unix(),
+			LastAppliedVersion: run.Target,
+			LastDeploymentURL:  run.URL,
+		})
+		s.r.recordApplied(res, run.Target)
+	}
+	return nil
+}
+
+// noPendingChanges marks the resource as ready when
+// there are no pending migrations.
+func (s *migrationRun) noPendingChanges() {
+	s.log.Info("no pending migrations")
+	// No pending migrations
+	var lastApplied int64
+	if len(s.status.Applied) > 0 {
+		lastApplied = s.status.Applied[len(s.status.Applied)-1].ExecutedAt.Unix()
+	}
+	s.res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+		ObservedHash:       s.data.ObservedHash,
+		LastApplied:        lastApplied,
+		LastAppliedVersion: s.status.Current,
+	})
+	s.r.recordApplied(s.res, s.status.Current)
+}
+
+// migrateApply executes the pending migration files on the target database.
+func (s *migrationRun) migrateApply(ctx context.Context) error {
+	s.log.Info("applying pending migrations", "count", len(s.status.Pending))
+	var stderr bytes.Buffer
+	s.cli.SetStderr(&stderr)
+	// There are pending migrations
+	// Execute Atlas CLI migrate command
+	reports, err := s.cli.MigrateApplySlice(ctx, &atlasexec.MigrateApplyParams{
+		Env: s.data.EnvName,
+		Context: &atlasexec.DeployRunContext{
+			TriggerType:    atlasexec.TriggerTypeKubernetes,
+			TriggerVersion: dbv1alpha1.VersionFromContext(ctx),
+		},
+		Vars: s.data.Vars,
+	})
+	if err != nil {
+		return err
+	}
+	if len(reports) != 1 {
+		return fmt.Errorf("unexpected number of reports: %d", len(reports))
+	}
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		// In some cases, Atlas logs to stderr without returning a nonzero status code. Emit the message to the user.
+		s.r.recorder.Event(s.res, corev1.EventTypeWarning, "Migrating", msg)
+	}
+	s.cli.SetStderr(nil)
+	s.res.SetReady(dbv1alpha1.AtlasMigrationStatus{
+		ObservedHash:       s.data.ObservedHash,
+		LastApplied:        reports[0].End.Unix(),
+		LastAppliedVersion: reports[0].Target,
+	})
+	s.r.recordApplied(s.res, reports[0].Target)
+	return nil
+}
+
+// storeDirState compresses the migration directory then stores it in the
+// secret for later use when atlas runs the migration down.
+func (s *migrationRun) storeDirState(ctx context.Context) error {
+	if s.data.Dir == nil {
+		return nil
+	}
+	return s.r.storeDirState(ctx, s.res, s.data.Dir)
 }
 
 type ProtectedFlowError struct {
@@ -433,6 +592,41 @@ func (e *ProtectedFlowError) Error() string {
 
 // Reason returns the reason of the error
 func (e *ProtectedFlowError) Reason() string {
+	return e.reason
+}
+
+// errRequeue stops the reconciliation and requeues the resource immediately,
+// without reporting an error.
+var errRequeue = errors.New("requeue")
+
+type (
+	// pendingError stops the reconciliation and reports the resource as waiting
+	// for an external action (e.g. plan approval) via resultPending.
+	pendingError struct {
+		reason  string
+		message string
+	}
+	// reasonedError overrides the default failure reason of the step
+	// returning it. It intentionally has no Unwrap method, so recordErrEvent
+	// keeps classifying the error as transient.
+	reasonedError struct {
+		err    error
+		reason string
+	}
+)
+
+// Error implements the error interface
+func (e *pendingError) Error() string {
+	return e.message
+}
+
+// Error implements the error interface
+func (e *reasonedError) Error() string {
+	return e.err.Error()
+}
+
+// Reason returns the reason of the error
+func (e *reasonedError) Reason() string {
 	return e.reason
 }
 

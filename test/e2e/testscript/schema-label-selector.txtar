@@ -1,0 +1,73 @@
+# Verify the operator's --label-selector support: an operator configured with a
+# label selector only processes AtlasSchema resources whose labels match it.
+#
+# The default operator deployed by the harness watches everything, so we install
+# a SECOND, label-scoped operator (team=alpha) via Helm and assert through *its
+# own* logs that it reconciles only the matching resource. Using in-memory SQLite
+# means each operator applies the schema in its own process with no shared state,
+# so the two operators never interfere with one another.
+
+# Render the values file for the scoped operator (expands the env vars).
+cat scoped-values.yaml.tmpl > scoped-values.yaml
+
+# Install a label-scoped operator. crds.create=false because the default
+# operator already owns the CRDs in the cluster.
+helm install scoped ${CHART} -f scoped-values.yaml --wait --debug
+
+# Create two schemas with different labels. Only "team-alpha" matches the scoped
+# operator's selector (team=alpha); "team-bravo" does not.
+kubectl apply -f schema-alpha.yaml
+kubectl apply -f schema-bravo.yaml
+
+# The scoped operator must reconcile the matching resource...
+wait-log ${NAMESPACE} app.kubernetes.io/instance=scoped team-alpha
+
+# ...while the default cluster-wide operator processes the non-matching one,
+# proving "team-bravo" is a valid resource that would be handled if its labels
+# matched the scoped operator's selector.
+wait-log ${CONTROLLER_NS} control-plane=controller-manager team-bravo
+
+# Give the scoped operator extra time: if it were watching "team-bravo" it would
+# have logged it by now (it has already reconciled "team-alpha" several times).
+exec sleep 15
+
+# Assert the scoped operator only ever saw the matching resource.
+kubectl logs -l app.kubernetes.io/instance=scoped --tail=-1
+stdout 'team-alpha'
+! stdout 'team-bravo'
+
+# Clean up the scoped operator (also removes its cluster-scoped RBAC).
+helm uninstall scoped --wait
+
+-- scoped-values.yaml.tmpl --
+image:
+  repository: ${CONTROLLER_IMAGE_REPO}
+  tag: "${CONTROLLER_IMAGE_TAG}"
+crds:
+  create: false
+labelSelector:
+  - "team=alpha"
+-- schema-alpha.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: team-alpha
+  labels:
+    team: alpha
+spec:
+  url: sqlite://file?mode=memory
+  schema:
+    sql: |
+      create table t_alpha (id integer primary key);
+-- schema-bravo.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: team-bravo
+  labels:
+    team: bravo
+spec:
+  url: sqlite://file?mode=memory
+  schema:
+    sql: |
+      create table t_bravo (id integer primary key);

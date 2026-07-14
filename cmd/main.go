@@ -19,19 +19,25 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"ariga.io/atlas/atlasexec"
 	"golang.org/x/mod/semver"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -72,18 +78,34 @@ func init() {
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
+	var leaderElectionID string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var labelSelector string
+	var watchNamespaces string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&leaderElectionID, "leader-election-id", "5220c287.atlasgo.io",
+		"The name of the resource that leader election will use for holding the leader lock. "+
+			"Set a unique value per operator instance when running multiple operators with "+
+			"leader election enabled in the same namespace.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", false,
 		"If set the metrics endpoint is served securely")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&labelSelector, "label-selector", "",
+		"A label selector (e.g. \"app=foo,env in (prod,staging)\") that restricts which "+
+			"AtlasSchema and AtlasMigration resources the operator manages. When empty, all "+
+			"resources are managed. Use this to run multiple operator instances in the same "+
+			"namespace, each handling resources matching different labels.")
+	flag.StringVar(&watchNamespaces, "namespace", "",
+		"A comma-separated list of namespaces that restricts where the operator watches "+
+			"for AtlasSchema and AtlasMigration resources. When empty, the operator watches "+
+			"all namespaces (cluster scope).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -92,6 +114,26 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	namespaces := parseNamespaces(watchNamespaces)
+	cacheOpts, err := cacheOptions(labelSelector, namespaces)
+	if err != nil {
+		setupLog.Error(err, "invalid label selector", "selector", labelSelector)
+		os.Exit(1)
+	}
+	if labelSelector != "" {
+		setupLog.Info("restricting managed resources to label selector", "selector", labelSelector)
+	}
+	if len(namespaces) > 0 {
+		setupLog.Info("restricting watch to namespaces", "namespaces", namespaces)
+	} else {
+		setupLog.Info("watching all namespaces (cluster scope)")
+	}
+	if v, err := atlasVersion(context.Background()); err != nil {
+		setupLog.Error(err, "unable to get atlas version")
+		os.Exit(1)
+	} else {
+		setupLog.Info("detected atlas version", "version", v)
+	}
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancelation and
@@ -114,6 +156,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
+		Cache:  cacheOpts,
 		Metrics: server.Options{
 			BindAddress:   metricsAddr,
 			SecureServing: secureMetrics,
@@ -122,7 +165,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "5220c287.atlasgo.io",
+		LeaderElectionID:       leaderElectionID,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -180,6 +223,68 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// cacheOptions builds the manager's cache options from the given label selector
+// and the list of namespaces to watch.
+//
+// When namespaces is empty, the operator watches all namespaces (cluster scope).
+// Otherwise the cache (and therefore the operator) is restricted to the given
+// namespaces, which also limits the referenced ConfigMaps and Secrets it reads.
+//
+// When labelSelector is set, only AtlasSchema and AtlasMigration resources
+// matching the selector are watched, cached, and therefore reconciled. This
+// makes it possible to run multiple operator instances side by side, each
+// owning a distinct set of resources. Referenced ConfigMaps and Secrets are
+// intentionally left unfiltered by label, since they usually do not carry the
+// operator's labels.
+func cacheOptions(labelSelector string, namespaces []string) (cache.Options, error) {
+	opts := cache.Options{}
+	if len(namespaces) > 0 {
+		opts.DefaultNamespaces = make(map[string]cache.Config, len(namespaces))
+		for _, ns := range namespaces {
+			opts.DefaultNamespaces[ns] = cache.Config{}
+		}
+	}
+	if labelSelector != "" {
+		selector, err := labels.Parse(labelSelector)
+		if err != nil {
+			return opts, fmt.Errorf("parsing label selector %q: %w", labelSelector, err)
+		}
+		// Leaving ByObject.Namespaces nil lets controller-runtime default it
+		// from DefaultNamespaces, so the label filter and namespace scope are
+		// combined for the managed resources.
+		opts.ByObject = map[client.Object]cache.ByObject{
+			&dbv1alpha1.AtlasSchema{}:    {Label: selector},
+			&dbv1alpha1.AtlasMigration{}: {Label: selector},
+		}
+	}
+	return opts, nil
+}
+
+// parseNamespaces splits a comma-separated namespace list into a clean slice,
+// trimming whitespace and dropping empty entries.
+func parseNamespaces(s string) []string {
+	var out []string
+	for _, ns := range strings.Split(s, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
+// atlasVersion runs `atlas version` and returns its string representation.
+func atlasVersion(ctx context.Context) (string, error) {
+	c, err := atlasexec.NewClient(os.TempDir(), "atlas")
+	if err != nil {
+		return "", fmt.Errorf("creating atlas client: %w", err)
+	}
+	v, err := c.Version(ctx)
+	if err != nil {
+		return "", fmt.Errorf("running atlas version: %w", err)
+	}
+	return v.String(), nil
 }
 
 // checkForUpdate checks for version updates and security advisories for the Atlas Operator.

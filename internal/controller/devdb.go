@@ -81,7 +81,12 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 	if !r.prewarm {
 		deploy := &appsv1.Deployment{}
 		err := r.Get(ctx, key, deploy)
-		if err != nil {
+		switch {
+		case apierrors.IsNotFound(err):
+			// No dev database was created (e.g. there were no pending
+			// migrations), so there is nothing to clean up.
+			return
+		case err != nil:
 			r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleanUpDevDB, "Error getting devDB deployment: %v", err)
 			return
 		}

@@ -698,9 +698,7 @@ func TestReconcile_reconcile(t *testing.T) {
 			},
 		},
 	}
-	md, err := tt.r.extractData(context.Background(), res)
-	require.NoError(t, err)
-	_, err = tt.r.reconcile(context.Background(), md, res)
+	_, err := tt.r.reconcile(context.Background(), res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
@@ -743,13 +741,6 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 	tt.initDefaultMigrationDir()
 	res := &dbv1alpha1.AtlasMigration{
 		ObjectMeta: migrationObjmeta(),
-		Status: dbv1alpha1.AtlasMigrationStatus{
-			LastAppliedVersion: "20230412003626",
-		},
-	}
-	tt.k8s.put(res)
-	md, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
-		ObjectMeta: migrationObjmeta(),
 		Spec: dbv1alpha1.AtlasMigrationSpec{
 			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
 			EnvName:    "test",
@@ -757,9 +748,12 @@ func TestReconcile_reconcile_upToDate(t *testing.T) {
 				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
 			},
 		},
-	})
-	require.NoError(t, err)
-	_, err = tt.r.reconcile(context.Background(), md, res)
+		Status: dbv1alpha1.AtlasMigrationStatus{
+			LastAppliedVersion: "20230412003626",
+		},
+	}
+	tt.k8s.put(res)
+	_, err := tt.r.reconcile(context.Background(), res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003626", res.Status.LastAppliedVersion)
 }
@@ -781,12 +775,12 @@ func TestReconcile_reconcile_baseline(t *testing.T) {
 			Baseline: "20230412003627",
 		},
 	}
-	md, err := tt.r.extractData(context.Background(), res)
-	require.NoError(t, err)
-	_, err = tt.r.reconcile(context.Background(), md, res)
+	_, err := tt.r.reconcile(context.Background(), res)
 	require.NoError(t, err)
 	require.EqualValues(t, "20230412003628", res.Status.LastAppliedVersion)
 
+	md, err := tt.r.extractData(context.Background(), res)
+	require.NoError(t, err)
 	wd, err := atlasexec.NewWorkingDir(
 		atlasexec.WithAtlasHCL(md.render),
 		atlasexec.WithMigrations(md.Dir),
@@ -981,7 +975,7 @@ func TestAtlasMigrationReconciler_Credentials(t *testing.T) {
 	require.NoError(tt, err)
 	require.EqualValues(tt, reconcile.Result{}, c)
 	ev := tt.events()
-	require.Len(t, ev, 2)
+	require.Len(t, ev, 1)
 	require.Equal(t, "Normal Applied Version 20230412003626 applied", ev[0])
 }
 
