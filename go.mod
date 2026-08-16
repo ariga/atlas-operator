@@ -1,6 +1,6 @@
 module github.com/ariga/atlas-operator
 
-go 1.26.4
+go 1.26.6
 
 require (
 	ariga.io/atlas v1.2.3

@@ -19,7 +19,7 @@
 			"version": "latest"
 		},
 		"ghcr.io/devcontainers/features/go:1": {
-			"version": "1.26.3",
+			"version": "1.26.6",
 			"golangciLintVersion": "2.10.1"
 		},
 		"ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
