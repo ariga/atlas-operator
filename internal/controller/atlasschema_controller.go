@@ -244,7 +244,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		repo := data.repoURL()
 		if repo == nil {
 			// No repository is set, apply the changes directly.
-			reports, err = cli.SchemaApplySlice(ctx, params)
+			reports, err = r.schemaApply(ctx, cli, res, params)
 			break
 		}
 		createPlan := func() (ctrl.Result, error) {
@@ -344,7 +344,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Try to apply the schema changes with lint policies,
 		// if the changes are rejected by the review policy, create a plan
 		// for the pending changes.
-		reports, err = cli.SchemaApplySlice(ctx, params)
+		reports, err = r.schemaApply(ctx, cli, res, params)
 		// TODO: Better error handling for rejected changes.
 		if err != nil && strings.HasPrefix(err.Error(), "Rejected by review policy") {
 			log.Info("schema changes are rejected by the review policy, creating a new schema plan")
@@ -376,7 +376,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}); err != nil {
 			return r.resultErr(res, err, "ModifyingAtlasHCL")
 		}
-		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = r.schemaApply(ctx, cli, res, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -388,7 +388,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err = r.lint(ctx, wd, data, nil, res.Namespace, res.Name); err != nil {
 			return r.resultCLIErr(res, err, "LintPolicyError")
 		}
-		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = r.schemaApply(ctx, cli, res, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -397,7 +397,7 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	// No linting policy is set.
 	default:
-		reports, err = cli.SchemaApplySlice(ctx, &atlasexec.SchemaApplyParams{
+		reports, err = r.schemaApply(ctx, cli, res, &atlasexec.SchemaApplyParams{
 			Env:         data.EnvName,
 			To:          desiredURL,
 			TxMode:      string(data.TxMode),
@@ -429,6 +429,26 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	res.SetReady(s, reports[0])
 	r.recorder.Event(res, corev1.EventTypeNormal, "Applied", "Applied schema")
 	return ctrl.Result{}, nil
+}
+
+// schemaApply runs the `schema apply` command and reports
+// anything the command wrote to stderr.
+func (r *AtlasSchemaReconciler) schemaApply(
+	ctx context.Context, cli AtlasExec, res *dbv1alpha1.AtlasSchema, params *atlasexec.SchemaApplyParams,
+) ([]*atlasexec.SchemaApply, error) {
+	var stderr bytes.Buffer
+	cli.SetStderr(&stderr)
+	defer cli.SetStderr(nil)
+	reports, err := cli.SchemaApplySlice(ctx, params)
+	if err != nil {
+		// The stderr output is already part of the returned error.
+		return nil, err
+	}
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		// In some cases, Atlas logs to stderr without returning a nonzero status code. Emit the message to the user.
+		r.recorder.Event(res, corev1.EventTypeWarning, "ApplyingSchema", msg)
+	}
+	return reports, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
