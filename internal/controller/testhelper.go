@@ -49,6 +49,10 @@ type (
 		err error
 	}
 	mockAtlasExec struct {
+		// stderr is written to the writer set by SetStderr when a command runs,
+		// mimicking the Atlas CLI logging to stderr.
+		stderr         string
+		stderrW        io.Writer
 		apply          mockCmd[atlasexec.MigrateApply]
 		down           mockCmd[atlasexec.MigrateDown]
 		lint           mockCmd[atlasexec.SummaryReport]
@@ -85,7 +89,17 @@ func (m *mockAtlasExec) WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlas
 
 // SchemaAppleSlice implements AtlasExec.
 func (m *mockAtlasExec) SchemaApplySlice(ctx context.Context, params *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error) {
+	m.writeStderr()
 	return []*atlasexec.SchemaApply{m.schemaApply.res}, m.schemaApply.err
+}
+
+// writeStderr streams the mocked stderr output, if any, to the writer
+// set by SetStderr.
+func (m *mockAtlasExec) writeStderr() {
+	if m.stderr == "" || m.stderrW == nil {
+		return
+	}
+	io.WriteString(m.stderrW, m.stderr)
 }
 
 // SchemaInspect implements AtlasExec.
@@ -114,8 +128,8 @@ func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusP
 }
 
 func (m *mockAtlasExec) Login(context.Context, *atlasexec.LoginParams) error { return nil }
-func (m *mockAtlasExec) SetStdout(io.Writer) {}
-func (m *mockAtlasExec) SetStderr(io.Writer) {}
+func (m *mockAtlasExec) SetStdout(io.Writer)                                 {}
+func (m *mockAtlasExec) SetStderr(w io.Writer)                               { m.stderrW = w }
 
 // newRunner returns a runner that can be used to test a reconcile.Reconciler.
 func newRunner[T interface {

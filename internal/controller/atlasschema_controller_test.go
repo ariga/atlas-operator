@@ -17,6 +17,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -168,6 +169,66 @@ func TestReconcile_Reconcile(t *testing.T) {
 		"Normal Applied Applied schema",
 		"Normal Applied Applied schema",
 	}, h.events())
+}
+
+func TestReconcile_ApplySchemaStderr(t *testing.T) {
+	var (
+		meta = objmeta()
+		obj  = &dbv1alpha1.AtlasSchema{
+			ObjectMeta: meta,
+			Spec: dbv1alpha1.AtlasSchemaSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file?mode=memory"},
+				Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
+			},
+			Status: dbv1alpha1.AtlasSchemaStatus{
+				// A non-zero LastApplied skips the first-run
+				// destructive lint, which needs the Atlas CLI.
+				LastApplied: 1,
+				Conditions: []metav1.Condition{
+					{Type: schemaReadyCond, Status: metav1.ConditionFalse},
+				},
+			},
+		}
+	)
+	mockExec := &mockAtlasExec{}
+	// The resource is not connected to Atlas Cloud.
+	mockExec.whoami.err = atlasexec.ErrRequireLogin
+	mockExec.schemaInspect.res = new("hash")
+	mockExec.schemaApply.res = &atlasexec.SchemaApply{}
+	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
+		cb.WithObjects(obj)
+	}, mockExec)
+	assert := func(ready bool, reason string, events ...string) {
+		t.Helper()
+		reconcile(obj, func(_ ctrl.Result, err error) {
+			require.NoError(t, err)
+			res := &dbv1alpha1.AtlasSchema{ObjectMeta: meta}
+			h.get(t, res)
+			require.Equal(t, ready, res.IsReady())
+			readyCond := apimeta.FindStatusCondition(res.Status.Conditions, schemaReadyCond)
+			require.NotNil(t, readyCond, "Ready condition not found")
+			require.Equal(t, reason, readyCond.Reason)
+			require.Equal(t, events, h.events())
+			// The writer is detached from the client after the command is done.
+			require.Nil(t, mockExec.stderrW)
+		})
+	}
+	// Atlas logged to stderr without failing the command,
+	// the message is reported to the user.
+	mockExec.stderr = "active plan does not allow more than 1 target databases\n"
+	assert(true, "Applied",
+		"Warning ApplyingSchema active plan does not allow more than 1 target databases",
+		"Normal Applied Applied schema",
+	)
+	// Nothing was logged to stderr, no warning is reported.
+	mockExec.stderr = ""
+	assert(true, "Applied", "Normal Applied Applied schema")
+	// The command failed. Atlas already includes stderr in the returned
+	// error, hence the message is not reported twice.
+	mockExec.stderr = "Error: executing statement: syntax error\n"
+	mockExec.schemaApply.err = errors.New("executing statement: syntax error")
+	assert(false, "ApplyingSchema", "Warning Error executing statement: syntax error")
 }
 
 func TestReconcile_FailedCount(t *testing.T) {
