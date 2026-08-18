@@ -128,12 +128,12 @@ func main() {
 	} else {
 		setupLog.Info("watching all namespaces (cluster scope)")
 	}
-	if v, err := atlasVersion(context.Background()); err != nil {
+	atlasVer, err := atlasVersion(context.Background())
+	if err != nil {
 		setupLog.Error(err, "unable to get atlas version")
 		os.Exit(1)
-	} else {
-		setupLog.Info("detected atlas version", "version", v)
 	}
+	setupLog.Info("detected atlas version", "version", atlasVer)
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancelation and
@@ -156,6 +156,10 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
+		// Attach the operator and atlas versions to the manager's base logger so
+		// every log line it emits carries them, including the Kubernetes event
+		// log (logger "events", derived via options.Logger.WithName("events")).
+		Logger: ctrl.Log.WithValues("operator", version, "atlas", atlasVer),
 		Cache:  cacheOpts,
 		Metrics: server.Options{
 			BindAddress:   metricsAddr,
