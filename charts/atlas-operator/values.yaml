@@ -120,3 +120,11 @@ extraVolumeMounts: []
 #     mountPath: /extra-volume
 #     readOnly: true
 
+initContainers: []
+# initContainers:
+#   - name: my-init
+#     image: busybox
+#     command: ['sh', '-c', 'echo "KEY=''value''" > /data/env.file']
+#     volumeMounts:
+#       - name: shared
+#         mountPath: /data
