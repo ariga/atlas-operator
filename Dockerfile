@@ -47,6 +47,7 @@ ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh
 
 FROM alpine:3.23
+RUN apk add --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0
 WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=atlas /usr/local/bin/atlas /usr/local/bin
