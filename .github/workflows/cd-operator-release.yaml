@@ -59,7 +59,7 @@ jobs:
     name: Build and Push Image
     needs: [detect-version]
     if: needs.detect-version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-large
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Docker Buildx
