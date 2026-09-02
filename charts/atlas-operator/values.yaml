@@ -12,6 +12,10 @@ image:
 rbac:
   create: true
   aggregateClusterRoles: false
+  # Remove secrets from the operator ClusterRole.
+  # Disable when credentials are provided via extraEnvs or external injection
+  # and the operator does not need to resolve Secret references.
+  clusterWideSecretAccess: true
 
 crds:
   # CustomResourceDefinitions are cluster-scoped and shared by every release.
