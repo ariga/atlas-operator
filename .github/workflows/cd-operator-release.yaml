@@ -58,7 +58,7 @@ jobs:
   docker-build:
     name: Build and Push Image
     needs: [detect-version]
-    if: needs.detect-version.outputs.should_release == 'true'
+    # if: needs.detect-version.outputs.should_release == 'true'
     runs-on: ubuntu-large
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -66,11 +66,11 @@ jobs:
         uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
       - name: Set up QEMU
         uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # - name: Login to DockerHub
+      #   uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      #   with:
+      #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Fetch Atlas version
         id: atlas
         run: |
@@ -102,7 +102,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          push: true
+          push: false
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
@@ -116,6 +116,7 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
   release:
+    if: false
     name: Create Release
     needs: [detect-version, docker-build, helm-test]
     runs-on: ubuntu-latest
