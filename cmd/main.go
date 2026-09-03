@@ -66,6 +66,12 @@ const (
 	prewarmDevDB = "PREWARM_DEVDB"
 	// allowCustomConfig when enabled it allows the use of custom config
 	allowsCustomConfig = "ALLOW_CUSTOM_CONFIG"
+	// watchSecrets when enabled it registers Secret informers so the controllers
+	// re-reconcile when referenced Secrets change. Requires RBAC permission to
+	// list/watch Secrets. Disable in environments that provide credentials through
+	// other means (e.g. file-based injection via OpenBao/Vault) and do not grant
+	// the operator Secret access.
+	envWatchSecrets = "WATCH_SECRETS"
 )
 
 func init() {
@@ -191,11 +197,15 @@ func main() {
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
 	allowCustomConfig := getAllowCustomConfigEnv()
+	watchSecrets := getWatchSecretsEnv()
 	// Setup controller for AtlasSchema
 	schemaController := controller.NewAtlasSchemaReconciler(mgr, prewarmDevDB)
 	schemaController.SetAtlasClient(controller.NewAtlasExec)
 	if allowCustomConfig {
 		schemaController.AllowCustomConfig()
+	}
+	if watchSecrets {
+		schemaController.WatchSecrets()
 	}
 	if err := schemaController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasSchema")
@@ -206,6 +216,9 @@ func main() {
 	migrationController.SetAtlasClient(controller.NewAtlasExec)
 	if allowCustomConfig {
 		migrationController.AllowCustomConfig()
+	}
+	if watchSecrets {
+		migrationController.WatchSecrets()
 	}
 	if err = migrationController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasMigration")
@@ -355,4 +368,19 @@ func getAllowCustomConfigEnv() bool {
 		os.Exit(1)
 	}
 	return allowsCustomConfig
+}
+
+// getWatchSecretsEnv returns the value of the env var WATCH_SECRETS.
+// if the env var is not set, it returns true (backwards compatible).
+func getWatchSecretsEnv() bool {
+	env := os.Getenv(envWatchSecrets)
+	if env == "" {
+		return true
+	}
+	watchSecrets, err := strconv.ParseBool(env)
+	if err != nil {
+		setupLog.Error(err, "invalid value for env var WATCH_SECRETS, expected true or false")
+		os.Exit(1)
+	}
+	return watchSecrets
 }

@@ -68,6 +68,7 @@ type (
 		devDB            *devDBReconciler
 		// AllowCustomConfig allows the controller to use custom atlas.hcl config.
 		allowCustomConfig bool
+		watchSecrets      bool
 	}
 	// migrationData is the data used to render the HCL template
 	// that will be used for Atlas CLI
@@ -178,15 +179,25 @@ func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasMigrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: runtime.NumCPU(),
 		}).
 		For(&dbv1alpha1.AtlasMigration{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasMigration{}).
-		Watches(&corev1.Secret{}, r.secretWatcher).
-		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
-		Complete(r)
+		Watches(&corev1.ConfigMap{}, r.configMapWatcher)
+	if r.watchSecrets {
+		b = b.Watches(&corev1.Secret{}, r.secretWatcher)
+	}
+	return b.Complete(r)
+}
+
+// WatchSecrets enables the Secret informer so the controller re-reconciles
+// when a referenced Secret changes. When disabled, the controller skips the
+// cluster-wide Secret LIST/WATCH, avoiding RBAC errors in environments that
+// provide credentials through other means (e.g. file-based injection).
+func (r *AtlasMigrationReconciler) WatchSecrets() {
+	r.watchSecrets = true
 }
 
 // SetAtlasClient sets the Atlas client for the reconciler.
