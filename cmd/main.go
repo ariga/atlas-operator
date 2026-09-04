@@ -31,6 +31,7 @@ import (
 
 	"ariga.io/atlas/atlasexec"
 	"golang.org/x/mod/semver"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -66,11 +67,21 @@ const (
 	prewarmDevDB = "PREWARM_DEVDB"
 	// allowCustomConfig when enabled it allows the use of custom config
 	allowsCustomConfig = "ALLOW_CUSTOM_CONFIG"
-	// watchSecrets when enabled it registers Secret informers so the controllers
-	// re-reconcile when referenced Secrets change. Requires RBAC permission to
-	// list/watch Secrets. Disable in environments that provide credentials through
-	// other means (e.g. file-based injection via OpenBao/Vault) and do not grant
-	// the operator Secret access.
+	// envWatchSecrets when enabled (the default) the controllers watch the Secrets
+	// they reference and re-reconcile when one changes. Secret reads are then served
+	// from the shared cache, which requires list/watch on Secrets across every
+	// namespace the operator watches.
+	//
+	// When disabled, no Secret informer is created and every Secret read is a live
+	// API call, which needs only "get" on the Secret being read. Referenced Secrets
+	// are still read at their current value on each reconcile, but a change to one
+	// no longer triggers a reconcile on its own. Disable it in environments that
+	// provide credentials through other means (e.g. file-based injection via
+	// OpenBao/Vault) or that only grant the operator namespaced Secret access.
+	//
+	// Note that AtlasMigration stores the state of a local or ConfigMap migration
+	// directory in a Secret it owns, so it needs get/create/update on Secrets in the
+	// namespaces it manages regardless of this setting.
 	envWatchSecrets = "WATCH_SECRETS"
 )
 
@@ -160,6 +171,21 @@ func main() {
 		TLSOpts: tlsOpts,
 	})
 
+	watchSecrets := getWatchSecretsEnv()
+	clientOpts := client.Options{}
+	if !watchSecrets {
+		// Skipping the Watches() call alone does not keep the operator away from
+		// Secrets: the cache-backed client lazily creates and starts that same
+		// informer on the first Get, re-issuing the LIST/WATCH we meant to avoid
+		// and then blocking the reconcile worker in WaitForCacheSync until the
+		// manager shuts down. Take Secrets out of the cache so every read is a
+		// live lookup that fails fast when it is not permitted.
+		clientOpts.Cache = &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Secret{}},
+		}
+		setupLog.Info("secret watching is disabled, reading secrets directly from the API server")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		// Attach the operator and atlas versions to the manager's base logger so
@@ -167,6 +193,7 @@ func main() {
 		// log (logger "events", derived via options.Logger.WithName("events")).
 		Logger: ctrl.Log.WithValues("operator", version, "atlas", atlasVer),
 		Cache:  cacheOpts,
+		Client: clientOpts,
 		Metrics: server.Options{
 			BindAddress:   metricsAddr,
 			SecureServing: secureMetrics,
@@ -197,7 +224,6 @@ func main() {
 	}
 	prewarmDevDB := getPrewarmDevDBEnv()
 	allowCustomConfig := getAllowCustomConfigEnv()
-	watchSecrets := getWatchSecretsEnv()
 	// Setup controller for AtlasSchema
 	schemaController := controller.NewAtlasSchemaReconciler(mgr, prewarmDevDB)
 	schemaController.SetAtlasClient(controller.NewAtlasExec)

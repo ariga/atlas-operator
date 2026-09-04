@@ -467,10 +467,14 @@ func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return b.Complete(r)
 }
 
-// WatchSecrets enables the Secret informer so the controller re-reconciles
-// when a referenced Secret changes. When disabled, the controller skips the
-// cluster-wide Secret LIST/WATCH, avoiding RBAC errors in environments that
-// provide credentials through other means (e.g. file-based injection).
+// WatchSecrets registers a Secret event handler so the controller re-reconciles
+// when a referenced Secret changes. It requires list/watch on Secrets in every
+// namespace the operator watches.
+//
+// When it is not called, the caller must also keep Secrets out of the manager's
+// cache (client.CacheOptions.DisableFor), otherwise the cache-backed client
+// re-creates this informer on the first Secret read and blocks on it. See
+// WATCH_SECRETS in cmd/main.go.
 func (r *AtlasSchemaReconciler) WatchSecrets() {
 	r.watchSecrets = true
 }

@@ -68,3 +68,19 @@ Create the name of the service account to use
 {{- define "atlas-operator.leaderElectionRole" -}}
 {{ include "atlas-operator.fullname" . }}-leader-election-role
 {{- end }}
+
+{{/*
+Whether the operator watches the Secrets it references (WATCH_SECRETS).
+
+Defaults to rbac.clusterWideSecretAccess so that dropping the `secrets` rule from
+the ClusterRole cannot leave the operator waiting on a Secret watch it is not
+allowed to open. Set `watchSecrets` explicitly to override, for example when RBAC
+is managed outside this chart.
+*/}}
+{{- define "atlas-operator.watchSecrets" -}}
+{{- if kindIs "invalid" .Values.watchSecrets -}}
+{{- .Values.rbac.clusterWideSecretAccess -}}
+{{- else -}}
+{{- .Values.watchSecrets -}}
+{{- end -}}
+{{- end }}

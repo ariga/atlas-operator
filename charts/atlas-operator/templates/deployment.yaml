@@ -88,6 +88,8 @@ spec:
           value: "{{ .Values.prewarmDevDB }}"
         - name: ALLOW_CUSTOM_CONFIG
           value: "{{ .Values.allowCustomConfig }}"
+        - name: WATCH_SECRETS
+          value: "{{ include "atlas-operator.watchSecrets" . }}"
         {{- if .Values.persistence.enabled }}
         - name: DATA_DIR
           value: {{ .Values.persistence.mountPath | quote }}
