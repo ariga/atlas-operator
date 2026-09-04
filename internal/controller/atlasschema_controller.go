@@ -67,6 +67,7 @@ type (
 		devDB            *devDBReconciler
 		// AllowCustomConfig allows the controller to use custom atlas.hcl config.
 		allowCustomConfig bool
+		watchSecrets      bool
 	}
 	// managedData contains information about the managed database and its desired state.
 	managedData struct {
@@ -453,15 +454,25 @@ func (r *AtlasSchemaReconciler) schemaApply(
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AtlasSchemaReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: runtime.NumCPU(),
 		}).
 		For(&dbv1alpha1.AtlasSchema{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&dbv1alpha1.AtlasSchema{}).
-		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
-		Watches(&corev1.Secret{}, r.secretWatcher).
-		Complete(r)
+		Watches(&corev1.ConfigMap{}, r.configMapWatcher)
+	if r.watchSecrets {
+		b = b.Watches(&corev1.Secret{}, r.secretWatcher)
+	}
+	return b.Complete(r)
+}
+
+// WatchSecrets enables the Secret informer so the controller re-reconciles
+// when a referenced Secret changes. When disabled, the controller skips the
+// cluster-wide Secret LIST/WATCH, avoiding RBAC errors in environments that
+// provide credentials through other means (e.g. file-based injection).
+func (r *AtlasSchemaReconciler) WatchSecrets() {
+	r.watchSecrets = true
 }
 
 func (r *AtlasSchemaReconciler) watchRefs(res *dbv1alpha1.AtlasSchema) {
