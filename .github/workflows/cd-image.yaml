@@ -1,0 +1,170 @@
+# Copyright 2023 The Atlas Operator Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: CD - Image
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: >-
+          Version to build and publish, e.g. "v0.7.49" for a release or
+          "canary" for a nightly. Baked into the binary as-is; a leading "v" is
+          stripped to form the image tag, since the Helm chart derives the tag
+          from .Chart.AppVersion, which carries no prefix.
+        required: true
+        type: string
+      atlas-version:
+        description: Atlas CLI distribution to bundle into the image.
+        required: false
+        default: extended-latest
+        type: string
+    outputs:
+      tag:
+        description: Primary tag the image was published under.
+        value: ${{ jobs.ghcr.outputs.tag }}
+      digest:
+        description: Digest of the published manifest list, identical in both registries.
+        value: ${{ jobs.ghcr.outputs.digest }}
+jobs:
+  helm-test:
+    # Gates the build: a failing test must not publish an image, since the
+    # version tag is pushed directly rather than promoted afterwards.
+    uses: ./.github/workflows/ci-test-helm.yaml
+    secrets: inherit
+  ghcr:
+    name: Build and Push to GHCR
+    needs: [helm-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      digest: ${{ steps.build.outputs.digest }}
+      # GHCR tags only. A job output holding the DockerHub image name would be
+      # dropped by the runner ("Skip output ... since it may contain secret"),
+      # because the name embeds the DOCKERHUB_USERNAME secret.
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve image tag
+        id: ver
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # The chart renders <repository>:<appVersion>, which is unprefixed.
+          echo "tag=${VERSION#v}" >> $GITHUB_OUTPUT
+      - name: Fetch Atlas version
+        id: atlas
+        run: |
+          # All distributions are built from the same version
+          # so we only need to fetch it once.
+          echo "version=$(curl -s https://release.ariga.io/atlas/atlas-linux-amd64-latest.version)" >> $GITHUB_OUTPUT
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@818d4b7b91585d195f67373fd9cb0332e31a7175 # v4
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ steps.ver.outputs.tag }}
+            type=sha,format=short,prefix=sha-
+          labels: |
+            io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
+            org.opencontainers.image.title=atlas-operator
+            org.opencontainers.image.description=Atlas Operator
+            org.opencontainers.image.url=https://atlasgo.io
+            org.opencontainers.image.vendor=Ariga
+            org.opencontainers.image.source=https://github.com/ariga/atlas-operator/blob/master/Dockerfile
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4
+        with:
+          context: .
+          build-args: |
+            ATLAS_VERSION=${{ inputs.atlas-version }}
+            OPERATOR_VERSION=${{ inputs.version }}
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        env:
+          # The scanner pulls from GHCR itself, so it needs its own credentials;
+          # a GHCR package is private until it is explicitly made public.
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          format: 'template'
+          template: '@/contrib/sarif.tpl'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+  dockerhub:
+    name: Push to DockerHub
+    needs: [ghcr]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SRC: ghcr.io/${{ github.repository }}@${{ needs.ghcr.outputs.digest }}
+      GHCR_TAGS: ${{ needs.ghcr.outputs.tags }}
+      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push to DockerHub
+        run: |
+          # Re-point each GHCR tag at the DockerHub repository, so both
+          # registries end up with an identical tag set from one computation.
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            args+=(--tag "${IMAGE}:${tag##*:}")
+          done <<< "$GHCR_TAGS"
+          if [ ${#args[@]} -eq 0 ]; then
+            echo "::error::no tags resolved from the GHCR tag list" >&2
+            exit 1
+          fi
+          # Copy the manifest list already published to GHCR instead of
+          # rebuilding, so both registries serve the identical digest.
+          docker buildx imagetools create "${args[@]}" "$SRC"
