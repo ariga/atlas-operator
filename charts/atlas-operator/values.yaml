@@ -15,6 +15,11 @@ rbac:
   # Remove secrets from the operator ClusterRole.
   # Disable when credentials are provided via extraEnvs or external injection
   # and the operator does not need to resolve Secret references.
+  # This also turns off the Secret watch, see `watchSecrets` below.
+  # Note that AtlasMigration stores the state of a `local` or `configMapRef`
+  # migration directory in a Secret it owns, so the operator still needs
+  # get/create/update on secrets in the namespaces it manages. Grant that with
+  # your own (namespaced) Role when disabling this.
   clusterWideSecretAccess: true
 
 crds:
@@ -67,6 +72,16 @@ prewarmDevDB: true
 # Warning: This setting enables users to use the `external` and `sql` data sources
 # which can be used to execute arbitrary commands and queries. Use with caution.
 allowCustomConfig: false
+
+# Watch the Secrets referenced by AtlasSchema and AtlasMigration resources, so that
+# changing one triggers a reconcile of the resources that use it. This requires
+# `list` and `watch` on secrets in every watched namespace.
+# Set to false to read Secrets directly from the API server instead, which requires
+# only `get` on the Secret being read. Referenced Secrets are still read on every
+# reconcile, but rotating one no longer triggers a reconcile on its own.
+# Defaults to `rbac.clusterWideSecretAccess`. Set it explicitly to override, for
+# example when RBAC is managed outside this chart.
+watchSecrets: ~
 
 # Restrict the operator to only manage AtlasSchema and AtlasMigration resources
 # matching these label selector requirements (ANDed together). Leave empty to

@@ -63,6 +63,10 @@ To configure the operator, you can set the following values in the `values.yaml`
 
 - `prewarmDevDB`: The Operator always keeps devdb resources around to speed up the migration process. Set this to `false` to disable this feature.
 
+- `watchSecrets`: The Operator watches the Secrets referenced by `AtlasSchema` and `AtlasMigration` resources, so that rotating one triggers a reconcile of the resources that use it. This requires `list` and `watch` on secrets in every watched namespace. Set this to `false` to read Secrets directly from the API server instead, which requires only `get` on the Secret being read; referenced Secrets are still read on every reconcile, but rotating one no longer triggers a reconcile on its own. Defaults to the value of `rbac.clusterWideSecretAccess`.
+
+  Note that `AtlasMigration` stores the state of a `local` or `configMapRef` migration directory in a Secret it owns, so the Operator needs `get`, `create` and `update` on secrets in the namespaces it manages regardless of this setting.
+
 - `allowCustomConfig`: Enable this to allow custom `atlas.hcl` configuration. To use this feature, you can set the `config` field in the `AtlasSchema` or `AtlasMigration` resource.
 
 ```yaml
