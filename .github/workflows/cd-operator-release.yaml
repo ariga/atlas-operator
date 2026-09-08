@@ -51,73 +51,23 @@ jobs:
             echo "Tag ${TAG} does not exist, proceeding with release"
             echo "should_release=true" >> $GITHUB_OUTPUT
           fi
-  helm-test:
-    needs: [detect-version]
-    if: needs.detect-version.outputs.should_release == 'true'
-    uses: ./.github/workflows/ci-test-helm.yaml
-  docker-build:
+  image:
     name: Build and Push Image
     needs: [detect-version]
     if: needs.detect-version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Fetch Atlas version
-        id: atlas
-        run: |
-          # All distributions are built from the same version
-          # so we only need to fetch it once.
-          echo "version=$(curl -s https://release.ariga.io/atlas/atlas-linux-amd64-latest.version)" >> $GITHUB_OUTPUT
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@818d4b7b91585d195f67373fd9cb0332e31a7175 # v4
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
-          tags: |
-            type=sha,format=short,prefix=sha-
-          labels: |
-            io.ariga.atlas.version=${{ steps.atlas.outputs.version }}
-            org.opencontainers.image.title=atlas-operator
-            org.opencontainers.image.description=Atlas Operator
-            org.opencontainers.image.url=https://atlasgo.io
-            org.opencontainers.image.vendor=Ariga
-            org.opencontainers.image.source=https://github.com/ariga/atlas-operator/blob/master/Dockerfile
-      - name: Build and push
-        uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4
-        with:
-          context: .
-          build-args: |
-            ATLAS_VERSION=extended-latest
-            OPERATOR_VERSION=${{ needs.detect-version.outputs.version }}
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          push: true
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
-        with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
-          format: 'template'
-          template: '@/contrib/sarif.tpl'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
-        with:
-          sarif_file: 'trivy-results.sarif'
+    # Granted here, not only in the called workflow: permissions can be
+    # maintained or reduced down a workflow_call chain, never elevated.
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    uses: ./.github/workflows/cd-image.yaml
+    with:
+      version: ${{ needs.detect-version.outputs.version }}
+    secrets: inherit
   release:
     name: Create Release
-    needs: [detect-version, docker-build, helm-test]
+    needs: [detect-version, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -126,31 +76,19 @@ jobs:
       run:
         working-directory: charts/
     env:
-      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/atlas-operator
+      SEMVER: ${{ needs.detect-version.outputs.semver }}
       VERSION: ${{ needs.detect-version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
       - name: Setup Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
-      - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to ghcr.io using helm
         run: |
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io --username ${{ github.repository_owner }} --password-stdin
-      - name: Tag and push Docker image
-        run: |
-          docker buildx imagetools create \
-            --tag "${IMAGE}:${{ needs.detect-version.outputs.semver }}" \
-            "${IMAGE}:sha-${GITHUB_SHA::7}"
       - name: Package & push Helm chart
         run: |
           helm package atlas-operator
-          helm push atlas-operator-${{ needs.detect-version.outputs.semver }}.tgz oci://ghcr.io/ariga/charts
+          helm push atlas-operator-${SEMVER}.tgz oci://ghcr.io/ariga/charts
       - name: Create and push tag
         run: |
           git config user.name "github-actions[bot]"
