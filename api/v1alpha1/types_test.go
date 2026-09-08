@@ -362,3 +362,77 @@ func TestAtlasSchemaStatusConditions(t *testing.T) {
 	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
 	require.Equal(t, metav1.ConditionFalse, stalled.Status)
 }
+
+func TestAtlasSecurityScanStatusConditions(t *testing.T) {
+	res := &v1alpha1.AtlasSecurityScan{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+	res.SetReconciling("Reconciling")
+	require.Equal(t, int64(2), res.Status.ObservedGeneration)
+	ready := requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	recon := requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionTrue, recon.Status)
+	stalled := requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+	require.Equal(t, 0, res.Status.Failed)
+
+	// A scan that could not run is the one thing that clears Ready.
+	res.SetNotReady(v1alpha1.ReasonScanning, "connection refused")
+	require.Equal(t, 1, res.Status.Failed)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionTrue, stalled.Status)
+	require.Equal(t, "connection refused", stalled.Message)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+	require.False(t, res.IsExceedBackoffLimit())
+	res.Spec.BackoffLimit = 1
+	require.False(t, res.IsExceedBackoffLimit())
+	res.IncrementFailed()
+	require.True(t, res.IsExceedBackoffLimit())
+
+	res.SetReady("no issues found in 3 extensions")
+	require.Equal(t, int64(2), res.Status.ObservedGeneration)
+	require.Equal(t, 0, res.Status.Failed)
+	require.True(t, res.IsReady())
+	ready = requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, v1alpha1.ReasonScanned, ready.Reason)
+	require.Equal(t, "no issues found in 3 extensions", ready.Message)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+	require.True(t, res.IsHashModified("h1"))
+	res.Status.ObservedHash = "h1"
+	require.False(t, res.IsHashModified("h1"))
+}
+
+// Findings are a verdict, carried by Secure, and never touch Ready.
+func TestAtlasSecurityScanSecureCondition(t *testing.T) {
+	res := &v1alpha1.AtlasSecurityScan{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+	require.False(t, res.IsSecure(), "absent until a threshold is evaluated")
+
+	res.SetReady("1 issue found: 1 high")
+	res.SetSecure(false, "1 issue found: 1 high")
+	require.True(t, res.IsReady(), "the scan ran, so the resource is ready")
+	require.False(t, res.IsSecure())
+	secure := requireCondition(t, res.Status.Conditions, "Secure")
+	require.Equal(t, v1alpha1.ReasonSecurityIssues, secure.Reason)
+	require.Equal(t, "1 issue found: 1 high", secure.Message)
+	// A verdict is not a malfunction.
+	require.Equal(t, 0, res.Status.Failed)
+	stalled := requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+
+	// A scan that could not run clears Ready and leaves the verdict alone.
+	res.SetNotReady(v1alpha1.ReasonScanning, "connection refused")
+	require.False(t, res.IsReady())
+	require.False(t, res.IsSecure())
+	require.Equal(t, v1alpha1.ReasonSecurityIssues,
+		requireCondition(t, res.Status.Conditions, "Secure").Reason)
+
+	res.SetReady("no issues found in 2 extensions")
+	res.SetSecure(true, "no issues found in 2 extensions")
+	require.True(t, res.IsReady())
+	require.True(t, res.IsSecure())
+	require.Equal(t, v1alpha1.ReasonScanned,
+		requireCondition(t, res.Status.Conditions, "Secure").Reason)
+}

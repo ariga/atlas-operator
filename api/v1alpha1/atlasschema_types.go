@@ -95,6 +95,11 @@ type (
 		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
 		// +optional
 		DevURLFrom Secret `json:"devURLFrom,omitempty"`
+		// devDB defines the custom dev database pod spec to use for normalization and calculations.
+		// If not defined, a default pod spec will be created based on the type (driver) of the target database.
+		// When a custom devDB spec is provided, the devURL must be defined as well.
+		// +optional
+		DevDB *DevDB `json:"devDB,omitempty"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
 		// TxMode defines the transaction mode to use when applying the schema.

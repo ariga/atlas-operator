@@ -30,3 +30,12 @@ resources:
     namespaced: true
   controller: true
   path: github.com/ariga/atlas-operator/api/v1alpha1
+- kind: AtlasSecurityScan
+  domain: atlasgo.io
+  group: db
+  version: v1alpha1
+  api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  path: github.com/ariga/atlas-operator/api/v1alpha1

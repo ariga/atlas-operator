@@ -1,0 +1,48 @@
+db postgres:15.4 DB_URL
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+
+# Create the secret to store ATLAS_TOKEN
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Install an extension with published CVEs on this engine version, so the scan has issues to report.
+kubectl exec deploy/postgres -- psql -U root -d postgres -c 'CREATE EXTENSION pgcrypto'
+
+# Create the scan. It is ready once the scan ran, whatever the scan found, and the
+# daily window it publishes is ahead of us.
+kubectl apply -f scan.yaml
+kubectl-wait-ready AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.nextScanTime }}'
+! stdout '^<no value>$'
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ (index .status.targets 0).driver }} {{ index (index .status.targets 0).extensions 0 }}'
+stdout '^postgres pgcrypto$'
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.issues }}'
+! stdout '^0$'
+
+# Fail on any reported issue: the resource is scanned again and the verdict moves,
+# while Ready stays true because the scan itself did its job.
+kubectl patch -f scan.yaml --type merge --patch-file patch-fail-on.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Secure")].reason}'=SecurityIssues --timeout=2h AtlasSecurityScan/postgres
+kubectl-wait-ready AtlasSecurityScan/postgres
+# A verdict is not a malfunction, so nothing counted as a failure.
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.failed }}'
+stdout '^0$'
+-- patch-fail-on.yaml --
+spec:
+  failOn: NORMAL
+-- scan.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSecurityScan
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  schedule: "0 6 * * *"
+  timeZone: UTC

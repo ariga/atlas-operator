@@ -67,6 +67,8 @@ type (
 		SchemaPlan(context.Context, *atlasexec.SchemaPlanParams) (*atlasexec.SchemaPlan, error)
 		// SchemaPlanList runs the `schema plan list` command.
 		SchemaPlanList(context.Context, *atlasexec.SchemaPlanListParams) ([]atlasexec.SchemaPlanFile, error)
+		// SecurityScan runs the `security scan` command.
+		SecurityScan(context.Context, *atlasexec.SecurityScanParams) (*atlasexec.SecurityScan, error)
 		// WhoAmI runs the `whoami` command.
 		WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlasexec.WhoAmI, error)
 		// Login runs the `login` command (e.g. with --grant-only for offline tokens).
