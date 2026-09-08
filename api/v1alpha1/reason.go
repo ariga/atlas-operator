@@ -37,6 +37,18 @@ const (
 	ReasonMigrating = "Migrating"
 	// ReasonStoringDirState represents the reason for storing the state of an AtlasMigration resource.
 	ReasonStoringDirState = "StoringDirState"
+	// ReasonReadingScanData represents the reason for getting the data of an AtlasSecurityScan resource.
+	ReasonReadingScanData = "ReadingScanData"
+	// ReasonScanning represents the reason for scanning a database for security issues.
+	ReasonScanning = "Scanning"
+	// ReasonScanned represents the reason for a completed scan of an AtlasSecurityScan resource.
+	ReasonScanned = "Scanned"
+	// ReasonSecurityIssues represents a scan that reported an issue at the severity
+	// the AtlasSecurityScan resource fails on. It is a reason of the "Secure"
+	// condition, never of "Ready": the scan itself succeeded.
+	ReasonSecurityIssues = "SecurityIssues"
+	// ReasonInvalidSchedule represents a schedule or time zone that cannot be parsed.
+	ReasonInvalidSchedule = "InvalidSchedule"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.

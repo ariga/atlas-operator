@@ -18,6 +18,7 @@
 resources:
 - bases/db.atlasgo.io_atlasschemas.yaml
 - bases/db.atlasgo.io_atlasmigrations.yaml
+- bases/db.atlasgo.io_atlassecurityscans.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.

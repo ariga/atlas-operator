@@ -63,10 +63,19 @@ type (
 		schemaPlanList mockCmd[[]atlasexec.SchemaPlanFile]
 		schemaPlan     mockCmd[atlasexec.SchemaPlan]
 		schemaInspect  mockCmd[string]
+		securityScan   mockCmd[atlasexec.SecurityScan]
+		// securityScans records the params of each `security scan` run.
+		securityScans []*atlasexec.SecurityScanParams
 	}
 )
 
 var _ AtlasExec = &mockAtlasExec{}
+
+// SecurityScan implements AtlasExec.
+func (m *mockAtlasExec) SecurityScan(_ context.Context, params *atlasexec.SecurityScanParams) (*atlasexec.SecurityScan, error) {
+	m.securityScans = append(m.securityScans, params)
+	return m.securityScan.res, m.securityScan.err
+}
 
 // SchemaPlan implements AtlasExec.
 func (m *mockAtlasExec) SchemaPlan(context.Context, *atlasexec.SchemaPlanParams) (*atlasexec.SchemaPlan, error) {

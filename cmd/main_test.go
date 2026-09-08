@@ -33,15 +33,15 @@ func TestCacheOptions(t *testing.T) {
 		opts, err := cacheOptions("app=foo,env in (prod,staging)", nil)
 		require.NoError(t, err)
 		require.Nil(t, opts.DefaultNamespaces)
-		// Only AtlasSchema and AtlasMigration are filtered; Secrets and
-		// ConfigMaps stay unrestricted.
-		require.Len(t, opts.ByObject, 2)
+		// Only the Atlas resources are filtered; Secrets and ConfigMaps
+		// stay unrestricted.
+		require.Len(t, opts.ByObject, 3)
 		byType := map[string]labels.Selector{}
 		for obj, bo := range opts.ByObject {
 			require.NotNil(t, bo.Label)
 			byType[fmt.Sprintf("%T", obj)] = bo.Label
 		}
-		for _, typ := range []string{"*v1alpha1.AtlasSchema", "*v1alpha1.AtlasMigration"} {
+		for _, typ := range []string{"*v1alpha1.AtlasSchema", "*v1alpha1.AtlasMigration", "*v1alpha1.AtlasSecurityScan"} {
 			sel, ok := byType[typ]
 			require.Truef(t, ok, "expected a label selector for %s", typ)
 			require.True(t, sel.Matches(labels.Set{"app": "foo", "env": "prod"}))
@@ -62,7 +62,7 @@ func TestCacheOptions(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, opts.DefaultNamespaces, 1)
 		require.Contains(t, opts.DefaultNamespaces, "team-a")
-		require.Len(t, opts.ByObject, 2)
+		require.Len(t, opts.ByObject, 3)
 	})
 	t.Run("invalid selector returns an error", func(t *testing.T) {
 		_, err := cacheOptions("app=foo,,,", nil)

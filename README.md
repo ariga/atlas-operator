@@ -28,6 +28,8 @@ and apply it to your database using the Kubernetes API.
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 - [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them.
 - [X] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
+- [X] Scan databases on a schedule for [security issues](https://atlasgo.io/guides/security-scan), such as
+  installed extensions with known vulnerabilities (CVEs).
 - [X] Supported databases: MySQL, MariaDB, PostgreSQL, SQLite, SQL Server, ClickHouse, CockroachDB, YugabyteDB (YSQL)
 
 ### Declarative schema migrations
@@ -48,6 +50,108 @@ In versioned migrations, the database schema is defined by a series of SQL scrip
 in lexicographical order. The user can specify the version and migration directory to run, which can be located
 on the [Atlas Cloud](https://atlasgo.io/cloud/getting-started) or stored as a `ConfigMap` in your Kubernetes
 cluster.
+
+### Security scanning
+
+The `AtlasSecurityScan` resource runs [`atlas security scan`](https://atlasgo.io/guides/security-scan) against a
+database and reports the security issues it finds in the resource status. The `cve` check is included by default:
+it reports the extensions installed in the database that carry known vulnerabilities, as recorded in the Atlas
+Security Graph. New CVEs are published for versions that are already installed, so the database is scanned on the
+`schedule` of the resource, and again whenever a resource listed in `triggerOn` applies a change to it. This
+feature requires an [Atlas Pro](https://atlasgo.io/features#pro) token of an organization whose plan includes the
+Security Graph.
+
+```yaml
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSecurityScan
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: postgres-credentials
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        key: ATLAS_TOKEN
+        name: atlas-token-secret
+  # Scan every morning, and whenever these resources apply a change.
+  schedule: "0 6 * * *"
+  timeZone: UTC
+  triggerOn:
+    - kind: AtlasMigration
+      name: myapp-migrations
+  # Report issues graded ELEVATED and above, and ignore a CVE that was assessed.
+  minSeverity: ELEVATED
+  ignore:
+    - CVE-2026-14678
+  # An issue graded HIGH or CRITICAL clears the "Secure" condition.
+  failOn: HIGH
+```
+
+The resource is `Ready` once the database was scanned, whatever the scan found: a finding is a result, not a
+malfunction. The verdict lives in a second condition, `Secure`, which is `False` when an issue reached `failOn`.
+Only a database that could not be scanned clears `Ready`, since that leaves its state unknown. The status holds
+the report of the most recent scan:
+
+```shell
+$ kubectl get atlassecurityscans
+NAME       READY   SECURE   ISSUES   LEVEL   LAST SCAN   NEXT SCAN
+postgres   True    False    3        HIGH    2m          22h
+```
+
+```yaml
+status:
+  issues: 3
+  levels:
+    - level: HIGH
+      count: 1
+    - level: ELEVATED
+      count: 2
+  targets:
+    - url: postgres://postgres:xxxxx@postgres.default:5432/app?sslmode=disable
+      driver: postgres
+      version: "13.23"
+      extensions: [hstore, pg_trgm, pgcrypto]
+      vulnerabilities:
+        - id: CVE-2026-2005
+          name: pgcrypto
+          version: "1.3"
+          level: HIGH
+          severity: HIGH
+          title: PostgreSQL pgcrypto heap buffer overflow executes arbitrary code
+          suggestion: 'Upgrade the database engine to version 14.21 or later to resolve CVE-2026-2005: the fix for extension "pgcrypto" ships in engine releases'
+```
+
+The `cve` check and the `notify` block that sends the result to HTTP endpoints, such as a Slack webhook, are
+configured in the [`security` block](https://atlasgo.io/guides/security-scan#configuration) of a custom
+[project configuration](#configuration), which requires the operator to be installed with `allowCustomConfig=true`:
+
+```yaml
+spec:
+  envName: prod
+  vars:
+    - key: slack_webhook
+      valueFrom:
+        secretKeyRef:
+          key: url
+          name: slack-webhook
+  config: |
+    variable "slack_webhook" {
+      type = string
+    }
+    env "prod" {
+      security {
+        notify {
+          http "slack" {
+            url  = var.slack_webhook
+            body = jsonencode({ text = "${scan.count} vulnerable extensions found" })
+          }
+        }
+      }
+    }
+```
 
 ### Installation
 
