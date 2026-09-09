@@ -134,6 +134,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      id-token: write
     env:
       SRC: ghcr.io/${{ github.repository }}@${{ needs.ghcr.outputs.digest }}
       GHCR_TAGS: ${{ needs.ghcr.outputs.tags }}
