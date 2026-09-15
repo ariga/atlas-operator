@@ -1,0 +1,241 @@
+# Copyright 2024 The Atlas Operator Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: atlassecurityreports.db.atlasgo.io
+spec:
+  group: db.atlasgo.io
+  names:
+    kind: AtlasSecurityReport
+    listKind: AtlasSecurityReportList
+    plural: atlassecurityreports
+    singular: atlassecurityreport
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .report.summary.total
+      name: Findings
+      type: integer
+    - jsonPath: .report.summary.highestLevel
+      name: Highest
+      type: string
+    - jsonPath: .report.completionTime
+      name: Scanned
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          AtlasSecurityReport holds the findings of the most recent successful scan of an AtlasSecurityScan.
+          It is owned by the scan, replaced on every successful scan, and readable by its own RBAC rather
+          than by everyone who can read the scan.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          report:
+            description: SecurityReport is the graded result of one scan.
+            properties:
+              completionTime:
+                format: date-time
+                type: string
+              driver:
+                type: string
+              extensions:
+                description: Extensions installed in the database, by name.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              policy:
+                description: GradedPolicy is the policy a report was graded with (waivers
+                  appear on the findings they apply to).
+                properties:
+                  failOn:
+                    description: SecurityLevel is a Security Graph grade. Uppercase
+                      mirrors the CLI flags and atlas.hcl deliberately.
+                    enum:
+                    - NORMAL
+                    - ELEVATED
+                    - HIGH
+                    - CRITICAL
+                    type: string
+                  minSeverity:
+                    description: SecurityLevel is a Security Graph grade. Uppercase
+                      mirrors the CLI flags and atlas.hcl deliberately.
+                    enum:
+                    - NORMAL
+                    - ELEVATED
+                    - HIGH
+                    - CRITICAL
+                    type: string
+                required:
+                - minSeverity
+                type: object
+              serverVersion:
+                type: string
+              startTime:
+                format: date-time
+                type: string
+              summary:
+                description: |-
+                  ScanSummary counts the findings of a scan. Levels always lists all four, so
+                  metric series never disappear.
+                properties:
+                  driver:
+                    type: string
+                  extensions:
+                    format: int32
+                    type: integer
+                  highestLevel:
+                    description: SecurityLevel is a Security Graph grade. Uppercase
+                      mirrors the CLI flags and atlas.hcl deliberately.
+                    enum:
+                    - NORMAL
+                    - ELEVATED
+                    - HIGH
+                    - CRITICAL
+                    type: string
+                  levels:
+                    items:
+                      description: LevelCount is the number of non-waived findings
+                        at one level.
+                      properties:
+                        count:
+                          format: int32
+                          type: integer
+                        level:
+                          description: SecurityLevel is a Security Graph grade. Uppercase
+                            mirrors the CLI flags and atlas.hcl deliberately.
+                          enum:
+                          - NORMAL
+                          - ELEVATED
+                          - HIGH
+                          - CRITICAL
+                          type: string
+                      required:
+                      - count
+                      - level
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - level
+                    x-kubernetes-list-type: map
+                  total:
+                    format: int32
+                    type: integer
+                  waived:
+                    format: int32
+                    type: integer
+                required:
+                - extensions
+                - levels
+                - total
+                - waived
+                type: object
+              trigger:
+                description: ScanTrigger says why a scan ran.
+                enum:
+                - Spec
+                - Manual
+                - Apply
+                - Schedule
+                - Policy
+                type: string
+              vulnerabilities:
+                items:
+                  description: ReportedVulnerability is one finding of a scan.
+                  properties:
+                    cvssSeverity:
+                      type: string
+                    description:
+                      type: string
+                    extension:
+                      type: string
+                    id:
+                      type: string
+                    level:
+                      description: SecurityLevel is a Security Graph grade. Uppercase
+                        mirrors the CLI flags and atlas.hcl deliberately.
+                      enum:
+                      - NORMAL
+                      - ELEVATED
+                      - HIGH
+                      - CRITICAL
+                      type: string
+                    suggestion:
+                      type: string
+                    title:
+                      type: string
+                    version:
+                      type: string
+                    waiver:
+                      description: Waiver is set when the finding is ignored by the
+                        policy.
+                      properties:
+                        expirationTime:
+                          description: ExpirationTime is when the waiver stops applying.
+                            A scan runs when it passes.
+                          format: date-time
+                          type: string
+                        reason:
+                          description: Reason documents why the vulnerability is waived.
+                          maxLength: 1024
+                          minLength: 1
+                          type: string
+                      required:
+                      - reason
+                      type: object
+                  required:
+                  - extension
+                  - id
+                  - level
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                - extension
+                x-kubernetes-list-type: map
+            required:
+            - completionTime
+            - policy
+            - startTime
+            - summary
+            - trigger
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}

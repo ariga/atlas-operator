@@ -28,6 +28,8 @@ and apply it to your database using the Kubernetes API.
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 - [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them.
 - [X] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
+- [X] Scan databases on a schedule for [security issues](https://atlasgo.io/guides/security-scan), such as
+  installed extensions with known vulnerabilities (CVEs).
 - [X] Supported databases: MySQL, MariaDB, PostgreSQL, SQLite, SQL Server, ClickHouse, CockroachDB, YugabyteDB (YSQL)
 
 ### Declarative schema migrations
@@ -48,6 +50,110 @@ In versioned migrations, the database schema is defined by a series of SQL scrip
 in lexicographical order. The user can specify the version and migration directory to run, which can be located
 on the [Atlas Cloud](https://atlasgo.io/cloud/getting-started) or stored as a `ConfigMap` in your Kubernetes
 cluster.
+
+### Security scanning
+
+The `AtlasSecurityScan` resource runs [`atlas security scan`](https://atlasgo.io/guides/security-scan) against a
+database and grades what it finds. The `cve` check resolves the installed extensions against the Atlas Security
+Graph and reports the ones affected by a published CVE. New CVEs are published for versions that are already
+installed, and an apply can install a new extension, so the scan runs on a `schedule` and again whenever a resource
+listed in `triggers` completes an apply. This feature requires an [Atlas Pro](https://atlasgo.io/features#pro)
+token of an organization whose plan includes the Security Graph.
+
+```yaml
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSecurityScan
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: postgres-credentials
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        key: ATLAS_TOKEN
+        name: atlas-token-secret
+  # Every morning, in a named zone, and whenever these resources apply a change.
+  schedule: "0 6 * * *"
+  timeZone: UTC
+  triggers:
+    - kind: AtlasSchema
+      name: myapp
+    - kind: AtlasMigration
+      name: myapp-migrations
+  policy:
+    # Findings below this level are not reported.
+    minSeverity: ELEVATED
+    # A non-waived finding at this level or above makes Compliant=False.
+    failOn: HIGH
+    # Waivers stay in the report, marked with their reason, and stop counting.
+    ignore:
+      - id: CVE-2026-14678
+        reason: "pg_trgm is not reachable from the application role; SEC-1234"
+        expirationTime: "2026-12-31T00:00:00Z"
+```
+
+At least one of `schedule` and `triggers` must be set. The schedule is a five-field cron expression or one of
+`@hourly`, `@daily`, `@weekly`, `@monthly` and `@yearly`, evaluated in `timeZone`; `@every` is rejected because it
+drifts. A window missed while the operator was down is caught up with a single scan.
+
+Two conditions answer two different questions:
+
+| Condition | Question | `False` means |
+|---|---|---|
+| `Ready` | Did the controller do its job? | The last attempt failed; the reason says how. |
+| `Compliant` | Is the database within `policy` as of the last successful scan? | A non-waived finding reached `failOn`. `Unknown` when `failOn` is unset, before the first scan, or once retries are exhausted. |
+
+A finding is a result, not a malfunction: it moves `Compliant`, never `Ready`. Only a scan that could not run
+clears `Ready`, and it is retried with a backoff up to `backoffLimit`, after which the resource stalls and makes one
+attempt for each new set of inputs. `kubectl wait --for=condition=Ready` returns when a result exists;
+`--for=condition=Compliant` is a CI gate.
+
+```shell
+$ kubectl get atlassecurityscans
+NAME       READY   REASON    COMPLIANT   FINDINGS   HIGHEST   LAST SCAN   NEXT SCAN              AGE
+postgres   True    Scanned   False       3          HIGH      2m          2026-09-11T06:00:00Z   30d
+```
+
+The status holds a summary that never contains the connection URL, the extension names, the CVE ids the user did
+not write, or any CLI or driver error text. The findings live in a separate `AtlasSecurityReport` object with the
+same name, owned by the scan and replaced on every successful scan:
+
+```shell
+$ kubectl get atlassecurityreport postgres -o yaml
+report:
+  driver: postgres
+  serverVersion: "15.4"
+  extensions: [pgcrypto]
+  vulnerabilities:
+    - id: CVE-2026-2005
+      extension: pgcrypto
+      version: "1.3"
+      level: HIGH
+      cvssSeverity: HIGH
+      title: PostgreSQL pgcrypto heap buffer overflow executes arbitrary code
+      suggestion: Upgrade the database engine to version 15.16 or later
+```
+
+The report is deliberately not readable through the built-in `view` and `edit` roles, which the scan itself joins.
+The chart ships a `<release>-securityreport-viewer` ClusterRole for it, aggregated into `admin` by default; see
+`rbac.securityReports` in the values.
+
+To scan on demand, set the annotation to any new value and wait for it to be echoed back:
+
+```shell
+T=$(date -u +%FT%TZ)
+kubectl annotate atlassecurityscan/postgres db.atlasgo.io/scan-requested-at="$T" --overwrite
+kubectl wait atlassecurityscan/postgres --for=jsonpath="{.status.lastHandledScanRequest}=$T" --timeout=10m
+```
+
+`spec.suspend: true` pauses scanning without deleting the resource; resuming runs one scan that covers everything
+that became due meanwhile. A `security` block, including `notify` webhooks, can be given through a custom
+[project configuration](#configuration), which requires `allowCustomConfig=true`. When the operator is installed
+with `labelSelector` or `watchNamespaces`, a trigger must be managed by the same instance, or it is reported as
+`TriggerNotFound`.
 
 ### Installation
 
