@@ -21,6 +21,13 @@ rbac:
   # get/create/update on secrets in the namespaces it manages. Grant that with
   # your own (namespaced) Role when disabling this.
   clusterWideSecretAccess: true
+  # AtlasSecurityReport holds the extension inventory and vulnerability list of
+  # a scan. It is deliberately kept out of the built-in view and edit roles,
+  # which the scan itself joins, and exposed through a dedicated viewer role.
+  securityReports:
+    aggregateToAdmin: true
+    aggregateToEdit: false
+    aggregateToView: false
 
 crds:
   # CustomResourceDefinitions are cluster-scoped and shared by every release.
@@ -83,15 +90,15 @@ allowCustomConfig: false
 # example when RBAC is managed outside this chart.
 watchSecrets: ~
 
-# Restrict the operator to only manage AtlasSchema and AtlasMigration resources
-# matching these label selector requirements (ANDed together). Leave empty to
+# Restrict the operator to only manage AtlasSchema, AtlasMigration and
+# AtlasSecurityScan resources matching these label selector requirements (ANDed together). Leave empty to
 # manage all resources. This is useful when running multiple operator instances
 # in the same namespace, each handling specific resources.
 # e.g. labelSelector: ["app=foo", "env in (prod,staging)"]
 labelSelector: []
 
-# Restrict the operator to only watch AtlasSchema and AtlasMigration resources
-# in these namespaces. Leave empty to watch all namespaces (cluster scope).
+# Restrict the operator to only watch AtlasSchema, AtlasMigration and
+# AtlasSecurityScan resources in these namespaces. Leave empty to watch all namespaces (cluster scope).
 # e.g. watchNamespaces: ["team-a", "team-b"]
 watchNamespaces: []
 
