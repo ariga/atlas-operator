@@ -37,6 +37,8 @@ const (
 	ReasonMigrating = "Migrating"
 	// ReasonStoringDirState represents the reason for storing the state of an AtlasMigration resource.
 	ReasonStoringDirState = "StoringDirState"
+	// ReasonDriftDetected represents the reason for the pre-apply drift check blocking a migration.
+	ReasonDriftDetected = "DriftDetected"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.

@@ -1,0 +1,130 @@
+# The drift check compares the database with the state stored in the Atlas
+# Registry for the latest applied migration
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic dev-creds --from-literal=url=${DEV_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Drift checks require a migration directory on the registry.
+kubectl apply -f migration-local.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=ReadingMigrationData --timeout=2h AtlasMigration/local
+kubectl get AtlasMigration/local -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'spec.policy.drift requires a migration directory on the Atlas Registry'
+kubectl delete -f migration-local.yaml
+
+# Push without a tag to upload the schema states used by the drift check.
+# Tagged directories with the same versions and file hashes reuse these states.
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations:${NAMESPACE}-v1
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v2 atlas-operator-migrations:${NAMESPACE}-v2
+
+# Apply v1. The fresh database has no previous state to check, so the drift check is skipped.
+cat migration.yaml.tmpl > migration.yaml
+kubectl apply -f migration.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/drift
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250901000000 --timeout=2h AtlasMigration/drift
+
+# Introduce drift, then switch to v2.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text;'
+cat patch-v2.yaml.tmpl > patch-v2.yaml
+kubectl patch AtlasMigration/drift --type merge --patch-file patch-v2.yaml
+
+# With onError: FAIL, drift blocks the apply and is reported on the Ready condition.
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=DriftDetected --timeout=2h AtlasMigration/drift
+kubectl get AtlasMigration/drift -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'database state does not match expected state at version 20250901000000'
+kubectl get AtlasMigration/drift -o jsonpath --template='{.status.lastAppliedVersion}'
+stdout '^20250901000000$'
+kubectl get events --field-selector reason=DriftDetected,involvedObject.name=drift -o jsonpath --template='{.items[0].type}'
+stdout '^Warning$'
+
+# With onError: CONTINUE, drift does not block the apply.
+kubectl patch AtlasMigration/drift --type merge --patch-file patch-continue.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/drift
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250902000000 --timeout=2h AtlasMigration/drift
+
+-- migration-local.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: local
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  dir:
+    local:
+      20250901000000_init.sql: |
+        CREATE TABLE users (
+          id int NOT NULL,
+          name text NOT NULL,
+          PRIMARY KEY (id)
+        );
+      atlas.sum: |
+        h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+        20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+  policy:
+    drift:
+      onError: FAIL
+-- migration.yaml.tmpl --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: drift
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  devURLFrom:
+    secretKeyRef:
+      name: dev-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  dir:
+    remote:
+      name: atlas-operator-migrations
+      tag: ${NAMESPACE}-v1
+  policy:
+    drift:
+      onError: FAIL
+      exclude:
+        - "*[type=extension]"
+-- patch-v2.yaml.tmpl --
+spec:
+  dir:
+    remote:
+      tag: ${NAMESPACE}-v2
+-- patch-continue.yaml --
+spec:
+  policy:
+    drift:
+      onError: CONTINUE
+-- migrations-v1/atlas.sum --
+h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+-- migrations-v1/20250901000000_init.sql --
+CREATE TABLE users (
+  id int NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (id)
+);
+-- migrations-v2/atlas.sum --
+h1:MuMp4dIfBdZmLDjr26iq289Et3bih4Xugc6URPMKY1M=
+20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+20250902000000_add_email.sql h1:XKYRp3/OAsF6Bcap6iWfBVV/6mXJlJpMb25Wokyn5yc=
+-- migrations-v2/20250901000000_init.sql --
+CREATE TABLE users (
+  id int NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (id)
+);
+-- migrations-v2/20250902000000_add_email.sql --
+ALTER TABLE users ADD COLUMN email text;

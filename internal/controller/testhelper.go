@@ -114,6 +114,7 @@ func (m *mockAtlasExec) MigrateApply(context.Context, *atlasexec.MigrateApplyPar
 
 // MigrateApplySlice implements AtlasExec.
 func (m *mockAtlasExec) MigrateApplySlice(context.Context, *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error) {
+	m.writeStderr()
 	return []*atlasexec.MigrateApply{m.apply.res}, m.apply.err
 }
 

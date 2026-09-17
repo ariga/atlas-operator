@@ -466,6 +466,7 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | ProtectedFlowError | Occurred when the migration is protected and the operator is not able to apply it |
 | ApprovalPending | Applying the migration requires manual approval on Atlas Cloud. The URL used for approval is provided in the `approvalUrl` field of the `status` object |
 | Migrating | Failed to migrate to database |
+| DriftDetected | The pre-apply drift check (`spec.policy.drift`) found that the database does not match the state registered for its current version, so the migration was not applied. Fix the drift, add an `exclude` pattern, or set `onError` to `CONTINUE` to apply anyway and only log the drift in the Atlas Registry |
 
 ### Support
 

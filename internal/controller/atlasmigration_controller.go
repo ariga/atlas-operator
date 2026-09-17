@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -85,6 +86,7 @@ type (
 		MigrateDown     bool
 		ObservedHash    string
 		RemoteDir       *dbv1alpha1.Remote
+		Policy          *dbv1alpha1.MigrationPolicy
 		Config          *hclwrite.File
 		Vars            atlasexec.Vars2
 	}
@@ -472,9 +474,9 @@ func (s *migrationRun) prepareDevDB(ctx context.Context) error {
 func (s *migrationRun) migrateDown(ctx context.Context) error {
 	data, res, status := s.data, s.res, s.status
 	if !data.MigrateDown {
-		return &ProtectedFlowError{
+		return &reasonedError{
+			err:    errors.New("migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade"),
 			reason: "ProtectedFlowError",
-			msg:    "migrate down is not allowed, set `migrateDown.allow` to true to allow downgrade",
 		}
 	}
 	// The downgrade is allowed, apply the last migration version
@@ -560,6 +562,7 @@ func (s *migrationRun) migrateApply(ctx context.Context) error {
 	s.log.Info("applying pending migrations", "count", len(s.status.Pending))
 	var stderr bytes.Buffer
 	s.cli.SetStderr(&stderr)
+	defer s.cli.SetStderr(nil)
 	// There are pending migrations
 	// Execute Atlas CLI migrate command
 	reports, err := s.cli.MigrateApplySlice(ctx, &atlasexec.MigrateApplyParams{
@@ -571,7 +574,7 @@ func (s *migrationRun) migrateApply(ctx context.Context) error {
 		Vars: s.data.Vars,
 	})
 	if err != nil {
-		return err
+		return asDriftError(err)
 	}
 	if len(reports) != 1 {
 		return fmt.Errorf("unexpected number of reports: %d", len(reports))
@@ -580,7 +583,6 @@ func (s *migrationRun) migrateApply(ctx context.Context) error {
 		// In some cases, Atlas logs to stderr without returning a nonzero status code. Emit the message to the user.
 		s.r.recorder.Event(s.res, corev1.EventTypeWarning, "Migrating", msg)
 	}
-	s.cli.SetStderr(nil)
 	s.res.SetReady(dbv1alpha1.AtlasMigrationStatus{
 		ObservedHash:       s.data.ObservedHash,
 		LastApplied:        reports[0].End.Unix(),
@@ -599,21 +601,6 @@ func (s *migrationRun) storeDirState(ctx context.Context) error {
 	return s.r.storeDirState(ctx, s.res, s.data.Dir)
 }
 
-type ProtectedFlowError struct {
-	reason string
-	msg    string
-}
-
-// Error implements the error interface
-func (e *ProtectedFlowError) Error() string {
-	return e.msg
-}
-
-// Reason returns the reason of the error
-func (e *ProtectedFlowError) Reason() string {
-	return e.reason
-}
-
 // errRequeue stops the reconciliation and requeues the resource immediately,
 // without reporting an error.
 var errRequeue = errors.New("requeue")
@@ -626,13 +613,32 @@ type (
 		message string
 	}
 	// reasonedError overrides the default failure reason of the step
-	// returning it. It intentionally has no Unwrap method, so recordErrEvent
+	// returning it. recordErrEvent reports that reason as the event
+	// reason; It intentionally has no Unwrap method, so recordErrEvent
 	// keeps classifying the error as transient.
 	reasonedError struct {
 		err    error
 		reason string
 	}
+	// reasoner is implemented by errors that carry their own failure reason.
+	reasoner interface {
+		error
+		Reason() string
+	}
 )
+
+// asDriftError converts a drift-check failure to a DriftDetected error.
+func asDriftError(err error) error {
+	for line := range strings.Lines(err.Error()) {
+		if strings.Contains(line, "database state does not match expected state at version") {
+			return &reasonedError{
+				err:    errors.New(strings.TrimPrefix(strings.TrimSpace(line), "Error: ")),
+				reason: dbv1alpha1.ReasonDriftDetected,
+			}
+		}
+	}
+	return err
+}
 
 // Error implements the error interface
 func (e *pendingError) Error() string {
@@ -660,6 +666,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			Baseline:        s.Baseline,
 			ExecOrder:       string(s.ExecOrder),
 			MigrateDown:     false,
+			Policy:          s.Policy,
 		}
 	)
 	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
@@ -677,6 +684,9 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	}
 	if env := s.EnvName; env != "" {
 		data.EnvName = env
+	}
+	if s.Policy.HasDrift() && s.Dir.Remote.Name == "" && !data.hasConfigRepo() {
+		return nil, errors.New("spec.policy.drift requires a migration directory on the Atlas Registry: set spec.dir.remote, or declare migration.repo.name in spec.config; the pre-apply drift check compares the database against the expected state stored in the registry")
 	}
 	if data.URL, err = s.DatabaseURL(ctx, r, res.Namespace); err != nil {
 		return nil, transient(err)
@@ -707,7 +717,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if f := s.ProtectedFlows; f != nil {
 			if d := f.MigrateDown; d != nil {
 				if d.Allow && d.AutoApprove {
-					return nil, &ProtectedFlowError{"ProtectedFlowError", "autoApprove is not allowed for a remote directory"}
+					return nil, &reasonedError{errors.New("autoApprove is not allowed for a remote directory"), "ProtectedFlowError"}
 				}
 				data.MigrateDown = d.Allow
 			}
@@ -720,7 +730,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if f := s.ProtectedFlows; f != nil {
 			if d := f.MigrateDown; d != nil {
 				if d.Allow && !d.AutoApprove {
-					return nil, &ProtectedFlowError{"ProtectedFlowError", "allow cannot be true without autoApprove for local migration directory"}
+					return nil, &reasonedError{errors.New("allow cannot be true without autoApprove for local migration directory"), "ProtectedFlowError"}
 				}
 				// Allow migrate-down only if the flow is allowed and auto-approved
 				data.MigrateDown = d.Allow && d.AutoApprove
@@ -770,8 +780,8 @@ func (r *AtlasMigrationReconciler) recordApplied(res *dbv1alpha1.AtlasMigration,
 
 func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration, err error) {
 	reason := "Error"
-	switch e := (&ProtectedFlowError{}); {
-	case errors.As(err, &e):
+	switch e, ok := errors.AsType[reasoner](err); {
+	case ok:
 		reason = e.Reason()
 	case isTransient(err):
 		reason = "TransientErr"
@@ -782,7 +792,7 @@ func (r *AtlasMigrationReconciler) recordErrEvent(res *dbv1alpha1.AtlasMigration
 func (r *AtlasMigrationReconciler) resultErr(
 	res *dbv1alpha1.AtlasMigration, err error, reason string,
 ) (ctrl.Result, error) {
-	if e, ok := err.(interface{ Reason() string }); ok {
+	if e, ok := errors.AsType[reasoner](err); ok {
 		reason = e.Reason()
 	}
 	err = transient(err)
@@ -817,6 +827,10 @@ func hashMigrationData(d *migrationData) (string, error) {
 		h.Write([]byte(c.Token))
 		h.Write([]byte(c.URL))
 		h.Write([]byte(c.Repo))
+	}
+	if p := d.Policy; p.HasDrift() {
+		h.Write([]byte(p.Drift.OnError))
+		h.Write([]byte(strings.Join(p.Drift.Exclude, ",")))
 	}
 	switch {
 	case d.hasRemoteDir():
@@ -870,20 +884,13 @@ func (d *migrationData) render(w io.Writer) error {
 		dirAttr = migrationblock.Body().GetAttribute("dir")
 	}
 	switch {
+	case dirAttr == nil:
+		return errors.New("migration directory is empty")
 	case d.hasRemoteDir():
-		dirURL := dirAttr.Expr().BuildTokens(nil).Bytes()
-		if dirAttr != nil && !strings.Contains(string(dirURL), d.DirURL()) {
+		dirURL := string(dirAttr.Expr().BuildTokens(nil).Bytes())
+		if !strings.Contains(dirURL, d.DirURL()) {
 			return errors.New("cannot use both remote and local directory")
 		}
-		cloudBlock := searchBlock(f.Body(), hclwrite.NewBlock("atlas", nil))
-		if cloudBlock == nil {
-			if cloudBlock.Body().GetAttribute("token") == nil {
-				return errors.New("Atlas Cloud token is empty")
-			}
-		}
-	case dirAttr != nil:
-	default:
-		return errors.New("migration directory is empty")
 	}
 	if _, err := f.WriteTo(w); err != nil {
 		return err
@@ -897,6 +904,40 @@ func (c *migrationData) hasRemoteDir() bool {
 		return false
 	}
 	return c.RemoteDir != nil && c.RemoteDir.Name != ""
+}
+
+// hasConfigRepo reports whether the config sets migration.repo.name.
+// The drift check uses it instead of an atlas:// directory URL.
+func (d *migrationData) hasConfigRepo() bool {
+	if d.Config == nil {
+		return false
+	}
+	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
+	if env == nil {
+		return false
+	}
+	migration := searchBlock(env.Body(), hclwrite.NewBlock("migration", nil))
+	if migration == nil {
+		return false
+	}
+	repo := searchBlock(migration.Body(), hclwrite.NewBlock("repo", nil))
+	return repo != nil && repo.Body().GetAttribute("name") != nil
+}
+
+// hasGlobalDriftCheck reports whether the config has a top-level drift check
+// for migrate_apply. Global checks apply to every env, so adding another drift
+// check would run it twice. All check blocks are scanned because they can repeat.
+func (d *migrationData) hasGlobalDriftCheck() bool {
+	if d.Config == nil {
+		return false
+	}
+	for _, blk := range d.Config.Body().Blocks() {
+		if blk.Type() == "check" && slices.Equal(blk.Labels(), []string{"migrate_apply"}) &&
+			searchBlock(blk.Body(), hclwrite.NewBlock("drift", nil)) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // hasDevURL returns true if the given migration data has a dev URL
@@ -956,6 +997,10 @@ func (d *migrationData) asBlocks() []*hclwrite.Block {
 	}
 	if d.RevisionsSchema != "" {
 		migrationBody.SetAttributeValue("revisions_schema", cty.StringVal(d.RevisionsSchema))
+	}
+	// A global drift check already covers this env, so don't add it again.
+	if p := d.Policy; p.HasDrift() && !d.hasGlobalDriftCheck() {
+		envBody.AppendBlock(p.Drift.AsBlock())
 	}
 	return blocks
 }
