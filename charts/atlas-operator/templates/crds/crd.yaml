@@ -8732,7 +8732,7 @@ spec:
                 properties:
                   drift:
                     description: |-
-                      Drift enables the pre-apply drift check of the Atlas CLI.
+                      Drift enables the pre-apply drift check
                       Before applying pending migrations, Atlas compares the database with the
                       state the Atlas Registry holds for the current version. The migration
                       directory must be on the registry: set spec.dir.remote, or migration.repo.name
@@ -8751,7 +8751,6 @@ spec:
                           OnError controls what happens when drift is found (default: FAIL).
                           FAIL stops the migration and reports the drift on the Ready condition.
                           CONTINUE applies it anyway and records the drift only in the Atlas
-                          Registry deployment log.
                         enum:
                         - FAIL
                         - CONTINUE
