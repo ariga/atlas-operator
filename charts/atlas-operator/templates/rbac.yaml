@@ -11,7 +11,7 @@ metadata:
     {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["db.atlasgo.io"]
-    resources: ["atlasdriftchecks", "atlasdriftchecks/status", "atlasmigrations", "atlasmigrations/status", "atlasschemas", "atlasschemas/status"]
+    resources: ["atlasdriftchecks", "atlasdriftchecks/status", "atlasmigrations", "atlasmigrations/status", "atlasschemas", "atlasschemas/status", "atlassecurityscans", "atlassecurityscans/status"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -24,9 +24,9 @@ metadata:
     {{- include "atlas-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["db.atlasgo.io"]
-    resources: ["atlasdriftchecks", "atlasmigrations", "atlasschemas"]
+    resources: ["atlasdriftchecks", "atlasmigrations", "atlasschemas", "atlassecurityscans"]
     verbs: ["create", "delete", "patch", "update"]
   - apiGroups: ["db.atlasgo.io"]
-    resources: ["atlasdriftchecks/status", "atlasmigrations/status", "atlasschemas/status"]
+    resources: ["atlasdriftchecks/status", "atlasmigrations/status", "atlasschemas/status", "atlassecurityscans/status"]
     verbs: ["get", "patch", "update"]
 {{- end }}
