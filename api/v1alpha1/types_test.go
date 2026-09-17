@@ -362,3 +362,72 @@ func TestAtlasSchemaStatusConditions(t *testing.T) {
 	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
 	require.Equal(t, metav1.ConditionFalse, stalled.Status)
 }
+
+func TestAtlasSecurityScanConditions(t *testing.T) {
+	res := &v1alpha1.AtlasSecurityScan{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+	cond := func(typ string) metav1.Condition { return requireCondition(t, res.Status.Conditions, typ) }
+
+	res.SetFirstVisit()
+	require.Equal(t, metav1.ConditionUnknown, cond("Ready").Status)
+	require.Equal(t, metav1.ConditionTrue, cond("Reconciling").Status)
+	require.Equal(t, metav1.ConditionFalse, cond("Stalled").Status)
+	require.Equal(t, metav1.ConditionUnknown, cond("Compliant").Status)
+	require.Equal(t, v1alpha1.ReasonNotScanned, cond("Compliant").Reason)
+	require.Equal(t, int64(2), cond("Ready").ObservedGeneration)
+
+	// The first scan keeps Ready unknown; a later Spec re-scan would keep the last result.
+	res.SetScanning()
+	require.Equal(t, v1alpha1.ReasonScanning, cond("Ready").Reason)
+	require.Equal(t, metav1.ConditionTrue, cond("Reconciling").Status)
+
+	// A transient failure is retried, and is not a stall.
+	res.Status.Failed = 1
+	res.SetRetrying(v1alpha1.ReasonScanFailed, "the database could not be scanned; attempt 1 of 20; see the operator log")
+	require.Equal(t, metav1.ConditionFalse, cond("Ready").Status)
+	require.Equal(t, v1alpha1.ReasonScanFailed, cond("Ready").Reason)
+	require.Equal(t, v1alpha1.ReasonRetrying, cond("Reconciling").Reason)
+	require.Equal(t, metav1.ConditionTrue, cond("Reconciling").Status)
+	require.Equal(t, metav1.ConditionFalse, cond("Stalled").Status)
+	require.False(t, res.IsStalled(""))
+
+	res.SetScanned("no findings in 3 extensions")
+	require.True(t, res.IsReady())
+	require.Equal(t, "no findings in 3 extensions", cond("Ready").Message)
+	require.Equal(t, metav1.ConditionFalse, cond("Reconciling").Status)
+	require.Equal(t, 0, res.Status.Failed)
+	res.SetCompliant(metav1.ConditionFalse, v1alpha1.ReasonPolicyViolated, "1 finding at or above HIGH")
+	require.Equal(t, metav1.ConditionFalse, res.Compliant().Status)
+	require.True(t, res.IsReady(), "a verdict never touches Ready")
+
+	// A stall stamps the generation and is reported by reason.
+	res.Status.ObservedGeneration = 1
+	res.SetStalled(v1alpha1.ReasonInvalidSchedule, "schedule does not fire")
+	require.True(t, res.IsStalled(""))
+	require.True(t, res.IsStalled(v1alpha1.ReasonInvalidSchedule))
+	require.False(t, res.IsStalled(v1alpha1.ReasonBackoffLimitExceeded))
+	require.Equal(t, int64(2), res.Status.ObservedGeneration)
+	require.Equal(t, metav1.ConditionFalse, cond("Reconciling").Status)
+
+	// Suspending keeps Ready and Compliant, and is detectable afterwards.
+	res.SetSuspended()
+	require.True(t, res.WasSuspended())
+	require.Equal(t, metav1.ConditionFalse, cond("Stalled").Status)
+	require.Equal(t, v1alpha1.ReasonInvalidSchedule, cond("Ready").Reason, "Ready is left as it was")
+
+	res.Status.Failed = 3
+	res.SetIdle()
+	require.True(t, res.IsReady())
+	require.False(t, res.WasSuspended())
+	require.Equal(t, 0, res.Status.Failed)
+}
+
+func TestAtlasSecurityScanHelpers(t *testing.T) {
+	res := &v1alpha1.AtlasSecurityScan{}
+	require.False(t, res.IsSuspended())
+	res.Spec.Suspend = new(true)
+	require.True(t, res.IsSuspended())
+	require.Nil(t, res.Compliant(), "absent before the first visit")
+	require.Equal(t, 0, v1alpha1.LevelIndex(v1alpha1.SecurityLevelNormal))
+	require.Equal(t, 3, v1alpha1.LevelIndex(v1alpha1.SecurityLevelCritical))
+	require.Equal(t, -1, v1alpha1.LevelIndex("LOW"))
+}
