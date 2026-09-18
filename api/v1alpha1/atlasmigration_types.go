@@ -15,6 +15,11 @@
 package v1alpha1
 
 import (
+	"cmp"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,6 +104,9 @@ type (
 		ExecOrder MigrateExecOrder `json:"execOrder,omitempty"`
 		// ProtectedFlows defines the protected flows of a deployment.
 		ProtectedFlows *ProtectFlows `json:"protectedFlows,omitempty"`
+		// Policy defines the policies to apply when migrating the database.
+		// +optional
+		Policy *MigrationPolicy `json:"policy,omitempty"`
 		// BackoffLimit is the number of retries on error.
 		// +kubebuilder:default=20
 		BackoffLimit int `json:"backoffLimit,omitempty"`
@@ -140,11 +148,48 @@ type (
 		// +kubebuilder:default=false
 		AutoApprove bool `json:"autoApprove,omitempty"`
 	}
+	// MigrationPolicy defines the policies to apply when migrating the database.
+	MigrationPolicy struct {
+		// Drift enables the pre-apply drift check
+		// Before applying pending migrations, Atlas compares the database with the
+		// state the Atlas Registry holds for the current version. The migration
+		// directory must be on the registry: set spec.dir.remote, or migration.repo.name
+		// in spec.config. See https://atlasgo.io/versioned/drift-detection.
+		// +optional
+		Drift *DriftPolicy `json:"drift,omitempty"`
+	}
+	// DriftPolicy configures the pre-apply drift check. It adds a
+	// check "migrate_apply" { drift { ... } } block to the generated atlas.hcl.
+	DriftPolicy struct {
+		// OnError controls what happens when drift is found (default: FAIL).
+		// FAIL stops the migration and reports the drift on the Ready condition.
+		// CONTINUE applies it anyway and records the drift only in the Atlas
+		// +optional
+		OnError DriftOnError `json:"onError,omitempty"`
+		// Exclude lists glob patterns of database objects to ignore, e.g. "public.audit_*"
+		// or "*[type=extension]". It replaces the env-level exclude list.
+		// The revisions table is always excluded.
+		// +optional
+		Exclude []string `json:"exclude,omitempty"`
+	}
 )
 
 // ExecOrder controls how Atlas computes and executes pending migration files to the database.
 // +kubebuilder:validation:Enum=linear;linear-skip;non-linear
 type MigrateExecOrder string
+
+// DriftOnError controls what the drift check does when it finds drift.
+// +kubebuilder:validation:Enum=FAIL;CONTINUE
+type DriftOnError string
+
+// DriftOnError values.
+const (
+	// DriftOnErrorFail stops the migration when drift is found.
+	DriftOnErrorFail DriftOnError = "FAIL"
+	// DriftOnErrorContinue applies the migration anyway and records the
+	// drift in the Atlas Registry deployment log.
+	DriftOnErrorContinue DriftOnError = "CONTINUE"
+)
 
 const (
 	readyCond       = "Ready"
@@ -280,4 +325,26 @@ func (m *AtlasMigration) setCondition(cond metav1.Condition) {
 		cond.ObservedGeneration = m.Generation
 	}
 	meta.SetStatusCondition(&m.Status.Conditions, cond)
+}
+
+// HasDrift reports whether the policy enables the pre-apply drift check.
+func (p *MigrationPolicy) HasDrift() bool {
+	return p != nil && p.Drift != nil
+}
+
+// AsBlock returns the check "migrate_apply" block for this policy.
+func (d *DriftPolicy) AsBlock() *hclwrite.Block {
+	blk := hclwrite.NewBlock("check", []string{"migrate_apply"})
+	drift := blk.Body().AppendNewBlock("drift", nil).Body()
+	drift.SetAttributeTraversal("on_error", hcl.Traversal{
+		hcl.TraverseRoot{Name: string(cmp.Or(d.OnError, DriftOnErrorFail))},
+	})
+	if len(d.Exclude) > 0 {
+		vals := make([]cty.Value, len(d.Exclude))
+		for i, e := range d.Exclude {
+			vals[i] = cty.StringVal(e)
+		}
+		drift.SetAttributeValue("exclude", cty.ListVal(vals))
+	}
+	return blk
 }

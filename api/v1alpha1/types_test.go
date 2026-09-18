@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -313,6 +314,19 @@ func TestAtlasMigrationStatusConditions(t *testing.T) {
 	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
 	require.Equal(t, metav1.ConditionFalse, recon.Status)
 
+	// A blocked pre-apply drift check is a failure: it stalls the resource and counts against the backoff limit.
+	res.SetNotReady(v1alpha1.ReasonDriftDetected, "database state does not match expected state at version 1")
+	require.Equal(t, 2, res.Status.Failed)
+	ready = requireCondition(t, res.Status.Conditions, "Ready")
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	require.Equal(t, v1alpha1.ReasonDriftDetected, ready.Reason)
+	require.Equal(t, "database state does not match expected state at version 1", ready.Message)
+	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
+	require.Equal(t, metav1.ConditionTrue, stalled.Status)
+	require.Equal(t, v1alpha1.ReasonDriftDetected, stalled.Reason)
+	recon = requireCondition(t, res.Status.Conditions, "Reconciling")
+	require.Equal(t, metav1.ConditionFalse, recon.Status)
+
 	res.SetReady(v1alpha1.AtlasMigrationStatus{LastApplied: 10})
 	require.Equal(t, int64(3), res.Status.ObservedGeneration)
 	require.Equal(t, 0, res.Status.Failed)
@@ -361,4 +375,32 @@ func TestAtlasSchemaStatusConditions(t *testing.T) {
 	require.Equal(t, metav1.ConditionFalse, recon.Status)
 	stalled = requireCondition(t, res.Status.Conditions, "Stalled")
 	require.Equal(t, metav1.ConditionFalse, stalled.Status)
+}
+
+func TestDriftPolicy_AsBlock(t *testing.T) {
+	f := hclwrite.NewFile()
+	f.Body().AppendBlock((&v1alpha1.DriftPolicy{}).AsBlock())
+	require.Equal(t, `check "migrate_apply" {
+  drift {
+    on_error = FAIL
+  }
+}
+`, string(hclwrite.Format(f.Bytes())))
+
+	f = hclwrite.NewFile()
+	f.Body().AppendBlock((&v1alpha1.DriftPolicy{
+		OnError: v1alpha1.DriftOnErrorContinue,
+		Exclude: []string{"public.audit_*", "*[type=extension]"},
+	}).AsBlock())
+	require.Equal(t, `check "migrate_apply" {
+  drift {
+    on_error = CONTINUE
+    exclude  = ["public.audit_*", "*[type=extension]"]
+  }
+}
+`, string(hclwrite.Format(f.Bytes())))
+
+	require.False(t, (*v1alpha1.MigrationPolicy)(nil).HasDrift())
+	require.False(t, (&v1alpha1.MigrationPolicy{}).HasDrift())
+	require.True(t, (&v1alpha1.MigrationPolicy{Drift: &v1alpha1.DriftPolicy{}}).HasDrift())
 }

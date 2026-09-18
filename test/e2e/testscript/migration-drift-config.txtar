@@ -1,0 +1,156 @@
+# A custom atlas.hcl supports two cases not covered by the generated config:
+# migration.repo.name can provide the registry repository, and a top-level
+# migrate_apply check applies to every env and takes precedence over the policy.
+db postgres:15.4 REPO_DB_URL postgres-repo
+db postgres:15.4 GLOBAL_DB_URL postgres-global
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic repo-db-creds --from-literal=url=${REPO_DB_URL}
+kubectl create secret generic global-db-creds --from-literal=url=${GLOBAL_DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Push the directory without a tag to upload the schema states used by the drift
+# check. The tagged directories below share these states by repository, version,
+# and file hash.
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations:${NAMESPACE}-cfg-v1
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v2 atlas-operator-migrations:${NAMESPACE}-cfg-v2
+
+# The directory is local, but migration.repo.name provides the registry
+# repository needed by the drift check. The fresh database has no drift, so v1
+# is applied.
+kubectl apply -f migration-repo.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/repo-name
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250901000000 --timeout=2h AtlasMigration/repo-name
+
+# Introduce drift, then add the second migration.
+kubectl exec -i deploy/postgres-repo -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text;'
+kubectl patch AtlasMigration/repo-name --type merge --patch-file patch-repo-v2.yaml
+
+# The config repository provides the expected state, so drift blocks the apply.
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=DriftDetected --timeout=2h AtlasMigration/repo-name
+kubectl get AtlasMigration/repo-name -o jsonpath --template='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'database state does not match expected state at version 20250901000000'
+kubectl get AtlasMigration/repo-name -o jsonpath --template='{.status.lastAppliedVersion}'
+stdout '^20250901000000$'
+
+# The second resource defines its drift check at the top level. The fresh
+# database has no drift, so v1 is applied.
+cat migration-global.yaml.tmpl > migration-global.yaml
+kubectl apply -f migration-global.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/top-level-check
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250901000000 --timeout=2h AtlasMigration/top-level-check
+
+# Introduce drift, then switch to v2.
+kubectl exec -i deploy/postgres-global -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text;'
+cat patch-global-v2.yaml.tmpl > patch-global-v2.yaml
+kubectl patch AtlasMigration/top-level-check --type merge --patch-file patch-global-v2.yaml
+
+# The top-level check already covers this env, so the FAIL policy is not added
+# and the config's CONTINUE setting allows v2 to apply.
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/top-level-check
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250902000000 --timeout=2h AtlasMigration/top-level-check
+
+-- migration-repo.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: repo-name
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: repo-db-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  envName: kubernetes
+  config: |
+    env "kubernetes" {
+      migration {
+        repo {
+          name = "atlas-operator-migrations"
+        }
+      }
+    }
+  dir:
+    local:
+      20250901000000_init.sql: |
+        CREATE TABLE users (
+          id int NOT NULL,
+          name text NOT NULL,
+          PRIMARY KEY (id)
+        );
+      atlas.sum: |
+        h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+        20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+  policy:
+    drift:
+      onError: FAIL
+-- patch-repo-v2.yaml --
+spec:
+  dir:
+    local:
+      20250902000000_add_email.sql: |
+        ALTER TABLE users ADD COLUMN email text;
+      atlas.sum: |
+        h1:MuMp4dIfBdZmLDjr26iq289Et3bih4Xugc6URPMKY1M=
+        20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+        20250902000000_add_email.sql h1:XKYRp3/OAsF6Bcap6iWfBVV/6mXJlJpMb25Wokyn5yc=
+-- migration-global.yaml.tmpl --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: top-level-check
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: global-db-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  envName: kubernetes
+  config: |
+    check "migrate_apply" {
+      drift {
+        on_error = CONTINUE
+      }
+    }
+  dir:
+    remote:
+      name: atlas-operator-migrations
+      tag: ${NAMESPACE}-cfg-v1
+  policy:
+    drift:
+      onError: FAIL
+-- patch-global-v2.yaml.tmpl --
+spec:
+  dir:
+    remote:
+      tag: ${NAMESPACE}-cfg-v2
+-- migrations-v1/atlas.sum --
+h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+-- migrations-v1/20250901000000_init.sql --
+CREATE TABLE users (
+  id int NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (id)
+);
+-- migrations-v2/atlas.sum --
+h1:MuMp4dIfBdZmLDjr26iq289Et3bih4Xugc6URPMKY1M=
+20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+20250902000000_add_email.sql h1:XKYRp3/OAsF6Bcap6iWfBVV/6mXJlJpMb25Wokyn5yc=
+-- migrations-v2/20250901000000_init.sql --
+CREATE TABLE users (
+  id int NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (id)
+);
+-- migrations-v2/20250902000000_add_email.sql --
+ALTER TABLE users ADD COLUMN email text;

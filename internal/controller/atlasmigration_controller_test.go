@@ -18,12 +18,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -636,6 +638,30 @@ func TestReconcile_LocalMigrationDir_ConfigMap(t *testing.T) {
 	status := tt.status()
 	require.EqualValues(tt, metav1.ConditionFalse, status.Conditions[0].Status)
 	require.Contains(tt, status.Conditions[0].Message, "cannot use both configmaps and local directory")
+}
+
+// TestReconcile_RemoteDirCustomConfig reconciles a remote directory with a custom
+// atlas.hcl that has no atlas block. Rendering it used to dereference a nil block
+// and panic before the CLI ran. It must report a status condition instead.
+func TestReconcile_RemoteDirCustomConfig(t *testing.T) {
+	// NewAtlasExec inherits the process environment. Clear the token so a
+	// developer's own credentials cannot authenticate this run.
+	t.Setenv("ATLAS_TOKEN", "")
+	tt := migrationCliTest(t)
+	tt.r.AllowCustomConfig()
+	am := tt.getAtlasMigration()
+	am.Spec.EnvName = defaultEnvName
+	am.Spec.Dir.Remote = dbv1alpha1.Remote{Name: "my-remote-dir", Tag: "my-remote-tag"}
+	am.Spec.Config = fmt.Sprintf("env %q {\n}\n", defaultEnvName)
+	tt.k8s.put(am)
+
+	result, err := tt.r.Reconcile(context.Background(), migrationReq())
+	require.NoError(tt, err)
+	require.EqualValues(tt, reconcile.Result{RequeueAfter: retryDuration}, result)
+
+	status := tt.status()
+	require.EqualValues(tt, metav1.ConditionFalse, status.Conditions[0].Status)
+	require.Contains(tt, status.Conditions[0].Message, "login is required to use custom atlas.hcl config")
 }
 
 func TestReconcile_Transient(t *testing.T) {
@@ -1442,4 +1468,482 @@ func getReadyCondition(t *testing.T, conds []metav1.Condition) metav1.Condition 
 		t.Fatal("Ready condition not found")
 	}
 	return *cond
+}
+
+func TestDriftPolicyTemplate(t *testing.T) {
+	migrate := &migrationData{
+		EnvName: defaultEnvName,
+		URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+		DevURL:  "sqlite://dev/?mode=memory",
+		Cloud:   &Cloud{Token: "my-token"},
+		RemoteDir: &dbv1alpha1.Remote{
+			Name: "my-remote-dir",
+			Tag:  "my-remote-tag",
+		},
+		Policy: &dbv1alpha1.MigrationPolicy{
+			Drift: &dbv1alpha1.DriftPolicy{
+				OnError: dbv1alpha1.DriftOnErrorFail,
+				Exclude: []string{"public.audit_*", "*[type=extension]"},
+			},
+		},
+	}
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token = "my-token"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+  check "migrate_apply" {
+    drift {
+      on_error = FAIL
+      exclude  = ["public.audit_*", "*[type=extension]"]
+    }
+  }
+}
+`, fileContent.String())
+}
+
+func TestCustomAtlasHCL_DriftPolicyTemplate(t *testing.T) {
+	newData := func(config string) *migrationData {
+		return &migrationData{
+			EnvName: defaultEnvName,
+			URL:     must(url.Parse("sqlite://file2/?mode=memory")),
+			DevURL:  "sqlite://dev/?mode=memory",
+			Cloud:   &Cloud{Token: "my-token"},
+			RemoteDir: &dbv1alpha1.Remote{
+				Name: "my-remote-dir",
+				Tag:  "my-remote-tag",
+			},
+			Policy: &dbv1alpha1.MigrationPolicy{
+				Drift: &dbv1alpha1.DriftPolicy{
+					OnError: dbv1alpha1.DriftOnErrorFail,
+					Exclude: []string{"public.audit_*"},
+				},
+			},
+			Config: mustParseHCL(config),
+		}
+	}
+	// A check block with rules only is merged with the generated drift block.
+	migrate := newData(`env "kubernetes" {
+  check "migrate_apply" {
+    deny {
+      condition = true
+      message   = "nope"
+    }
+  }
+}
+`)
+	var fileContent bytes.Buffer
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token = "my-token"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+  check "migrate_apply" {
+    drift {
+      on_error = FAIL
+      exclude  = ["public.audit_*"]
+    }
+    deny {
+      condition = true
+      message   = "nope"
+    }
+  }
+}
+`, fileContent.String())
+
+	// A drift block in the config wins over the policy, attribute by attribute.
+	migrate = newData(`env "kubernetes" {
+  check "migrate_apply" {
+    drift {
+      on_error = CONTINUE
+    }
+  }
+}
+`)
+	fileContent.Reset()
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token = "my-token"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+  check "migrate_apply" {
+    drift {
+      on_error = CONTINUE
+      exclude  = ["public.audit_*"]
+    }
+  }
+}
+`, fileContent.String())
+
+	// A top-level drift check already covers every env. There is nothing to
+	// merge the policy into, so it is left out rather than checked twice.
+	migrate = newData(`check "migrate_apply" {
+  drift {
+    on_error = CONTINUE
+  }
+}
+`)
+	fileContent.Reset()
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token = "my-token"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+}
+check "migrate_apply" {
+  drift {
+    on_error = CONTINUE
+  }
+}
+`, fileContent.String())
+
+	// A top-level check without a drift block leaves the policy in place.
+	migrate = newData(`check "migrate_apply" {
+  deny {
+    condition = true
+    message   = "nope"
+  }
+}
+`)
+	fileContent.Reset()
+	require.NoError(t, migrate.render(&fileContent))
+	require.EqualValues(t, `atlas {
+  cloud {
+    token = "my-token"
+  }
+}
+env "kubernetes" {
+  url = "sqlite://file2/?mode=memory"
+  dev = "sqlite://dev/?mode=memory"
+  migration {
+    dir = "atlas://my-remote-dir?tag=my-remote-tag"
+  }
+  check "migrate_apply" {
+    drift {
+      on_error = FAIL
+      exclude  = ["public.audit_*"]
+    }
+  }
+}
+check "migrate_apply" {
+  deny {
+    condition = true
+    message   = "nope"
+  }
+}
+`, fileContent.String())
+}
+
+func TestHasConfigRepo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg  string
+		want bool
+	}{
+		"labelled env": {`env "kubernetes" {
+  migration {
+    repo {
+      name = "d"
+    }
+  }
+}`, true},
+		"unlabelled env": {`env {
+  name = atlas.env
+  migration {
+    repo {
+      name = "d"
+    }
+  }
+}`, true},
+		"repo without name": {`env "kubernetes" {
+  migration {
+    repo {
+      url = "atlas://d"
+    }
+  }
+}`, false},
+		"no repo block": {`env "kubernetes" {
+  migration {
+    dir = "file://migrations"
+  }
+}`, false},
+		"no migration block": {`env "kubernetes" {
+  url = "sqlite://x"
+}`, false},
+		"other env": {`env "staging" {
+  migration {
+    repo {
+      name = "d"
+    }
+  }
+}`, false},
+		"repo outside migration": {`env "kubernetes" {
+  repo {
+    name = "d"
+  }
+}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := &migrationData{EnvName: defaultEnvName, Config: mustParseHCL(tc.cfg)}
+			require.Equal(t, tc.want, d.hasConfigRepo())
+		})
+	}
+	require.False(t, (&migrationData{EnvName: defaultEnvName}).hasConfigRepo())
+}
+
+func TestHasGlobalDriftCheck(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg  string
+		want bool
+	}{
+		"top level drift": {`check "migrate_apply" {
+  drift {}
+}`, true},
+		"second top level block": {`check "migrate_apply" {
+  deny {
+    condition = true
+  }
+}
+check "migrate_apply" {
+  drift {}
+}`, true},
+		"top level without drift": {`check "migrate_apply" {
+  deny {
+    condition = true
+  }
+}`, false},
+		"top level other label": {`check "schema_apply" {
+  drift {}
+}`, false},
+		"env level only": {`env "kubernetes" {
+  check "migrate_apply" {
+    drift {}
+  }
+}`, false},
+		"unlabelled env only": {`env {
+  name = atlas.env
+  check "migrate_apply" {
+    drift {}
+  }
+}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := &migrationData{EnvName: defaultEnvName, Config: mustParseHCL(tc.cfg)}
+			require.Equal(t, tc.want, d.hasGlobalDriftCheck())
+		})
+	}
+	require.False(t, (&migrationData{EnvName: defaultEnvName}).hasGlobalDriftCheck())
+}
+
+func TestDriftPolicy_extractData(t *testing.T) {
+	tt := migrationCliTest(t)
+	tt.initDefaultMigrationDir()
+	tt.initDefaultTokenSecret()
+	// A ConfigMap directory has no registry state to compare against.
+	_, err := tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			Dir: dbv1alpha1.Dir{
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
+			},
+			Policy: &dbv1alpha1.MigrationPolicy{Drift: &dbv1alpha1.DriftPolicy{}},
+		},
+	})
+	require.EqualError(t, err, "spec.policy.drift requires a migration directory on the Atlas Registry: set spec.dir.remote, or declare migration.repo.name in spec.config; the pre-apply drift check compares the database against the expected state stored in the registry")
+
+	// A custom config may put the directory on the registry with
+	// migration.repo.name, which the drift check takes as well.
+	tt.r.AllowCustomConfig()
+	_, err = tt.r.extractData(context.Background(), &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+			EnvName:    defaultEnvName,
+			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{
+				Config: fmt.Sprintf(`env %q {
+  migration {
+    repo {
+      name = "my-dir"
+    }
+  }
+}
+`, defaultEnvName),
+			},
+			Dir: dbv1alpha1.Dir{
+				ConfigMapRef: &corev1.LocalObjectReference{Name: "my-configmap"},
+			},
+			Policy: &dbv1alpha1.MigrationPolicy{Drift: &dbv1alpha1.DriftPolicy{}},
+		},
+	})
+	require.NoError(t, err)
+
+	remote := func(p *dbv1alpha1.MigrationPolicy) *dbv1alpha1.AtlasMigration {
+		return &dbv1alpha1.AtlasMigration{
+			ObjectMeta: migrationObjmeta(),
+			Spec: dbv1alpha1.AtlasMigrationSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{URL: tt.dburl},
+				Cloud: dbv1alpha1.CloudV0{
+					TokenFrom: dbv1alpha1.TokenFrom{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							Key:                  "token",
+							LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"},
+						},
+					},
+				},
+				Dir:    dbv1alpha1.Dir{Remote: dbv1alpha1.Remote{Name: "my-dir", Tag: "v1"}},
+				Policy: p,
+			},
+		}
+	}
+	// A registry directory is accepted and the policy is part of the observed hash.
+	withDrift, err := tt.r.extractData(context.Background(), remote(&dbv1alpha1.MigrationPolicy{
+		Drift: &dbv1alpha1.DriftPolicy{OnError: dbv1alpha1.DriftOnErrorContinue, Exclude: []string{"audit_*"}},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, dbv1alpha1.DriftOnErrorContinue, withDrift.Policy.Drift.OnError)
+	withoutDrift, err := tt.r.extractData(context.Background(), remote(nil))
+	require.NoError(t, err)
+	require.NotEqual(t, withoutDrift.ObservedHash, withDrift.ObservedHash)
+	changed, err := tt.r.extractData(context.Background(), remote(&dbv1alpha1.MigrationPolicy{
+		Drift: &dbv1alpha1.DriftPolicy{OnError: dbv1alpha1.DriftOnErrorFail, Exclude: []string{"audit_*"}},
+	}))
+	require.NoError(t, err)
+	require.NotEqual(t, changed.ObservedHash, withDrift.ObservedHash)
+}
+
+func TestAsDriftError(t *testing.T) {
+	const clause = "database state does not match expected state at version"
+	other := errors.New("boom")
+	require.Same(t, other, asDriftError(other))
+	for name, err := range map[string]error{
+		// Older CLI builds print the error on stderr and no report.
+		"stderr":   &atlasexec.Error{Stderr: "Error: " + clause + " 1"},
+		"quoted":   &atlasexec.Error{Stderr: "Error: " + clause + ` "1"`},
+		"multiple": &atlasexec.Error{Stderr: "Warning: something else\nError: " + clause + " 1\n"},
+		// Newer builds emit the JSON report with the error set.
+		"report": &atlasexec.MigrateApplyError{Result: []*atlasexec.MigrateApply{{Error: clause + " 1"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := asDriftError(err)
+			r, ok := got.(reasoner)
+			require.True(t, ok)
+			require.Equal(t, dbv1alpha1.ReasonDriftDetected, r.Reason())
+			require.True(t, strings.HasPrefix(got.Error(), clause), got.Error())
+			require.NotContains(t, got.Error(), "Error: ")
+			require.NotContains(t, got.Error(), "\n")
+		})
+	}
+}
+
+func TestMigration_DriftDetected(t *testing.T) {
+	var (
+		objMeta = migrationObjmeta()
+		obj     = &dbv1alpha1.AtlasMigration{
+			ObjectMeta: objMeta,
+			Spec: dbv1alpha1.AtlasMigrationSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{URL: "sqlite://file?mode=memory"},
+				Cloud: dbv1alpha1.CloudV0{
+					TokenFrom: dbv1alpha1.TokenFrom{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							Key:                  "token",
+							LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"},
+						},
+					},
+				},
+				Dir: dbv1alpha1.Dir{Remote: dbv1alpha1.Remote{Name: "my-dir", Tag: "v2"}},
+				Policy: &dbv1alpha1.MigrationPolicy{
+					Drift: &dbv1alpha1.DriftPolicy{OnError: dbv1alpha1.DriftOnErrorFail},
+				},
+			},
+			Status: dbv1alpha1.AtlasMigrationStatus{
+				Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}},
+			},
+		}
+	)
+	mockExec := &mockAtlasExec{}
+	mockExec.whoami.res = &atlasexec.WhoAmI{Org: "my-org"}
+	mockExec.status.res = &atlasexec.MigrateStatus{
+		Current:   "1",
+		Applied:   []*atlasexec.Revision{{Version: "1"}},
+		Pending:   []atlasexec.File{{Version: "2", Name: "2.sql"}},
+		Available: []atlasexec.File{{Version: "1", Name: "1.sql"}, {Version: "2", Name: "2.sql"}},
+	}
+	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
+		cb.WithObjects(obj, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-secret", Namespace: "default"},
+			Data:       map[string][]byte{"token": []byte("my-token")},
+		})
+	}, mockExec)
+	assert := func(expect ctrl.Result, ready bool, reason, msg string, failed int) {
+		t.Helper()
+		reconcile(obj, func(result ctrl.Result, err error) {
+			require.NoError(t, err)
+			require.EqualValues(t, expect, result)
+			res := &dbv1alpha1.AtlasMigration{ObjectMeta: objMeta}
+			h.get(t, res)
+			readyCond := getReadyCondition(t, res.Status.Conditions)
+			require.Equal(t, ready, res.IsReady())
+			require.Equal(t, reason, readyCond.Reason, readyCond.Message)
+			require.Contains(t, readyCond.Message, msg)
+			require.Equal(t, failed, res.Status.Failed)
+			stalled := meta.FindStatusCondition(res.Status.Conditions, "Stalled")
+			require.NotNil(t, stalled)
+			require.Equal(t, !ready, stalled.Status == metav1.ConditionTrue)
+			// The stderr writer is detached from the client after every run.
+			require.Nil(t, mockExec.stderrW)
+		})
+	}
+	const clause = "database state does not match expected state at version 1"
+	// Older CLI builds report the blocked apply on stderr only.
+	mockExec.apply.err = &atlasexec.Error{Stderr: "Error: " + clause}
+	assert(ctrl.Result{RequeueAfter: retryDuration}, false, dbv1alpha1.ReasonDriftDetected, clause, 1)
+	// Newer builds print the JSON report with the error set.
+	mockExec.apply.err = &atlasexec.MigrateApplyError{Result: []*atlasexec.MigrateApply{{Error: clause}}}
+	assert(ctrl.Result{RequeueAfter: 2 * retryDuration}, false, dbv1alpha1.ReasonDriftDetected, clause, 2)
+	// Any other apply failure keeps the generic reason.
+	const sqlErr = `sql/migrate: executing statement "SYNTAX ERROR" from version "2": near "SYNTAX": syntax error`
+	mockExec.apply.err = errors.New(sqlErr)
+	assert(ctrl.Result{RequeueAfter: 3 * retryDuration}, false, dbv1alpha1.ReasonMigrating, sqlErr, 3)
+	// The check passes: the migration is applied and stderr becomes a warning.
+	mockExec.apply.err = nil
+	mockExec.apply.res = &atlasexec.MigrateApply{Target: "2", End: time.Now()}
+	mockExec.stderr = "atlas: some warning\n"
+	assert(ctrl.Result{}, true, dbv1alpha1.ReasonApplied, "", 0)
+	require.Equal(t, []string{
+		"Warning DriftDetected " + clause,
+		"Warning DriftDetected " + clause,
+		"Warning TransientErr " + sqlErr,
+		"Warning Migrating atlas: some warning",
+		"Normal Applied Version 2 applied",
+	}, h.events())
 }
