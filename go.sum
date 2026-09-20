@@ -1,5 +1,5 @@
-ariga.io/atlas v1.2.3 h1:DLNK5kiz48XGv4Dbv8sJxPHncmmwUm43PoSA7UMZXEU=
-ariga.io/atlas v1.2.3/go.mod h1:v8ltuOKxFAU8ZF33HNfQs1iRWKuP3hJfu+dU0VE5O0Y=
+ariga.io/atlas v1.3.1-0.20260920033222-767f4969a644 h1:jQmJfg8vQP0bLmMuy+LDDbs/5BuR9o3rS9u9NCYq8MM=
+ariga.io/atlas v1.3.1-0.20260920033222-767f4969a644/go.mod h1:v8ltuOKxFAU8ZF33HNfQs1iRWKuP3hJfu+dU0VE5O0Y=
 github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20OEh60=
 github.com/DATA-DOG/go-sqlmock v1.5.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/agext/levenshtein v1.2.3 h1:YB2fHEn0UJagG8T1rrWknE3ZQzWM06O8AMAatNn7lmo=
