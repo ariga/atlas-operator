@@ -404,3 +404,15 @@ func TestDriftPolicy_AsBlock(t *testing.T) {
 	require.False(t, (&v1alpha1.MigrationPolicy{}).HasDrift())
 	require.True(t, (&v1alpha1.MigrationPolicy{Drift: &v1alpha1.DriftPolicy{}}).HasDrift())
 }
+
+func TestAtlasMigration_IsReconciling(t *testing.T) {
+	res := &v1alpha1.AtlasMigration{}
+	require.False(t, res.IsReconciling())
+	res.SetReconciling("applying")
+	require.True(t, res.IsReconciling())
+	res.SetReady(v1alpha1.AtlasMigrationStatus{})
+	require.False(t, res.IsReconciling())
+	// A stalled migration is not reconciling: the check must still run.
+	res.SetNotReady(v1alpha1.ReasonMigrating, "boom")
+	require.False(t, res.IsReconciling())
+}

@@ -146,13 +146,19 @@ func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *AtlasMigrationReconciler) readDirState(ctx context.Context, obj client.Object) (migrate.Dir, error) {
+	return readDirState(ctx, r, obj)
+}
+
+// readDirState reads the migration directory saved after the last deployment.
+// It returns nil if no saved directory exists.
+func readDirState(ctx context.Context, c client.Reader, obj client.Object) (migrate.Dir, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      makeKeyLatest(obj.GetName()),
 			Namespace: obj.GetNamespace(),
 		},
 	}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
+	if err := c.Get(ctx, client.ObjectKeyFromObject(secret), secret); err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}
 	return extractDirFromSecret(secret)
@@ -656,7 +662,12 @@ func (e *reasonedError) Reason() string {
 }
 
 // Extract migration data from the given resource
-func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasMigration) (_ *migrationData, err error) {
+func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alpha1.AtlasMigration) (*migrationData, error) {
+	return extractMigrationData(ctx, r, res, r.allowCustomConfig)
+}
+
+// extractMigrationData reads the data needed to run migrations for the given AtlasMigration.
+func extractMigrationData(ctx context.Context, c client.Reader, res *dbv1alpha1.AtlasMigration, allowCustomConfig bool) (_ *migrationData, err error) {
 	var (
 		s    = res.Spec
 		data = &migrationData{
@@ -669,13 +680,13 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 			Policy:          s.Policy,
 		}
 	)
-	data.Config, err = s.GetConfig(ctx, r, res.Namespace)
+	data.Config, err = s.GetConfig(ctx, c, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
 	}
 	hasConfig := data.Config != nil
 	if hasConfig {
-		if !r.allowCustomConfig {
+		if !allowCustomConfig {
 			return nil, errors.New("install the operator with \"--set allowCustomConfig=true\" to use custom atlas.hcl config")
 		}
 		if s.EnvName == "" {
@@ -688,14 +699,14 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if s.Policy.HasDrift() && s.Dir.Remote.Name == "" && !data.hasConfigRepo() {
 		return nil, errors.New("spec.policy.drift requires a migration directory on the Atlas Registry: set spec.dir.remote, or declare migration.repo.name in spec.config; the pre-apply drift check compares the database against the expected state stored in the registry")
 	}
-	if data.URL, err = s.DatabaseURL(ctx, r, res.Namespace); err != nil {
+	if data.URL, err = s.DatabaseURL(ctx, c, res.Namespace); err != nil {
 		return nil, transient(err)
 	}
 	if !hasConfig && data.URL == nil {
 		return nil, transient(errors.New("no target database defined"))
 	}
 	if s := s.Cloud.TokenFrom.SecretKeyRef; s != nil {
-		token, err := getSecretValue(ctx, r, res.Namespace, s)
+		token, err := getSecretValue(ctx, c, res.Namespace, s)
 		if err != nil {
 			return nil, err
 		}
@@ -738,7 +749,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		}
 		files := d.Local
 		if files == nil {
-			cfgMap, err := getConfigMap(ctx, r, res.Namespace, d.ConfigMapRef)
+			cfgMap, err := getConfigMap(ctx, c, res.Namespace, d.ConfigMapRef)
 			if err != nil {
 				return nil, err
 			}
@@ -748,7 +759,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 		if err != nil {
 			return nil, err
 		}
-		data.DirLatest, err = r.readDirState(ctx, res)
+		data.DirLatest, err = readDirState(ctx, c, res)
 		if err != nil {
 			return nil, err
 		}
@@ -758,7 +769,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if s := s.DevURLFrom.SecretKeyRef; s != nil {
 		// SecretKeyRef is set, get the secret value
 		// then override the dev url.
-		data.DevURL, err = getSecretValue(ctx, r, res.Namespace, s)
+		data.DevURL, err = getSecretValue(ctx, c, res.Namespace, s)
 		if err != nil {
 			return nil, err
 		}
@@ -767,7 +778,7 @@ func (r *AtlasMigrationReconciler) extractData(ctx context.Context, res *dbv1alp
 	if err != nil {
 		return nil, err
 	}
-	data.Vars, err = s.GetVars(ctx, r, res.Namespace)
+	data.Vars, err = s.GetVars(ctx, c, res.Namespace)
 	if err != nil {
 		return nil, transient(err)
 	}

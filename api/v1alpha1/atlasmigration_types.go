@@ -214,6 +214,12 @@ func (m *AtlasMigration) IsReady() bool {
 	return meta.IsStatusConditionTrue(m.Status.Conditions, readyCond)
 }
 
+// IsReconciling returns true if the reconciling condition is true, i.e. an
+// apply is in flight.
+func (m *AtlasMigration) IsReconciling() bool {
+	return meta.IsStatusConditionTrue(m.Status.Conditions, reconcilingCond)
+}
+
 // IsHashModified returns true if the hash is different from the observed hash.
 func (m *AtlasMigration) IsHashModified(hash string) bool {
 	return hash != m.Status.ObservedHash
