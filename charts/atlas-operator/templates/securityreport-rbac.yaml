@@ -1,0 +1,21 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "atlas-operator.fullname" . }}-securityreport-viewer
+  labels:
+    {{- if .Values.rbac.securityReports.aggregateToAdmin }}
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    {{- end }}
+    {{- if .Values.rbac.securityReports.aggregateToEdit }}
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    {{- end }}
+    {{- if .Values.rbac.securityReports.aggregateToView }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    {{- end }}
+    {{- include "atlas-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["db.atlasgo.io"]
+  resources: ["atlassecurityreports"]
+  verbs: ["get", "list", "watch"]
+{{- end }}
