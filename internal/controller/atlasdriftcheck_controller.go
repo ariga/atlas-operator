@@ -353,6 +353,7 @@ func (s *driftRun) exclude() []string {
 var permanentDriftErrors = []string{
 	"no state found for version",
 	"has no hash to resolve",
+	"parsing expected state",
 }
 
 // classifyDriftError classifies a failed check. Unknown errors are treated as

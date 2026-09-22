@@ -270,18 +270,6 @@ func TestDriftCheck_PermanentFailures(t *testing.T) {
 	// The same failure is not reported twice.
 	run(&atlasexec.Error{Stderr: noHistory})
 	require.Empty(t, h.events())
-	// The Pro gate.
-	const pro = "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"
-	run(&atlasexec.Error{Stderr: pro})
-	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
-	requireCond(t, res, "Stalled", metav1.ConditionTrue, dbv1alpha1.ReasonCheckFailed)
-	require.Equal(t, []string{"Warning CheckFailed " + pro}, h.events())
-	// An Atlas CLI that predates the command.
-	const unknown = `unknown command "drift" for "atlas migrate"`
-	run(errors.New(unknown))
-	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
-	requireCond(t, res, "Stalled", metav1.ConditionTrue, dbv1alpha1.ReasonCheckFailed)
-	require.Equal(t, []string{"Warning CheckFailed " + unknown}, h.events())
 }
 
 func TestDriftCheck_TransientFailures(t *testing.T) {
@@ -308,6 +296,16 @@ func TestDriftCheck_TransientFailures(t *testing.T) {
 	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
 	requireCond(t, res, "Drifted", metav1.ConditionUnknown, dbv1alpha1.ReasonCheckFailed)
 	require.Equal(t, []string{"Warning CheckFailed dial tcp: connection refused"}, h.events())
+	// The Pro gate and a CLI that predates the command are transient too: a
+	// license or an operator upgrade clears them without touching the resource.
+	const pro = "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"
+	run(&atlasexec.Error{Stderr: pro})
+	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, []string{"Warning CheckFailed " + pro}, h.events())
+	const unknown = `unknown command "drift" for "atlas migrate"`
+	run(errors.New(unknown))
+	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, []string{"Warning CheckFailed " + unknown}, h.events())
 	// A run that ran out of time is transient too.
 	run(context.DeadlineExceeded)
 	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
@@ -520,11 +518,10 @@ func TestClassifyDriftError(t *testing.T) {
 			message:   "Error: no migration history found on the connected database",
 		},
 		{
-			name:      "atlas pro gate",
-			err:       &atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   "Abort: command 'atlas migrate drift' is available only to Atlas Pro users",
+			name:    "atlas pro gate",
+			err:     &atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
+			reason:  dbv1alpha1.ReasonCheckFailed,
+			message: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users",
 		},
 		{
 			name:      "login required",
@@ -534,32 +531,28 @@ func TestClassifyDriftError(t *testing.T) {
 			message:   "running drift: command requires 'atlas login'",
 		},
 		{
-			name:      "unknown command",
-			err:       errors.New(`unknown command "drift" for "atlas migrate"`),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   `unknown command "drift" for "atlas migrate"`,
+			name:    "unknown command",
+			err:     errors.New(`unknown command "drift" for "atlas migrate"`),
+			reason:  dbv1alpha1.ReasonCheckFailed,
+			message: `unknown command "drift" for "atlas migrate"`,
 		},
 		{
-			name:      "partially applied",
-			err:       errors.New(`version "2" was partially applied`),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   `version "2" was partially applied`,
+			name:    "partially applied",
+			err:     errors.New(`version "2" was partially applied`),
+			reason:  dbv1alpha1.ReasonCheckFailed,
+			message: `version "2" was partially applied`,
 		},
 		{
-			name:      "checksum mismatch",
-			err:       &atlasexec.Error{Stderr: "You have a checksum error in your migration directory.\nchecksum mismatch"},
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   "You have a checksum error in your migration directory.\nchecksum mismatch",
+			name:    "checksum mismatch",
+			err:     &atlasexec.Error{Stderr: "You have a checksum error in your migration directory.\nchecksum mismatch"},
+			reason:  dbv1alpha1.ReasonCheckFailed,
+			message: "You have a checksum error in your migration directory.\nchecksum mismatch",
 		},
 		{
-			name:      "no registry repository",
-			err:       errors.New("drift check requires migration.repo.name or an atlas:// directory URL to be set"),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   "drift check requires migration.repo.name or an atlas:// directory URL to be set",
+			name:    "no registry repository",
+			err:     errors.New("drift check requires migration.repo.name or an atlas:// directory URL to be set"),
+			reason:  dbv1alpha1.ReasonCheckFailed,
+			message: "drift check requires migration.repo.name or an atlas:// directory URL to be set",
 		},
 		{
 			name:      "bad expected state",
