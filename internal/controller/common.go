@@ -55,6 +55,8 @@ type (
 		MigrateApplySlice(context.Context, *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error)
 		// MigrateDown runs the `migrate down` command.
 		MigrateDown(context.Context, *atlasexec.MigrateDownParams) (*atlasexec.MigrateDown, error)
+		// MigrateDriftSlice runs the `migrate drift` command and returns one report per target.
+		MigrateDriftSlice(context.Context, *atlasexec.MigrateDriftParams) ([]*atlasexec.MigrateDrift, error)
 		// MigrateStatus runs the `migrate status` command.
 		MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
 		// SchemaApplySlice runs the `schema apply` command and returns the successful runs.
