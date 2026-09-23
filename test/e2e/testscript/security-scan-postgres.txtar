@@ -1,0 +1,290 @@
+db postgres:15.4 DB_URL
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# An extension with published CVEs on this engine version, so the scan has findings.
+kubectl exec deploy/postgres -- psql -U root -d postgres -c 'CREATE EXTENSION pgcrypto'
+
+# Ready says the scan ran. Without failOn the verdict is unknown.
+kubectl apply -f scan.yaml
+kubectl-wait-ready AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ range .status.conditions }}{{ if eq .type "Compliant" }}{{ .reason }}{{ end }}{{ end }}'
+stdout '^NoThreshold$'
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.summary.driver }} {{ .status.summary.total }}'
+stdout '^postgres [1-9]'
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.nextScheduleTime }}'
+! stdout '^<no value>$'
+
+# The findings live in the report the scan owns, never in the scan itself.
+kubectl get AtlasSecurityReport/postgres -o go-template --template='{{ index .report.extensions 0 }} {{ len .report.vulnerabilities }}'
+stdout '^pgcrypto [1-9]'
+kubectl get AtlasSecurityScan/postgres -o yaml
+! stdout 'pgcrypto'
+! stdout 'CVE-'
+
+# A threshold turns the same findings into a verdict. Ready is untouched by it.
+kubectl patch -f scan.yaml --type merge --patch-file patch-fail-on.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Compliant")].reason}'=PolicyViolated --timeout=2h AtlasSecurityScan/postgres
+kubectl-wait-ready AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.failed }}'
+stdout '^0$'
+
+# A threshold below the reporting floor is rejected by the CRD, which only a real
+# API server enforces. So are the two rules nothing in the controller backstops.
+! kubectl patch -f scan.yaml --type merge --patch-file patch-bad-policy.yaml
+stderr 'failOn must be at or above minSeverity'
+! kubectl patch -f scan.yaml --type merge --patch-file patch-local-zone.yaml
+stderr 'timeZone must be an IANA zone name'
+! kubectl patch -f scan.yaml --type merge --patch-file patch-no-trigger.yaml
+stderr 'at least one of spec.schedule or spec.triggers must be set'
+
+# An on-demand scan is a new annotation value, echoed back once it completed.
+kubectl annotate AtlasSecurityScan/postgres db.atlasgo.io/scan-requested-at=e2e-1 --overwrite
+kubectl wait --for=jsonpath='{.status.lastHandledScanRequest}'=e2e-1 --timeout=2h AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.lastScan.trigger }}'
+stdout '^Manual$'
+
+# A schema on the same database becomes a trigger, already applied, so the scan
+# records the revision it is at.
+kubectl apply -f schema.yaml
+kubectl-wait-ready AtlasSchema/myapp
+kubectl patch -f scan.yaml --type merge --patch-file patch-triggers.yaml
+kubectl wait --for=jsonpath='{.status.triggers[0].name}'=myapp --timeout=2h AtlasSecurityScan/postgres
+kubectl get AtlasSchema/myapp -o go-template --template='{{ .status.observed_hash }}'
+cp stdout hash-v1.txt
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ (index .status.triggers 0).kind }}/{{ (index .status.triggers 0).name }}'
+stdout '^AtlasSchema/myapp$'
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ (index .status.triggers 0).revision }}'
+cmp stdout hash-v1.txt
+
+# Applying a schema change moves the revision, and that alone starts a scan.
+# lastScan is written when the attempt starts, the watermarks when it succeeds.
+kubectl apply -f schema-v2.yaml
+kubectl wait --for=jsonpath='{.status.lastScan.trigger}'=Apply --timeout=2h AtlasSecurityScan/postgres
+kubectl wait --for=jsonpath='{.status.lastScan.result}'=Succeeded --timeout=2h AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.lastScan.triggeredBy }}'
+stdout '^AtlasSchema/myapp$'
+kubectl get AtlasSchema/myapp -o go-template --template='{{ .status.observed_hash }}'
+cp stdout hash-v2.txt
+! cmp hash-v1.txt hash-v2.txt
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ (index .status.triggers 0).revision }}'
+cmp stdout hash-v2.txt
+
+# The whole object, pinned. A CRITICAL floor is asserted rather than the live
+# finding set, so the golden holds when a new CVE is published for pgcrypto.
+kubectl patch -f scan.yaml --type merge --patch-file patch-min-severity.yaml
+kubectl wait --for=jsonpath='{.status.summary.total}'=0 --timeout=2h AtlasSecurityScan/postgres
+kubectl wait --for=jsonpath='{.status.lastScan.result}'=Succeeded --timeout=2h AtlasSecurityScan/postgres
+exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityScan/postgres -o yaml | awk "/^spec:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/inputsHash: .*/inputsHash: <hash>/; s/uid: .*/uid: <uid>/; s/revision: .*/revision: <revision>/"'
+cmp stdout status.yaml
+exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityReport/postgres -o yaml | awk "/^metadata:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/uid: .*/uid: <uid>/; s/namespace: .*/namespace: <namespace>/; s/resourceVersion: .*/resourceVersion: <version>/; s/generation: .*/generation: <generation>/"'
+cmp stdout report.yaml
+
+# An every-minute schedule: the next slot starts a scan with nothing else changing.
+kubectl patch -f scan.yaml --type merge --patch-file patch-schedule.yaml
+kubectl wait --for=jsonpath='{.status.lastScan.trigger}'=Schedule --timeout=2h AtlasSecurityScan/postgres
+kubectl wait --for=jsonpath='{.status.lastScan.result}'=Succeeded --timeout=2h AtlasSecurityScan/postgres
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.lastScan.triggeredBy }}'
+stdout '^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$'
+# The watermark is the last slot the scan covered, which is a later one when the
+# scan was still running as that slot passed.
+kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.lastScheduleTime }}'
+stdout '^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$'
+-- patch-bad-policy.yaml --
+spec:
+  policy:
+    minSeverity: CRITICAL
+-- patch-local-zone.yaml --
+spec:
+  timeZone: Local
+-- patch-no-trigger.yaml --
+spec:
+  schedule: null
+  triggers: null
+-- patch-min-severity.yaml --
+spec:
+  policy:
+    minSeverity: CRITICAL
+    failOn: CRITICAL
+-- status.yaml --
+spec:
+  backoffLimit: 20
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        key: ATLAS_TOKEN
+        name: atlas-token
+  policy:
+    failOn: CRITICAL
+    minSeverity: CRITICAL
+  schedule: 0 6 * * *
+  timeZone: UTC
+  triggers:
+  - kind: AtlasSchema
+    name: myapp
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: db-creds
+status:
+  conditions:
+  - lastTransitionTime: <time>
+    message: no findings in 1 extension
+    observedGeneration: 4
+    reason: Scanned
+    status: "True"
+    type: Ready
+  - lastTransitionTime: <time>
+    message: no findings in 1 extension
+    observedGeneration: 4
+    reason: Scanned
+    status: "False"
+    type: Reconciling
+  - lastTransitionTime: <time>
+    message: ""
+    observedGeneration: 4
+    reason: Scanned
+    status: "False"
+    type: Stalled
+  - lastTransitionTime: <time>
+    message: no findings at or above CRITICAL; see atlassecurityreport/postgres
+    observedGeneration: 4
+    reason: WithinPolicy
+    status: "True"
+    type: Compliant
+  failed: 0
+  lastHandledScanRequest: e2e-1
+  lastScan:
+    completionTime: <time>
+    inputsHash: <hash>
+    result: Succeeded
+    startTime: <time>
+    trigger: Spec
+    triggeredBy: generation 4
+  lastSuccessfulTime: <time>
+  nextScheduleTime: <time>
+  observedGeneration: 4
+  reportRef:
+    name: postgres
+  summary:
+    driver: postgres
+    extensions: 1
+    levels:
+    - count: 0
+      level: CRITICAL
+    - count: 0
+      level: HIGH
+    - count: 0
+      level: ELEVATED
+    - count: 0
+      level: NORMAL
+    total: 0
+    waived: 0
+  triggers:
+  - kind: AtlasSchema
+    name: myapp
+    revision: <revision>
+    uid: <uid>
+-- report.yaml --
+metadata:
+  creationTimestamp: <time>
+  generation: <generation>
+  labels:
+    db.atlasgo.io/scan: postgres
+  name: postgres
+  namespace: <namespace>
+  ownerReferences:
+  - apiVersion: db.atlasgo.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AtlasSecurityScan
+    name: postgres
+    uid: <uid>
+  resourceVersion: <version>
+  uid: <uid>
+report:
+  completionTime: <time>
+  extensions:
+  - pgcrypto
+  policy:
+    failOn: CRITICAL
+    minSeverity: CRITICAL
+  serverVersion: "15.4"
+  startTime: <time>
+  summary:
+    driver: postgres
+    extensions: 1
+    levels:
+    - count: 0
+      level: CRITICAL
+    - count: 0
+      level: HIGH
+    - count: 0
+      level: ELEVATED
+    - count: 0
+      level: NORMAL
+    total: 0
+    waived: 0
+  trigger: Spec
+-- patch-fail-on.yaml --
+spec:
+  policy:
+    failOn: NORMAL
+-- scan.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSecurityScan
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  schedule: "0 6 * * *"
+  timeZone: UTC
+-- patch-triggers.yaml --
+spec:
+  triggers:
+  - kind: AtlasSchema
+    name: myapp
+-- patch-schedule.yaml --
+spec:
+  schedule: "* * * * *"
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: myapp
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        primary key (id)
+      );
+-- schema-v2.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: myapp
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name text,
+        primary key (id)
+      );

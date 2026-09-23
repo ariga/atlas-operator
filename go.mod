@@ -6,6 +6,7 @@ require (
 	ariga.io/atlas v1.3.1-0.20260920152918-ab87fbea98a6
 	github.com/go-logr/logr v1.4.2
 	github.com/hashicorp/hcl/v2 v2.18.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/rogpeppe/go-internal v1.13.1
 	github.com/stretchr/testify v1.11.1
 	github.com/zclconf/go-cty v1.14.4

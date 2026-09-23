@@ -39,6 +39,31 @@ const (
 	ReasonStoringDirState = "StoringDirState"
 	// ReasonDriftDetected represents the reason for the pre-apply drift check blocking a migration.
 	ReasonDriftDetected = "DriftDetected"
+	// Reasons of the AtlasSecurityScan conditions. Their messages are fixed text:
+	// CLI and driver output never reaches a condition or an Event.
+	ReasonScanning             = "Scanning"
+	ReasonScanned              = "Scanned"
+	ReasonRetrying             = "Retrying"
+	ReasonScanFailed           = "ScanFailed"
+	ReasonLoginFailed          = "LoginFailed"
+	ReasonCLIError             = "CLIError"
+	ReasonReadingInputs        = "ReadingInputs"
+	ReasonStoringReport        = "StoringReport"
+	ReasonBackoffLimitExceeded = "BackoffLimitExceeded"
+	ReasonInvalidSchedule      = "InvalidSchedule"
+	ReasonInvalidTimeZone      = "InvalidTimeZone"
+	ReasonInvalidTarget        = "InvalidTarget"
+	ReasonSuspended            = "Suspended"
+	ReasonNotScanned           = "NotScanned"
+	ReasonNoThreshold          = "NoThreshold"
+	ReasonWithinPolicy         = "WithinPolicy"
+	ReasonPolicyViolated       = "PolicyViolated"
+	ReasonReportStale          = "ReportStale"
+	// Event-only reasons of the AtlasSecurityScan controller.
+	EventTriggerNotFound = "TriggerNotFound"
+	EventMissedSchedule  = "MissedSchedule"
+	EventScanWarning     = "ScanWarning"
+	EventResumed         = "Resumed"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.
