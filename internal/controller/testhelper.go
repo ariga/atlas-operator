@@ -65,6 +65,9 @@ type (
 		schemaInspect  mockCmd[string]
 		securityScan   mockCmd[atlasexec.SecurityScan]
 		securityScans  []*atlasexec.SecurityScanParams
+		// duringScan runs while a scan is in flight, so a test can land an apply
+		// between the snapshot the scan took and the status it commits.
+		duringScan func()
 	}
 )
 
@@ -73,6 +76,9 @@ var _ AtlasExec = &mockAtlasExec{}
 // SecurityScan implements AtlasExec.
 func (m *mockAtlasExec) SecurityScan(_ context.Context, params *atlasexec.SecurityScanParams) (*atlasexec.SecurityScan, error) {
 	m.securityScans = append(m.securityScans, params)
+	if m.duringScan != nil {
+		m.duringScan()
+	}
 	return m.securityScan.res, m.securityScan.err
 }
 

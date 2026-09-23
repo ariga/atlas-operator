@@ -1254,6 +1254,211 @@ func TestSecurityScan_StatusUpdateFails(t *testing.T) {
 	})
 }
 
+// An apply that lands between the snapshot a scan took and the status it
+// commits is not covered by that scan, so the next pass runs exactly one more.
+func TestSecurityScan_ApplyDuringScan(t *testing.T) {
+	schema := &dbv1alpha1.AtlasSchema{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: "test", UID: types.UID("uid-1")},
+		Status:     dbv1alpha1.AtlasSchemaStatus{ObservedHash: "h1"},
+	}
+	obj := scanObject()
+	obj.Spec.Schedule = ""
+	st := newScanTest(t, obj, append(scanSecrets(), schema)...)
+	st.mock.securityScan.res = scanTarget()
+	st.reconcile()
+	_, res := st.reconcile()
+	require.Equal(t, "h1", res.Status.Triggers[0].Revision)
+	require.Len(t, st.mock.securityScans, 1)
+
+	// Two applies land while the next scan runs. The scan observed neither, so
+	// the revision it commits is the one it started from.
+	var applied int
+	st.mock.duringScan = func() {
+		applied++
+		if applied > 1 {
+			return
+		}
+		for _, h := range []string{"h2", "h3"} {
+			st.h.patch(t, &dbv1alpha1.AtlasSchema{
+				ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: "test"},
+				Status:     dbv1alpha1.AtlasSchemaStatus{ObservedHash: h},
+			})
+		}
+	}
+	st.h.patch(t, &dbv1alpha1.AtlasSchema{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: "test"},
+		Status:     dbv1alpha1.AtlasSchemaStatus{ObservedHash: "h2"},
+	})
+	_, res = st.reconcile()
+	require.Len(t, st.mock.securityScans, 2)
+	require.Equal(t, "h2", res.Status.Triggers[0].Revision, "the snapshot, not a live re-read at commit time")
+
+	// A burst during one scan collapses into exactly one follow-up.
+	_, res = st.reconcile()
+	require.Len(t, st.mock.securityScans, 3)
+	require.Equal(t, "h3", res.Status.Triggers[0].Revision)
+	require.Equal(t, dbv1alpha1.TriggerApply, res.Status.LastScan.Trigger)
+	st.reconcile()
+	require.Len(t, st.mock.securityScans, 3, "and nothing is pending after it")
+}
+
+// One scan satisfies everything pending, and the label names the highest cause.
+func TestSecurityScan_TriggerPrecedence(t *testing.T) {
+	slot := time.Date(2026, 9, 10, 3, 0, 0, 0, time.UTC)
+	// Everything below is pending at once; each case removes the causes above it.
+	full := func() (*dbv1alpha1.AtlasSecurityScan, *scanSnapshot) {
+		res := &dbv1alpha1.AtlasSecurityScan{
+			ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "test", Generation: 2},
+			Status: dbv1alpha1.AtlasSecurityScanStatus{
+				ObservedGeneration:     1,
+				LastSuccessfulTime:     &metav1.Time{Time: slot.Add(-time.Hour)},
+				LastHandledScanRequest: "old",
+				Triggers: []dbv1alpha1.ObservedTrigger{{
+					Kind: dbv1alpha1.TriggerKindSchema, Name: "myapp", UID: "uid-1", Revision: "h1",
+				}},
+				ActiveWaivers: []string{"CVE-1"},
+			},
+		}
+		return res, &scanSnapshot{
+			generation:  2,
+			requestedAt: "new",
+			triggers: []dbv1alpha1.ObservedTrigger{{
+				Kind: dbv1alpha1.TriggerKindSchema, Name: "myapp", UID: "uid-1", Revision: "h2",
+			}},
+			slot:    &slot,
+			waivers: []string{"CVE-2"},
+		}
+	}
+	for _, tt := range []struct {
+		name    string
+		strip   func(*dbv1alpha1.AtlasSecurityScan, *scanSnapshot)
+		trigger dbv1alpha1.ScanTrigger
+	}{
+		{"spec wins", func(*dbv1alpha1.AtlasSecurityScan, *scanSnapshot) {}, dbv1alpha1.TriggerSpec},
+		{"manual over apply", func(r *dbv1alpha1.AtlasSecurityScan, _ *scanSnapshot) {
+			r.Status.ObservedGeneration = 2
+		}, dbv1alpha1.TriggerManual},
+		{"apply over schedule", func(r *dbv1alpha1.AtlasSecurityScan, s *scanSnapshot) {
+			r.Status.ObservedGeneration, s.requestedAt = 2, "old"
+		}, dbv1alpha1.TriggerApply},
+		{"schedule over policy", func(r *dbv1alpha1.AtlasSecurityScan, s *scanSnapshot) {
+			r.Status.ObservedGeneration, s.requestedAt = 2, "old"
+			s.triggers[0].Revision = "h1"
+		}, dbv1alpha1.TriggerSchedule},
+		{"policy last", func(r *dbv1alpha1.AtlasSecurityScan, s *scanSnapshot) {
+			r.Status.ObservedGeneration, s.requestedAt = 2, "old"
+			s.triggers[0].Revision = "h1"
+			r.Status.LastScheduleTime = &metav1.Time{Time: slot}
+		}, dbv1alpha1.TriggerPolicy},
+		{"nothing due", func(r *dbv1alpha1.AtlasSecurityScan, s *scanSnapshot) {
+			r.Status.ObservedGeneration, s.requestedAt = 2, "old"
+			s.triggers[0].Revision = "h1"
+			r.Status.LastScheduleTime = &metav1.Time{Time: slot}
+			s.waivers = []string{"CVE-1"}
+		}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res, snap := full()
+			tt.strip(res, snap)
+			trigger, _ := dueCheck(res, snap)
+			require.Equal(t, tt.trigger, trigger)
+		})
+	}
+}
+
+// The zone database decides the slots, and a scan is never scheduled twice for
+// a wall-clock time that the clock change gave twice.
+func TestSecurityScan_ScheduleDST(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	require.NoError(t, err)
+	at := func(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, time.UTC) }
+
+	// 02:30 does not exist on the spring-forward day, so the 29th has no slot.
+	gap := &scanSchedule{Schedule: must(cron.ParseStandard("30 2 * * *")), loc: berlin}
+	require.Equal(t, at(2026, 3, 28, 1, 30), gap.Next(at(2026, 3, 27, 12, 0)).UTC())
+	require.Equal(t, at(2026, 3, 30, 0, 30), gap.Next(at(2026, 3, 28, 1, 30)).UTC(),
+		"the 29th is skipped rather than run at a time that did not happen")
+	require.Zero(t, slotsBetween(gap, at(2026, 3, 28, 1, 30), at(2026, 3, 30, 0, 30)))
+
+	// On the fall-back day 02:30 local happens twice, and each occurrence is its
+	// own slot, so that morning is scanned twice an hour apart.
+	back := &scanSchedule{Schedule: must(cron.ParseStandard("30 2 * * *")), loc: berlin}
+	first := back.Next(at(2026, 10, 24, 12, 0))
+	require.Equal(t, at(2026, 10, 25, 0, 30), first.UTC(), "02:30 CEST")
+	require.Equal(t, at(2026, 10, 25, 1, 30), back.Next(first).UTC(), "02:30 CET, the repeated hour")
+	require.Equal(t, 1, slotsBetween(back, first, at(2026, 10, 25, 12, 0)))
+}
+
+// A resource created long before its first scan is anchored at its creation,
+// so it catches up one slot and not the whole of its life.
+func TestSecurityScan_FirstRunAnchor(t *testing.T) {
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	obj := scanObject()
+	obj.Spec.Triggers = nil
+	obj.CreationTimestamp = metav1.NewTime(now.AddDate(-1, 0, 0))
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = scanTarget()
+	st.clock = now
+	st.reconcile()
+	_, res := st.reconcile()
+	require.Equal(t, dbv1alpha1.TriggerSpec, res.Status.LastScan.Trigger)
+	require.Equal(t, "2026-09-10T03:00:00Z", res.Status.LastScheduleTime.UTC().Format(time.RFC3339),
+		"the latest slot at or before the scan, not one a year back")
+	require.Equal(t, "2026-09-11T03:00:00Z", res.Status.NextScheduleTime.UTC().Format(time.RFC3339))
+	require.Len(t, st.mock.securityScans, 1, "one scan, whatever the age of the resource")
+}
+
+// A slot or an expiry moments away is still a wait, never a busy loop.
+func TestSecurityScan_WakeFloor(t *testing.T) {
+	now := time.Date(2026, 9, 10, 2, 59, 59, 800*int(time.Millisecond), time.UTC)
+	sched := &scanSchedule{Schedule: must(cron.ParseStandard("0 3 * * *")), loc: time.UTC}
+	r := &AtlasSecurityScanReconciler{}
+	require.Equal(t, ctrl.Result{RequeueAfter: time.Second},
+		r.wake(&dbv1alpha1.AtlasSecurityScan{}, sched, now, 0))
+
+	expiry := metav1.NewTime(now.Add(200 * time.Millisecond))
+	res := &dbv1alpha1.AtlasSecurityScan{Spec: dbv1alpha1.AtlasSecurityScanSpec{
+		Policy: &dbv1alpha1.ScanPolicy{Ignore: []dbv1alpha1.IgnoredVulnerability{{
+			ID: "CVE-1", Waiver: dbv1alpha1.Waiver{Reason: "r", ExpirationTime: &expiry},
+		}}},
+	}}
+	require.Equal(t, ctrl.Result{RequeueAfter: time.Second}, r.wake(res, nil, now, 0))
+	require.Equal(t, ctrl.Result{}, r.wake(&dbv1alpha1.AtlasSecurityScan{}, nil, now, 0),
+		"nothing scheduled and nothing expiring is event-driven")
+}
+
+// A report that names no target is a failed scan, not a panic.
+func TestSecurityScan_NoTarget(t *testing.T) {
+	obj := scanObject()
+	obj.Spec.Triggers, obj.Spec.Schedule = nil, ""
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = &atlasexec.SecurityScan{}
+	st.reconcile()
+	_, res := st.reconcile()
+	require.False(t, res.IsReady())
+	require.Equal(t, dbv1alpha1.ReasonScanFailed, cond(t, res, "Ready").Reason)
+	require.Equal(t, dbv1alpha1.ScanFailed, res.Status.LastScan.Result)
+	require.Nil(t, res.Status.Summary, "nothing is recorded from a report with no target")
+}
+
+func TestSecurityScan_MinSeverity(t *testing.T) {
+	high := dbv1alpha1.SecurityLevelHigh
+	for _, tt := range []struct {
+		name   string
+		policy *dbv1alpha1.ScanPolicy
+		want   dbv1alpha1.SecurityLevel
+	}{
+		{"no policy", nil, dbv1alpha1.SecurityLevelNormal},
+		{"empty policy", &dbv1alpha1.ScanPolicy{}, dbv1alpha1.SecurityLevelNormal},
+		{"set", &dbv1alpha1.ScanPolicy{MinSeverity: high}, high},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res := &dbv1alpha1.AtlasSecurityScan{Spec: dbv1alpha1.AtlasSecurityScanSpec{Policy: tt.policy}}
+			require.Equal(t, tt.want, res.MinSeverity())
+		})
+	}
+}
+
 func parseConfig(s string) (*hclwrite.File, error) {
 	f, diags := hclwrite.ParseConfig([]byte(s), "", hcl.InitialPos)
 	if diags.HasErrors() {
