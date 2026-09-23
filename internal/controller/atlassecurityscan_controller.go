@@ -33,6 +33,7 @@ import (
 	// database is embedded rather than read from the filesystem.
 	_ "time/tzdata"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -262,7 +263,8 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	case len(scan.Targets) > 1:
 		msg := fmt.Sprintf("configuration yields %d targets; one database per resource", len(scan.Targets))
 		return r.stall(res, sched, snap, dbv1alpha1.ReasonInvalidTarget, msg), nil
-	case len(scan.Failures()) > 0 || scan.Targets[0].Error != "":
+	// With one target, Failures() is exactly that target when it carries an error.
+	case len(scan.Failures()) > 0:
 		return r.fail(ctx, res, sched, snap, dbv1alpha1.ReasonScanFailed, errors.New(scan.Targets[0].Error)), nil
 	case serr != nil:
 		// The target was scanned, so the report stands and the findings are graded.
@@ -273,7 +275,7 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	var (
 		target                  = scan.Targets[0]
 		policy                  = res.Spec.Policy
-		findings, exts, summary = grade(target, policy, snap.waivers)
+		findings, exts, summary = grade(log, target, policy, snap.waivers)
 		verdict, reason, vmsg   = verdictOf(findings, policy, res.Name)
 		completion              = r.now()
 		report                  = r.buildReport(res, target, findings, exts, summary, now, completion, trigger)
@@ -538,7 +540,7 @@ func activeWaivers(res *dbv1alpha1.AtlasSecurityScan, at time.Time) []string {
 func dueCheck(res *dbv1alpha1.AtlasSecurityScan, snap *scanSnapshot) (dbv1alpha1.ScanTrigger, string) {
 	st := res.Status
 	switch {
-	case st.LastSuccessfulTime == nil, res.Generation != st.ObservedGeneration:
+	case res.Generation != st.ObservedGeneration:
 		return dbv1alpha1.TriggerSpec, fmt.Sprintf("generation %d", res.Generation)
 	case snap.requestedAt != "" && snap.requestedAt != st.LastHandledScanRequest:
 		return dbv1alpha1.TriggerManual, snap.requestedAt
@@ -688,19 +690,31 @@ func (r *AtlasSecurityScanReconciler) fail(ctx context.Context, res *dbv1alpha1.
 	return r.wake(res, sched, snap.start, backoffDelayAt(res.Status.Failed))
 }
 
+// failureClass is the fixed message of each failure reason. The cause never
+// reaches status or an Event, so this is all the reader gets besides the reason.
+var failureClass = map[string]string{
+	dbv1alpha1.ReasonScanFailed:    "the database could not be scanned",
+	dbv1alpha1.ReasonLoginFailed:   "Atlas Cloud login failed",
+	dbv1alpha1.ReasonCLIError:      "the Atlas CLI failed before producing a report",
+	dbv1alpha1.ReasonReadingInputs: "the scan inputs could not be read",
+	dbv1alpha1.ReasonStoringReport: "the report could not be stored",
+}
+
 // failureText is the fixed message of a failure class.
 func failureText(reason string, failed, limit int) string {
-	what := map[string]string{
-		dbv1alpha1.ReasonScanFailed:    "the database could not be scanned",
-		dbv1alpha1.ReasonLoginFailed:   "Atlas Cloud login failed",
-		dbv1alpha1.ReasonCLIError:      "the Atlas CLI failed before producing a report",
-		dbv1alpha1.ReasonReadingInputs: "the scan inputs could not be read",
-		dbv1alpha1.ReasonStoringReport: "the report could not be stored",
-	}[reason]
-	if limit > 0 {
-		return fmt.Sprintf("%s; attempt %d of %d; see the operator log", what, failed, limit)
+	what, ok := failureClass[reason]
+	if !ok {
+		what = "the scan failed"
 	}
-	return fmt.Sprintf("%s; attempt %d; see the operator log", what, failed)
+	switch {
+	case limit <= 0:
+		return fmt.Sprintf("%s; attempt %d; see the operator log", what, failed)
+	// Attempts keep being counted past the limit, one per new set of inputs, so
+	// the ordinal stops rather than reading "attempt 27 of 20".
+	case failed > limit:
+		return fmt.Sprintf("%s; retries exhausted; see the operator log", what)
+	}
+	return fmt.Sprintf("%s; attempt %d of %d; see the operator log", what, failed, limit)
 }
 
 // stall records an attempt that failed on an input no retry can fix. A schedule
@@ -861,7 +875,7 @@ func checkPolicyBlock(b *hclwrite.Block, path string) error {
 
 // grade attaches waivers to the findings, names the extensions and counts the
 // rest per level. One list feeds both, so the count cannot exceed the names.
-func grade(t *atlasexec.SecurityScanTarget, policy *dbv1alpha1.ScanPolicy, waivers []string) ([]dbv1alpha1.ReportedVulnerability, []string, dbv1alpha1.ScanSummary) {
+func grade(log logr.Logger, t *atlasexec.SecurityScanTarget, policy *dbv1alpha1.ScanPolicy, waivers []string) ([]dbv1alpha1.ReportedVulnerability, []string, dbv1alpha1.ScanSummary) {
 	var (
 		exts     = slices.Compact(slices.Sorted(slices.Values(t.Extensions)))
 		findings []dbv1alpha1.ReportedVulnerability
@@ -875,11 +889,20 @@ func grade(t *atlasexec.SecurityScanTarget, policy *dbv1alpha1.ScanPolicy, waive
 		} else {
 			seen[key] = true
 		}
+		// A grade this CLI reports and this operator does not know would fail the
+		// report against its enum and stall the scan for good. Grade it at the top
+		// instead: an unrecognised level is likelier to matter than not.
+		lvl := dbv1alpha1.SecurityLevel(strings.ToUpper(v.Level))
+		if dbv1alpha1.LevelIndex(lvl) < 0 {
+			log.Info("unknown security level graded as CRITICAL; the operator may be older than the CLI",
+				"level", v.Level, "id", v.ID)
+			lvl = dbv1alpha1.SecurityLevelCritical
+		}
 		f := dbv1alpha1.ReportedVulnerability{
 			ID:           v.ID,
 			Extension:    v.Name,
 			Version:      v.Version,
-			Level:        dbv1alpha1.SecurityLevel(strings.ToUpper(v.Level)),
+			Level:        lvl,
 			CVSSSeverity: strings.ToUpper(v.Severity),
 			Title:        v.Title,
 			Description:  truncate(v.Description, descriptionLimit),
@@ -1047,6 +1070,11 @@ func (r *AtlasSecurityScanReconciler) writeStatus(ctx context.Context, res *dbv1
 		latest.Status = res.Status
 		return r.Status().Update(ctx, latest)
 	})
+	// A resource deleted while its scan ran has nothing left to write, and
+	// RetryOnConflict does not retry a NotFound. That is not a reconcile error.
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("updating resource status: %w", err)
 	}

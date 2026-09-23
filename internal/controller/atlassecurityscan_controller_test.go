@@ -938,6 +938,68 @@ func TestSecurityScan_DefaultMinSeverity(t *testing.T) {
 	require.Equal(t, dbv1alpha1.ReasonNoThreshold, cond(t, res, "Compliant").Reason)
 }
 
+// A grade the CLI knows and the operator does not must not reach the report
+// enum: it would fail the write and stall the scan until the operator is
+// upgraded. It is graded at the top instead.
+func TestSecurityScan_UnknownLevel(t *testing.T) {
+	var (
+		severe = &atlasexec.SecurityVulnerability{
+			Name: "postgis", Version: "2.3.1", ID: "CVE-2030-0001", Level: "SEVERE", Severity: "HIGH",
+		}
+		blank = &atlasexec.SecurityVulnerability{
+			Name: "hstore", Version: "1.3", ID: "CVE-2030-0002", Level: "", Severity: "LOW",
+		}
+	)
+	obj := scanObject()
+	obj.Spec.Triggers = nil
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = scanTarget(severe, blank)
+	st.reconcile()
+	_, res := st.reconcile()
+
+	for _, f := range st.report().Report.Vulnerabilities {
+		require.Equal(t, dbv1alpha1.SecurityLevelCritical, f.Level, f.ID)
+	}
+	require.Equal(t, dbv1alpha1.SecurityLevelCritical, res.Status.Summary.HighestLevel)
+	require.Equal(t, int32(2), res.Status.Summary.Total)
+	require.Equal(t, []dbv1alpha1.LevelCount{
+		{Level: dbv1alpha1.SecurityLevelCritical, Count: 2},
+		{Level: dbv1alpha1.SecurityLevelHigh},
+		{Level: dbv1alpha1.SecurityLevelElevated},
+		{Level: dbv1alpha1.SecurityLevelNormal},
+	}, res.Status.Summary.Levels, "the count, the total and the highest agree")
+	require.Equal(t, dbv1alpha1.ReasonPolicyViolated, cond(t, res, "Compliant").Reason)
+}
+
+// Once a resource that never succeeded has stalled, its generation is observed,
+// so a later attempt is named for what actually earned it.
+func TestSecurityScan_StalledTriggerLabel(t *testing.T) {
+	start := time.Date(2026, 9, 10, 2, 0, 0, 0, time.UTC)
+	obj := scanObject()
+	obj.Spec.Triggers, obj.Spec.Policy = nil, nil
+	obj.Spec.BackoffLimit = 1
+	obj.CreationTimestamp = metav1.NewTime(start)
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.err = errors.New("Abort: connection refused")
+	st.clock = start
+	st.reconcile()
+	st.reconcile()
+	_, res := st.reconcile()
+	require.True(t, res.IsStalled(dbv1alpha1.ReasonBackoffLimitExceeded))
+	require.Nil(t, res.Status.LastSuccessfulTime)
+	require.Equal(t, "the Atlas CLI failed before producing a report; retries exhausted; see the operator log",
+		res.Status.LastScan.Message, "the ordinal stops rather than reading past the limit")
+
+	// The 03:00 slot earns one attempt, and it is labelled for the schedule.
+	st.clock = start.Add(2 * time.Hour)
+	_, res = st.reconcile()
+	require.Len(t, st.mock.securityScans, 3)
+	require.Equal(t, dbv1alpha1.TriggerSchedule, res.Status.LastScan.Trigger)
+	require.Equal(t, "2026-09-10T03:00:00Z", res.Status.LastScan.TriggeredBy)
+	st.reconcile()
+	require.Len(t, st.mock.securityScans, 3, "and only one")
+}
+
 func TestSecurityScan_Render(t *testing.T) {
 	var (
 		buf  bytes.Buffer
