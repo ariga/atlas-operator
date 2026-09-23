@@ -30,9 +30,13 @@ kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ .status.fai
 stdout '^0$'
 
 # A threshold below the reporting floor is rejected by the CRD, which only a real
-# API server enforces.
+# API server enforces. So are the two rules nothing in the controller backstops.
 ! kubectl patch -f scan.yaml --type merge --patch-file patch-bad-policy.yaml
 stderr 'failOn must be at or above minSeverity'
+! kubectl patch -f scan.yaml --type merge --patch-file patch-local-zone.yaml
+stderr 'timeZone must be an IANA zone name'
+! kubectl patch -f scan.yaml --type merge --patch-file patch-no-trigger.yaml
+stderr 'at least one of spec.schedule or spec.triggers must be set'
 
 # An on-demand scan is a new annotation value, echoed back once it completed.
 kubectl annotate AtlasSecurityScan/postgres db.atlasgo.io/scan-requested-at=e2e-1 --overwrite
@@ -71,7 +75,7 @@ cmp stdout hash-v2.txt
 kubectl patch -f scan.yaml --type merge --patch-file patch-min-severity.yaml
 kubectl wait --for=jsonpath='{.status.summary.total}'=0 --timeout=2h AtlasSecurityScan/postgres
 kubectl wait --for=jsonpath='{.status.lastScan.result}'=Succeeded --timeout=2h AtlasSecurityScan/postgres
-exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityScan/postgres -o yaml | awk "/^spec:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/inputsHash: .*/inputsHash: <hash>/; s/uid: .*/uid: <uid>/"'
+exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityScan/postgres -o yaml | awk "/^spec:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/inputsHash: .*/inputsHash: <hash>/; s/uid: .*/uid: <uid>/; s/revision: .*/revision: <revision>/"'
 cmp stdout status.yaml
 exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityReport/postgres -o yaml | awk "/^metadata:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/uid: .*/uid: <uid>/; s/namespace: .*/namespace: <namespace>/; s/resourceVersion: .*/resourceVersion: <version>/; s/generation: .*/generation: <generation>/"'
 cmp stdout report.yaml
@@ -90,6 +94,13 @@ stdout '^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$'
 spec:
   policy:
     minSeverity: CRITICAL
+-- patch-local-zone.yaml --
+spec:
+  timeZone: Local
+-- patch-no-trigger.yaml --
+spec:
+  schedule: null
+  triggers: null
 -- patch-min-severity.yaml --
 spec:
   policy:
@@ -172,7 +183,7 @@ status:
   triggers:
   - kind: AtlasSchema
     name: myapp
-    revision: XNCkvEYp/wyBzwSNQuJnzLA4+Ts2JB3/tr+HxzV/a4c=
+    revision: <revision>
     uid: <uid>
 -- report.yaml --
 metadata:

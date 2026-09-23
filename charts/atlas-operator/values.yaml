@@ -23,7 +23,8 @@ rbac:
   clusterWideSecretAccess: true
   # AtlasSecurityReport holds the extension inventory and vulnerability list of
   # a scan. It is deliberately kept out of the built-in view and edit roles,
-  # which the scan itself joins, and exposed through a dedicated viewer role.
+  # which the scan itself joins when aggregateClusterRoles is enabled, and
+  # exposed through a dedicated viewer role instead.
   securityReports:
     aggregateToAdmin: true
     aggregateToEdit: false
@@ -34,7 +35,8 @@ crds:
   # When installing multiple releases of this chart in the same cluster (for
   # example, one per team, each scoped with `labelSelector`), only one release
   # should own the CRDs. Set this to false on the additional releases to avoid
-  # "invalid ownership metadata" conflicts.
+  # "invalid ownership metadata" conflicts. Upgrade the owning release first: the
+  # operator exits at startup if a CRD it reconciles is missing from the cluster.
   create: true
 
 imagePullSecrets: []
@@ -96,6 +98,8 @@ watchSecrets: ~
 # running multiple operator instances in the same namespace, each handling
 # specific resources.
 # e.g. labelSelector: ["app=foo", "env in (prod,staging)"]
+# An AtlasSecurityScan trigger must match the same selector as the scan itself:
+# a resource this instance does not watch is reported as TriggerNotFound.
 labelSelector: []
 
 # Restrict the operator to only watch AtlasSchema, AtlasMigration and

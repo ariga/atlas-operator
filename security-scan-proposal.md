@@ -1,4 +1,5 @@
-# Proposal: AtlasSecurityScan, scheduled and change-triggered database security scans
+| `cloud.repo` absent | CEL |
+| `devDB` absent | `DevDB` lives on AtlasSchema and AtlasMigration, not on the shared `ProjectConfigSpec`, so a scan has no such field to reject |# Proposal: AtlasSecurityScan, scheduled and change-triggered database security scans
 
 ## Background
 
@@ -84,7 +85,8 @@ spec:
   # A custom config may carry `security {}` and `notify {}` blocks; it requires allowCustomConfig=true.
   # It may not decide what is reported: `security.min_severity`, `security.fail_on`, `security.cve.min_severity`,
   # `security.cve.ignore` and `exclude` are rejected for the env that runs, as they drop findings before grading.
-  # devDB is rejected: a scan needs no dev database. A config that yields several targets is rejected at scan time.
+  # devDB is not a field here: a scan needs no dev database, so it moves onto the two kinds that do.
+  # A config that yields several targets is rejected at scan time.
   envName: kubernetes
 
   # Atlas Cloud token. Required in practice: the Security Graph is an Atlas Pro feature. `repo` is rejected.
@@ -303,7 +305,6 @@ type (
 	// +kubebuilder:validation:XValidation:rule="!has(self.schedule) || !(self.schedule.startsWith('TZ=') || self.schedule.startsWith('CRON_TZ='))",message="use spec.timeZone instead of a TZ=/CRON_TZ= prefix"
 	// +kubebuilder:validation:XValidation:rule="!has(self.schedule) || !self.schedule.startsWith('@every')",message="@every is interval-based and drifts; use a cron expression or @hourly/@daily/@weekly/@monthly/@yearly"
 	// +kubebuilder:validation:XValidation:rule="!has(self.timeZone) || self.timeZone != 'Local'",message="timeZone must be an IANA zone name"
-	// +kubebuilder:validation:XValidation:rule="!has(self.devDB)",message="devDB is not used by security scans"
 	// +kubebuilder:validation:XValidation:rule="!has(self.cloud) || !has(self.cloud.repo)",message="cloud.repo is not used by security scans"
 	AtlasSecurityScanSpec struct {
 		TargetSpec        `json:",inline"`
@@ -524,7 +525,8 @@ Validation at admission, all schema or CEL:
 | `kind` is AtlasSchema or AtlasMigration; (kind, name) unique | Enum + `listType=map` |
 | levels are NORMAL/ELEVATED/HIGH/CRITICAL; `failOn >= minSeverity` | Enum + CEL map literal |
 | ignore ids well-formed and unique; reason required | Pattern + `listType=map` + MinLength |
-| `devDB` absent; `cloud.repo` absent | CEL |
+| `cloud.repo` absent | CEL |
+| `devDB` absent | `DevDB` moves onto AtlasSchema and AtlasMigration, so the shared `ProjectConfigSpec` a scan inlines has no such field and the schema prunes it |
 | a target or a project config is present; exactly one target results | controller: `Stalled=True/InvalidTarget` (`urlFrom` and `credentials` are non-pointer structs that Go clients always serialize, so a CEL `has()` on them would be trivially true) |
 | cron parses and fires within the parser's horizon; IANA zone exists | controller: `Stalled=True` with `InvalidSchedule`, `InvalidTimeZone` |
 
@@ -558,10 +560,12 @@ Consequences:
   which it anchors at `now`, as the CronJob controller does. A Normal event `MissedSchedule` records the count skipped;
   it is emitted only when the scan was not caused by a spec change or a resume, so a schedule edit or a pause does not
   report its gap as missed.
-- A scan for any other trigger also covers the slots at or before its start, so a change-triggered scan at 02:59 does not
-  cancel a 03:00 slot, and a scheduled scan never runs early.
-- A slot that arrives while a scan is running is not covered by it (the slot is after the scan's start); the follow-up
-  scan runs as soon as the first returns. Two scans a few seconds apart in that case is accepted for precision.
+- A scan for any trigger covers every slot at or before its completion, so a slot that passes while a scan is running is
+  covered by it and no follow-up is queued for it, and a schedule finer than the scan takes does not scan back to back.
+  A scheduled scan never runs early.
+- An attempt that fails or stalls commits no watermark, so a slot that passed while it ran is still due and the resource
+  is requeued at once. `MissedSchedule` counts to the slot observed when the scan started, not to the one it covered:
+  the slots it spanned are covered, not missed.
 - `nextScheduleTime` only advances on success, so it stays at a missed slot until the catch-up completes. That is what
   makes an "overdue" alert expressible. It is a status field for readers, not the controller's timer.
 - The requeue timer is `Next(now)` (and the earliest future waiver expiry, and the retry delay when retrying), computed
@@ -1289,8 +1293,10 @@ rbac:
 
 ## Testing
 
-- CRD schema and CEL, through the existing `types_test.go` envtest pattern: rejects `TZ=`, `@every`, `Local`, `devDB`,
-  `cloud.repo`, `failOn` below `minSeverity`, duplicate triggers and ignore ids, neither schedule nor triggers.
+- CRD schema and CEL: the rules the controller also enforces (`TZ=`, `@every`, an unparsable or never-firing schedule,
+  an unknown zone) are unit-tested against `validate`; the rest are exercised against a real API server in the e2e
+  script, which is the only place in this repo that runs one. `failOn` below `minSeverity` is rejected there; add
+  `Local` and "neither schedule nor triggers", which nothing else backstops.
 - Schedule unit tests with an injectable clock: `Next` and `latestSlotAtOrBefore` in UTC and `Europe/Berlin` across the
   spring-forward gap and the fall-back hour (two slots); `@daily`; an expression that does not fire stalls; first-run
   anchor; one due after simulated downtime of 1 and 1000 slots; the 100 000-step cap; `wake` is always positive and never

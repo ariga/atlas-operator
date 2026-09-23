@@ -140,9 +140,10 @@ report:
       suggestion: Upgrade the database engine to version 15.16 or later
 ```
 
-The report is deliberately not readable through the built-in `view` and `edit` roles, which the scan itself joins.
-The chart ships a `<release>-securityreport-viewer` ClusterRole for it, aggregated into `admin` by default; see
-`rbac.securityReports` in the values.
+The report is deliberately not readable through the built-in `view` and `edit` roles, which the scan itself joins
+when the chart is installed with `rbac.aggregateClusterRoles=true`. The chart ships a
+`<release>-securityreport-viewer` ClusterRole for the report, aggregated into `admin` by default and bindable
+directly for a security team; see `rbac.securityReports` in the values.
 
 To scan on demand, set the annotation to any new value and wait for it to be echoed back:
 
@@ -154,13 +155,72 @@ kubectl wait atlassecurityscan/postgres --for=jsonpath="{.status.lastHandledScan
 
 `spec.suspend: true` pauses scanning without deleting the resource; resuming runs one scan that covers everything
 that became due meanwhile. A `security` block, including `notify` webhooks, can be given through a custom
-[project configuration](#configuration), which requires `allowCustomConfig=true`. `spec.policy` is the only policy
+[project configuration](#configuration), which requires `allowCustomConfig=true` and an explicit
+`spec.envName`. `spec.policy` is the only policy
 the scan has, and every extension the database has is scanned: a custom configuration that sets
 `security.min_severity`, `security.fail_on`, `security.cve.min_severity`, `security.cve.ignore` or `exclude` for
 the environment the scan runs with is rejected with `InvalidTarget`. Each of them keeps a finding from ever
 reaching the operator, which would leave a clean verdict and a report describing a policy the scan never ran with.
 When the operator is installed with `labelSelector` or `watchNamespaces`, a trigger must be managed by the same
 instance, or it is reported as `TriggerNotFound`.
+
+#### Argo CD
+
+Argo CD computes no health for a custom resource that has no check of its own, so an `AtlasSecurityScan` shows no
+health until one is installed. Add it under `resource.customizations.health.db.atlasgo.io_AtlasSecurityScan` in the
+`argocd-cm` ConfigMap:
+
+```lua
+local hs = { status = "Progressing", message = "Waiting for the first security scan" }
+if obj.spec ~= nil and obj.spec.suspend == true then
+  return { status = "Suspended", message = "Security scanning is suspended" }
+end
+if obj.status == nil or obj.status.conditions == nil then
+  return hs
+end
+if obj.metadata.generation ~= nil and obj.status.observedGeneration ~= nil
+   and obj.status.observedGeneration < obj.metadata.generation then
+  hs.message = "Waiting for the operator to observe generation " .. tostring(obj.metadata.generation)
+  return hs
+end
+local ready, compliant, reconciling, stalled
+for _, c in ipairs(obj.status.conditions) do
+  if c.type == "Ready" then ready = c
+  elseif c.type == "Compliant" then compliant = c
+  elseif c.type == "Reconciling" then reconciling = c
+  elseif c.type == "Stalled" then stalled = c end
+end
+if stalled ~= nil and stalled.status == "True" then
+  return { status = "Degraded", message = (stalled.reason or "Stalled") .. ": " .. (stalled.message or "") }
+end
+if reconciling ~= nil and reconciling.status == "True" then
+  return { status = "Progressing", message = reconciling.message or "Scanning" }
+end
+if ready ~= nil and ready.status == "True" then
+  hs.status, hs.message = "Healthy", ready.message or "Scanned"
+  if compliant ~= nil and compliant.status == "False" then
+    -- A published CVE is a fact about the database, not a failed sync. Degraded
+    -- here would fail a multi-wave sync and stop auto-sync retrying the revision.
+    hs.message = "Out of policy: " .. (compliant.message or "")
+  end
+  return hs
+end
+if ready ~= nil then hs.message = (ready.reason or "") .. ": " .. (ready.message or "") end
+return hs
+```
+
+A scan requested through the annotation is a live change that Git does not carry, so exclude it from the diff:
+
+```yaml
+spec:
+  ignoreDifferences:
+  - group: db.atlasgo.io
+    kind: AtlasSecurityScan
+    jsonPointers: ["/metadata/annotations/db.atlasgo.io~1scan-requested-at"]
+```
+
+No sync-wave annotations are needed between a scan and the resources it watches: a trigger is evaluated from the
+revision each resource records, not from the order Argo applied them.
 
 ### Installation
 
@@ -580,6 +640,32 @@ In case of an error, the condition `status` will be set to false and `reason` fi
 | ApprovalPending | Applying the migration requires manual approval on Atlas Cloud. The URL used for approval is provided in the `approvalUrl` field of the `status` object |
 | Migrating | Failed to migrate to database |
 | DriftDetected | The pre-apply drift check (`spec.policy.drift`) found that the database does not match the state registered for its current version, so the migration was not applied. Fix the drift, add an `exclude` pattern, or set `onError` to `CONTINUE` to apply anyway and only log the drift in the Atlas Registry |
+
+**For AtlasSecurityScan resource:**
+
+A scan that fails keeps the cause out of the status: a connection error carries the address of a host the resource
+only names through a Secret. The reason below says which class it was, and the full error is in the operator log.
+
+| Reason | Condition | Description |
+| ------ | --------- | ----------- |
+| Scanning | Ready, Reconciling | The first scan, or a scan for a spec change, is running |
+| Scanned | Ready, Reconciling, Stalled | The last scan produced a report |
+| Retrying | Reconciling | A scan failed and is being retried with a backoff |
+| ScanFailed | Ready | The database could not be scanned |
+| LoginFailed | Ready | The Atlas Cloud token was refused. Security scanning requires an [Atlas Pro](https://atlasgo.io/features#pro) account with the Security Graph enabled |
+| CLIError | Ready | The Atlas CLI failed before producing a report |
+| ReadingInputs | Ready | A referenced Secret or ConfigMap could not be read |
+| StoringReport | Ready | The `AtlasSecurityReport` could not be written |
+| BackoffLimitExceeded | Ready, Reconciling, Stalled | Retries are exhausted. One attempt follows each new slot, apply, scan request, spec change or waiver expiry |
+| InvalidSchedule | Ready, Reconciling, Stalled | `spec.schedule` does not parse, does not fire, or carries a `TZ=` prefix or `@every` |
+| InvalidTimeZone | Ready, Reconciling, Stalled | `spec.timeZone` is not an IANA zone name |
+| InvalidTarget | Ready, Reconciling, Stalled | No target database or project configuration; a custom `atlas.hcl` without `allowCustomConfig=true` or without `envName`; a configuration that sets the policy or yields more than one target |
+| Suspended | Reconciling, Stalled | `spec.suspend` is true. `Ready` keeps its previous value |
+| NotScanned | Compliant | No scan has succeeded yet |
+| NoThreshold | Compliant | `spec.policy.failOn` is not set, so there is nothing to judge |
+| WithinPolicy | Compliant | No non-waived finding reached `failOn` |
+| PolicyViolated | Compliant | A non-waived finding reached `failOn` |
+| ReportStale | Compliant | Retries are exhausted, so the last verdict may no longer reflect the database |
 
 ### Support
 

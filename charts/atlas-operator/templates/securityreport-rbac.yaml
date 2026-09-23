@@ -4,13 +4,13 @@ kind: ClusterRole
 metadata:
   name: {{ include "atlas-operator.fullname" . }}-securityreport-viewer
   labels:
-    {{- if .Values.rbac.securityReports.aggregateToAdmin }}
+    {{- if (.Values.rbac.securityReports).aggregateToAdmin }}
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
     {{- end }}
-    {{- if .Values.rbac.securityReports.aggregateToEdit }}
+    {{- if (.Values.rbac.securityReports).aggregateToEdit }}
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
     {{- end }}
-    {{- if .Values.rbac.securityReports.aggregateToView }}
+    {{- if (.Values.rbac.securityReports).aggregateToView }}
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     {{- end }}
     {{- include "atlas-operator.labels" . | nindent 4 }}
