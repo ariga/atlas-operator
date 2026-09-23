@@ -545,9 +545,17 @@ func TestSecurityScan_Schedule(t *testing.T) {
 	// A runaway anchor is capped and re-anchored at now, as the CronJob controller does.
 	minutely, err := cron.ParseStandard("* * * * *")
 	require.NoError(t, err)
+	minute := &scanSchedule{Schedule: minutely, loc: time.UTC}
 	now := at(2026, 9, 10, 0, 0)
-	slot = latestSlotAtOrBefore(&scanSchedule{Schedule: minutely, loc: time.UTC}, now.AddDate(-1, 0, 0), now)
+	slot = latestSlotAtOrBefore(minute, now.AddDate(-1, 0, 0), now)
 	require.Equal(t, now, *slot)
+
+	// The capped value is truncated to the second: it reaches the inputs hash, and
+	// a wall clock with nanoseconds would differ on every pass.
+	sub := now.Add(123 * time.Millisecond)
+	slot = latestSlotAtOrBefore(minute, sub.AddDate(-1, 0, 0), sub)
+	require.Equal(t, now, *slot)
+	require.Zero(t, slot.Nanosecond())
 
 	// Descriptors parse; @every and zone prefixes are refused before parsing.
 	r := &AtlasSecurityScanReconciler{}
@@ -829,6 +837,37 @@ func TestSecurityScan_ScheduleFinerThanScan(t *testing.T) {
 		st.clock = res.Status.NextScheduleTime.Time
 	}
 	require.Len(t, st.mock.securityScans, 3, "one scan per pass, never a rescan of the slot just covered")
+	for _, e := range st.h.events() {
+		require.NotContains(t, e, dbv1alpha1.EventMissedSchedule,
+			"a slot that passes while the scan runs is covered by it, not missed")
+	}
+}
+
+// A catch-up reports the slots that passed while nothing was scanning, and not
+// the ones the catch-up scan itself covered.
+func TestSecurityScan_MissedSchedule(t *testing.T) {
+	start := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
+	obj := scanObject()
+	obj.Spec.Triggers, obj.Spec.Schedule = nil, "*/5 * * * *"
+	obj.CreationTimestamp = metav1.NewTime(start.Add(-time.Hour))
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = scanTarget()
+	st.clock = start
+	st.reconcile()
+	st.h.events() // the first scan catches up the hour since creation
+	_, res := st.reconcile()
+	require.Equal(t, "2026-09-10T10:00:00Z", res.Status.LastScheduleTime.UTC().Format(time.RFC3339))
+
+	// The operator is away until 10:32, and the catch-up scan itself runs across
+	// 10:35. Five slots went by unserved (10:05 to 10:25); 10:30 is the one this
+	// scan answers and 10:35 is covered by it, so neither is missed.
+	st.h.events() // drain
+	st.clock, st.elapse = st.clock.Add(32*time.Minute), 6*time.Minute
+	_, res = st.reconcile()
+	require.Contains(t, st.h.events(),
+		"Normal MissedSchedule caught up 5 missed slots; latest covered 2026-09-10T10:35:00Z")
+	require.Equal(t, "2026-09-10T10:35:00Z", res.Status.LastScheduleTime.UTC().Format(time.RFC3339),
+		"the anchor still covers the slot that passed during the scan")
 }
 
 // The same race on a resource with no schedule: nothing but the expiry itself

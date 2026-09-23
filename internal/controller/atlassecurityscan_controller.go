@@ -179,6 +179,12 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if perr := (*permanentError)(nil); errors.As(err, &perr) {
 		closeOpenAttempt(res, now, perr.message)
 		res.SetStalled(perr.reason, perr.message)
+		// A schedule that does not resolve publishes no next slot: a stale one
+		// reads as overdue on a resource whose schedule is the broken part.
+		switch perr.reason {
+		case dbv1alpha1.ReasonInvalidSchedule, dbv1alpha1.ReasonInvalidTimeZone:
+			res.Status.NextScheduleTime = nil
+		}
 		r.recorder.Event(res, corev1.EventTypeWarning, perr.reason, perr.message)
 		return ctrl.Result{}, nil
 	}
@@ -312,11 +318,14 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.recorder.Event(res, corev1.EventTypeWarning, dbv1alpha1.ReasonPolicyViolated, vmsg)
 	}
 	// A schedule edit or a resume covers its gap by design, so only a routine
-	// catch-up reports the slots it skipped.
-	if trigger != dbv1alpha1.TriggerSpec && prevSlot != nil && slot != nil {
-		if n := slotsBetween(sched, prevSlot.Time, *slot); n > 0 {
+	// catch-up reports the slots it skipped. The count runs to the slot observed
+	// at the start: the ones that passed while the scan ran are covered by it, so
+	// a schedule finer than the scan does not report a backlog it never had.
+	if trigger != dbv1alpha1.TriggerSpec && prevSlot != nil && snap.slot != nil {
+		if n := slotsBetween(sched, prevSlot.Time, *snap.slot); n > 0 {
 			r.recorder.Eventf(res, corev1.EventTypeNormal, dbv1alpha1.EventMissedSchedule,
-				"caught up %d missed slots; latest covered %s", n, slot.UTC().Format(time.RFC3339))
+				"caught up %d missed %s; latest covered %s",
+				n, plural(n, "slot"), slot.UTC().Format(time.RFC3339))
 		}
 	}
 	log.Info("scanned the database for security issues", "findings", summary.Total, "waived", summary.Waived)
@@ -502,7 +511,7 @@ func (r *AtlasSecurityScanReconciler) snapshot(ctx context.Context, res *dbv1alp
 		fmt.Fprintln(h, t.Kind, t.Name, t.UID, t.Revision)
 	}
 	if snap.slot != nil {
-		fmt.Fprintln(h, snap.slot.UTC().Format(time.RFC3339Nano))
+		fmt.Fprintln(h, snap.slot.UTC().Format(time.RFC3339))
 	}
 	fmt.Fprintln(h, strings.Join(snap.waivers, ","))
 	snap.hash = "sha256:" + hex.EncodeToString(h.Sum(nil))
@@ -585,7 +594,11 @@ func latestSlotAtOrBefore(sched *scanSchedule, from, now time.Time) *time.Time {
 	t := sched.Next(from)
 	for i := 0; !t.IsZero() && !t.After(now); i++ {
 		if i >= maxSlotSteps {
-			return &now
+			// Every real slot lands on a whole second, and the inputs hash covers
+			// this value: a wall clock with nanoseconds would differ on every pass
+			// and spend a stalled resource's one attempt per input set forever.
+			capped := now.Truncate(time.Second)
+			return &capped
 		}
 		slot := t
 		last = &slot
