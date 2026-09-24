@@ -2,5 +2,5 @@ apiVersion: v2
 name: atlas-operator
 description: The Atlas Kubernetes Operator
 type: application
-version: 0.7.51
-appVersion: 0.7.51
+version: 0.7.52
+appVersion: 0.7.52
