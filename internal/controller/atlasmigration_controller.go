@@ -363,12 +363,12 @@ func (s *migrationRun) devDB(ctx context.Context) error {
 	case data.URL == nil:
 		// The user has not specified a URL for the schema, so no dev database is needed.
 		return nil
-	case res.Spec.DevDB != nil:
+	case res.Spec.DevDB != nil && res.Spec.DevDB.Spec != nil:
 		// The user has provided a custom dev database configuration. spin it up.
-		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, &res.Spec.DevDB.Spec, data.DevURL)
+		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	case !data.hasDevURL():
 		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
-		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, nil, data.DevURL)
+		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	}
 	if err != nil {
 		return &pendingError{reason: dbv1alpha1.ReasonGettingDevDB, message: err.Error()}

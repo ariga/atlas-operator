@@ -1011,3 +1011,32 @@ func Test_truncateSQL(t *testing.T) {
 		"CREATE TABLE BAR(id INT PRIMARY KEY);",
 	}, 37))
 }
+
+func TestAtlasSchemaReconciler_DevDBMetadata(t *testing.T) {
+	obj := &dbv1alpha1.AtlasSchema{
+		ObjectMeta: objmeta(),
+		Spec: dbv1alpha1.AtlasSchemaSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "postgres://localhost/target"},
+			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE example (id int);"},
+			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{DevDB: &dbv1alpha1.DevDB{Metadata: &dbv1alpha1.DevDBMetadata{
+				Labels: map[string]string{"team": "platform"}, Annotations: map[string]string{"example.com/monitor": "enabled"},
+			}}},
+		},
+		Status: dbv1alpha1.AtlasSchemaStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
+	}
+	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj).WithObjects(obj)
+	}, &mockAtlasExec{})
+	reconcile(obj, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Positive(t, result.RequeueAfter)
+	})
+	deploy := &appsv1.Deployment{}
+	require.NoError(t, h.client.Get(t.Context(), nameDevDB(obj), deploy))
+	require.Equal(t, "platform", deploy.Spec.Template.Labels["team"])
+	require.Equal(t, "enabled", deploy.Spec.Template.Annotations["example.com/monitor"])
+	require.NotEmpty(t, deploy.Spec.Template.Annotations[annoConnTmpl])
+	require.NotEmpty(t, deploy.Spec.Template.Spec.Containers)
+	require.Equal(t, "postgres", deploy.Spec.Template.Spec.Containers[0].Name)
+	require.Equal(t, "AtlasSchema", deploy.OwnerReferences[0].Kind)
+}
