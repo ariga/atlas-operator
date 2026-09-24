@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"slices"
@@ -116,13 +117,20 @@ func (r *devDBReconciler) cleanUp(ctx context.Context, sc client.Object) {
 
 // devURL returns the URL of the dev database for the given target URL.
 // It creates a dev database if it does not exist.
-func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL, podSpec *corev1.PodSpec, devURL string) (string, error) {
+func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetURL url.URL, config *dbv1alpha1.DevDB, devURL string) (string, error) {
 	drv, err := dbv1alpha1.DriverBySchema(targetURL.Scheme)
 	if err != nil {
 		return "", err
 	}
 	if drv == dbv1alpha1.DriverSQLite {
 		return "sqlite://db?mode=memory", nil
+	}
+	var (
+		podSpec  *corev1.PodSpec
+		metadata *dbv1alpha1.DevDBMetadata
+	)
+	if config != nil {
+		podSpec, metadata = config.Spec, config.Metadata
 	}
 	// make sure we have a dev db running
 	key := nameDevDB(sc)
@@ -152,7 +160,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 		case devURL == "":
 			return "", fmt.Errorf("devURL is required when devDB is provided")
 		}
-		deploy = deploymentDevDB(key, drv, *podSpec, devURL)
+		deploy = deploymentDevDB(key, drv, *podSpec, devURL, metadata)
 		// Set the owner reference to the given object
 		// This will ensure that the deployment is deleted when the owner is deleted.
 		if err := ctrl.SetControllerReference(sc, deploy, r.scheme); err != nil {
@@ -198,7 +206,7 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	return "", errors.New("no connection template annotation found")
 }
 
-func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string) *appsv1.Deployment {
+func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec corev1.PodSpec, urlTemplate string, metadata *dbv1alpha1.DevDBMetadata) *appsv1.Deployment {
 	labels := map[string]string{
 		labelEngine:                    drv.String(),
 		labelInstance:                  key.Name,
@@ -206,6 +214,13 @@ func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec co
 		"app.kubernetes.io/part-of":    "atlas-operator",
 		"app.kubernetes.io/created-by": "controller-manager",
 	}
+	podLabels, annotations := make(map[string]string), make(map[string]string)
+	if metadata != nil {
+		maps.Copy(podLabels, metadata.Labels)
+		maps.Copy(annotations, metadata.Annotations)
+	}
+	maps.Copy(podLabels, labels)
+	annotations[annoConnTmpl] = urlTemplate
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
@@ -218,10 +233,8 @@ func deploymentDevDB(key types.NamespacedName, drv dbv1alpha1.Driver, podSpec co
 			Replicas: ptr.To[int32](1),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-					Annotations: map[string]string{
-						annoConnTmpl: urlTemplate,
-					},
+					Labels:      podLabels,
+					Annotations: annotations,
 				},
 				Spec: podSpec,
 			},

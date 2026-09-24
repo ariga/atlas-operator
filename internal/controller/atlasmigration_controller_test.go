@@ -34,6 +34,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1946,4 +1947,40 @@ func TestMigration_DriftDetected(t *testing.T) {
 		"Warning Migrating atlas: some warning",
 		"Normal Applied Version 2 applied",
 	}, h.events())
+}
+
+func TestAtlasMigrationReconciler_DevDBMetadata(t *testing.T) {
+	obj := &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "postgres://localhost/target"},
+			Dir:        dbv1alpha1.Dir{Local: map[string]string{"1.sql": "CREATE TABLE example (id int);"}},
+			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{DevDB: &dbv1alpha1.DevDB{Metadata: &dbv1alpha1.DevDBMetadata{
+				Labels: map[string]string{"team": "platform"}, Annotations: map[string]string{"example.com/monitor": "enabled"},
+			}}},
+		},
+		Status: dbv1alpha1.AtlasMigrationStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
+	}
+	mock := &mockAtlasExec{}
+	mock.whoami.res = &atlasexec.WhoAmI{Org: "example"}
+	mock.status.res = &atlasexec.MigrateStatus{Pending: []atlasexec.File{{Version: "1", Name: "1.sql"}}}
+	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj).WithObjects(obj)
+	}, mock)
+	reconcile(obj, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Positive(t, result.RequeueAfter)
+	})
+	current := &dbv1alpha1.AtlasMigration{}
+	require.NoError(t, h.client.Get(t.Context(), client.ObjectKeyFromObject(obj), current))
+	condition := getReadyCondition(t, current.Status.Conditions)
+	require.Equal(t, dbv1alpha1.ReasonGettingDevDB, condition.Reason, condition.Message)
+	deploy := &appsv1.Deployment{}
+	require.NoError(t, h.client.Get(t.Context(), nameDevDB(obj), deploy))
+	require.Equal(t, "platform", deploy.Spec.Template.Labels["team"])
+	require.Equal(t, "enabled", deploy.Spec.Template.Annotations["example.com/monitor"])
+	require.NotEmpty(t, deploy.Spec.Template.Annotations[annoConnTmpl])
+	require.NotEmpty(t, deploy.Spec.Template.Spec.Containers)
+	require.Equal(t, "postgres", deploy.Spec.Template.Spec.Containers[0].Name)
+	require.Equal(t, "AtlasMigration", deploy.OwnerReferences[0].Kind)
 }

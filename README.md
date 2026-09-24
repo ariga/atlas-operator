@@ -421,6 +421,24 @@ This resource describes the desired schema of a MySQL database.
   * The `diff` policy defines a policy for planning the schema diff. In this example, we define a policy that will
     omit any `DROP INDEX` statements from the diff planned by Atlas.
 
+#### Dev database pod metadata
+
+Both `AtlasSchema` and `AtlasMigration` accept labels and annotations for generated dev database pods:
+
+```yaml
+spec:
+  devDB:
+    metadata:
+      labels:
+        team: platform
+      annotations:
+        example.com/purpose: schema-analysis
+```
+
+Omitting `devDB.spec` keeps the automatically generated database configuration; no custom `devURL` is required. Metadata can also accompany a custom `devDB.spec` and `devURL`.
+
+Labels are added only to the pod template, not the Deployment selector. Operator-managed labels and the `atlasgo.io/conntmpl` annotation take precedence over custom values. Like the custom pod spec, metadata is applied when the dev database Deployment is created; existing Deployments are not updated.
+
 ### Version checks
 
 The operator will periodically check for new versions and security advisories related to the operator.
