@@ -246,12 +246,31 @@ spec:
                 type: object
               devDB:
                 description: |-
-                  devDB defines the custom dev database pod spec to use for normalization and calculations.
-                  If not defined, a default pod spec will be created based on the type (driver) of the target database.
-                  When a custom devDB spec is provided, the devURL must be defined as well.
+                  DevDB configures the dev database pod used for normalization and calculations.
+                  If spec is omitted, a default pod spec is created based on the target database driver.
+                  When a custom pod spec is provided, devURL must be defined as well.
                 properties:
+                  metadata:
+                    description: |-
+                      Metadata contains labels and annotations applied when creating the dev database pod template.
+                      Operator-managed labels and the atlasgo.io/conntmpl annotation take precedence.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations are additional annotations for the
+                          pod template.
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels are additional labels for the pod template.
+                          They do not affect the Deployment selector.
+                        type: object
+                    type: object
                   spec:
-                    description: PodSpec is a description of a pod.
+                    description: Spec overrides the automatically generated pod spec.
+                      When set, devURL is required.
                     properties:
                       activeDeadlineSeconds:
                         description: |-
