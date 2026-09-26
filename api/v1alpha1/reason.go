@@ -39,6 +39,20 @@ const (
 	ReasonStoringDirState = "StoringDirState"
 	// ReasonDriftDetected represents the reason for the pre-apply drift check blocking a migration.
 	ReasonDriftDetected = "DriftDetected"
+	// ReasonChecked represents the reason for a completed drift check.
+	ReasonChecked = "Checked"
+	// ReasonNoDrift represents the reason for a drift check that found no drift.
+	ReasonNoDrift = "NoDrift"
+	// ReasonCheckFailed represents the reason for a drift check that could not be completed.
+	ReasonCheckFailed = "CheckFailed"
+	// ReasonTargetNotFound represents the reason for a missing target resource.
+	ReasonTargetNotFound = "TargetNotFound"
+	// ReasonTargetNotReady represents the reason for a target resource that is mid-apply.
+	ReasonTargetNotReady = "TargetNotReady"
+	// ReasonSuspended represents the reason for a suspended resource.
+	ReasonSuspended = "Suspended"
+	// ReasonNoMigrationHistory represents the reason for a database with no applied migrations.
+	ReasonNoMigrationHistory = "NoMigrationHistory"
 )
 
 // isFailedReason returns true if the given reason is a failed reason.

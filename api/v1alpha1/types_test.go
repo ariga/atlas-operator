@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"testing"
 
+	"ariga.io/atlas/atlasexec"
+
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -403,6 +405,104 @@ func TestDriftPolicy_AsBlock(t *testing.T) {
 	require.False(t, (*v1alpha1.MigrationPolicy)(nil).HasDrift())
 	require.False(t, (&v1alpha1.MigrationPolicy{}).HasDrift())
 	require.True(t, (&v1alpha1.MigrationPolicy{Drift: &v1alpha1.DriftPolicy{}}).HasDrift())
+}
+
+func TestAtlasDriftCheckStatusConditions(t *testing.T) {
+	var (
+		res  = &v1alpha1.AtlasDriftCheck{ObjectMeta: metav1.ObjectMeta{Generation: 7}}
+		cond = func(typ string) metav1.Condition {
+			t.Helper()
+			return requireCondition(t, res.Status.Conditions, typ)
+		}
+		requireStatus = func(typ string, status metav1.ConditionStatus, reason string) {
+			t.Helper()
+			c := cond(typ)
+			require.Equal(t, status, c.Status, "condition %s", typ)
+			require.Equal(t, reason, c.Reason, "condition %s", typ)
+			require.Equal(t, int64(7), c.ObservedGeneration, "condition %s", typ)
+		}
+	)
+	// A clean check is ready and not drifted.
+	res.SetChecked(&atlasexec.MigrateDrift{Mode: "registry", Version: "2"})
+	require.Equal(t, int64(7), res.Status.ObservedGeneration)
+	requireStatus("Ready", metav1.ConditionTrue, v1alpha1.ReasonChecked)
+	requireStatus("Reconciling", metav1.ConditionFalse, v1alpha1.ReasonChecked)
+	requireStatus("Stalled", metav1.ConditionFalse, v1alpha1.ReasonChecked)
+	requireStatus("Drifted", metav1.ConditionFalse, v1alpha1.ReasonNoDrift)
+	require.Equal(t, "no drift detected at version 2", cond("Drifted").Message)
+	require.Equal(t, "registry", res.Status.Mode)
+	require.Equal(t, "2", res.Status.Version)
+	require.NotNil(t, res.Status.LastCheckTime)
+	require.Empty(t, res.Status.Fingerprint)
+	require.Nil(t, res.Status.Summary)
+
+	// Drift with onDrift=Report keeps the check ready.
+	drifted := &atlasexec.MigrateDrift{
+		Mode: "registry", Version: "2", Drifted: true, Fingerprint: "fp1",
+		Summary: &atlasexec.MigrateDriftSummary{
+			Total: 3, Extra: 1, Missing: 1, Modified: 1,
+			Types: map[string]int{"table": 2, "index": 1},
+		},
+	}
+	res.SetDrifted(drifted, v1alpha1.DriftActionReport)
+	const msg = "3 drifted objects (extra 1, missing 1, modified 1) at version 2: index 1, table 2"
+	requireStatus("Ready", metav1.ConditionTrue, v1alpha1.ReasonChecked)
+	requireStatus("Reconciling", metav1.ConditionFalse, v1alpha1.ReasonChecked)
+	requireStatus("Stalled", metav1.ConditionFalse, v1alpha1.ReasonChecked)
+	requireStatus("Drifted", metav1.ConditionTrue, v1alpha1.ReasonDriftDetected)
+	require.Equal(t, msg, cond("Drifted").Message)
+	require.Equal(t, "fp1", res.Status.Fingerprint)
+	require.Equal(t, &v1alpha1.DriftSummary{
+		Total: 3, Extra: 1, Missing: 1, Modified: 1,
+		Types: map[string]int{"table": 2, "index": 1},
+	}, res.Status.Summary)
+
+	// The same drift with onDrift=Fail degrades the check.
+	res.SetDrifted(drifted, v1alpha1.DriftActionFail)
+	requireStatus("Ready", metav1.ConditionFalse, v1alpha1.ReasonDriftDetected)
+	requireStatus("Reconciling", metav1.ConditionFalse, v1alpha1.ReasonDriftDetected)
+	requireStatus("Stalled", metav1.ConditionTrue, v1alpha1.ReasonDriftDetected)
+	requireStatus("Drifted", metav1.ConditionTrue, v1alpha1.ReasonDriftDetected)
+	require.Equal(t, msg, cond("Ready").Message)
+
+	// A transient failure keeps reconciling and the last result.
+	res.SetCheckFailed(v1alpha1.ReasonCheckFailed, "dial tcp: connection refused", false)
+	requireStatus("Ready", metav1.ConditionFalse, v1alpha1.ReasonCheckFailed)
+	requireStatus("Reconciling", metav1.ConditionTrue, v1alpha1.ReasonCheckFailed)
+	requireStatus("Stalled", metav1.ConditionFalse, v1alpha1.ReasonCheckFailed)
+	requireStatus("Drifted", metav1.ConditionUnknown, v1alpha1.ReasonCheckFailed)
+	require.Equal(t, "fp1", res.Status.Fingerprint)
+
+	// A permanent failure stalls it.
+	res.SetCheckFailed(v1alpha1.ReasonNoMigrationHistory, "no migration history found", true)
+	requireStatus("Ready", metav1.ConditionFalse, v1alpha1.ReasonNoMigrationHistory)
+	requireStatus("Reconciling", metav1.ConditionFalse, v1alpha1.ReasonNoMigrationHistory)
+	requireStatus("Stalled", metav1.ConditionTrue, v1alpha1.ReasonNoMigrationHistory)
+	requireStatus("Drifted", metav1.ConditionUnknown, v1alpha1.ReasonNoMigrationHistory)
+
+	// A missing target is permanent.
+	res.SetCheckFailed(v1alpha1.ReasonTargetNotFound, `AtlasMigration "app" not found`, true)
+	requireStatus("Ready", metav1.ConditionFalse, v1alpha1.ReasonTargetNotFound)
+	requireStatus("Stalled", metav1.ConditionTrue, v1alpha1.ReasonTargetNotFound)
+	requireStatus("Drifted", metav1.ConditionUnknown, v1alpha1.ReasonTargetNotFound)
+
+	// A busy target only flips Reconciling, the rest is left alone.
+	res.SetChecked(&atlasexec.MigrateDrift{Mode: "local", Version: "3"})
+	res.SetTargetNotReady("migration apply in progress")
+	requireStatus("Reconciling", metav1.ConditionTrue, v1alpha1.ReasonTargetNotReady)
+	requireStatus("Ready", metav1.ConditionTrue, v1alpha1.ReasonChecked)
+	requireStatus("Stalled", metav1.ConditionFalse, v1alpha1.ReasonChecked)
+	requireStatus("Drifted", metav1.ConditionFalse, v1alpha1.ReasonNoDrift)
+	require.Equal(t, "3", res.Status.Version)
+
+	// Suspending touches Reconciling and the observed generation only.
+	res.Generation = 8
+	res.SetSuspended()
+	require.Equal(t, int64(8), res.Status.ObservedGeneration)
+	require.Equal(t, metav1.ConditionFalse, cond("Reconciling").Status)
+	require.Equal(t, v1alpha1.ReasonSuspended, cond("Reconciling").Reason)
+	require.Equal(t, metav1.ConditionTrue, cond("Ready").Status)
+	require.Equal(t, "3", res.Status.Version)
 }
 
 func TestAtlasMigration_IsReconciling(t *testing.T) {

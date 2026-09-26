@@ -195,6 +195,7 @@ const (
 	readyCond       = "Ready"
 	reconcilingCond = "Reconciling"
 	stalledCond     = "Stalled"
+	driftedCond     = "Drifted"
 )
 
 func init() {
