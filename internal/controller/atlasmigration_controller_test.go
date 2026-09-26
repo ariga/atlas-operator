@@ -1937,7 +1937,7 @@ func TestMigration_DriftDetected(t *testing.T) {
 	assert(ctrl.Result{RequeueAfter: 3 * retryDuration}, false, dbv1alpha1.ReasonMigrating, sqlErr, 3)
 	// The check passes: the migration is applied and stderr becomes a warning.
 	mockExec.apply.err = nil
-	mockExec.apply.res = &atlasexec.MigrateApply{Target: "2", End: time.Now()}
+	mockExec.apply.res = []*atlasexec.MigrateApply{{Target: "2", End: time.Now()}}
 	mockExec.stderr = "atlas: some warning\n"
 	assert(ctrl.Result{}, true, dbv1alpha1.ReasonApplied, "", 0)
 	require.Equal(t, []string{

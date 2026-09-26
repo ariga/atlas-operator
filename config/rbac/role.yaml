@@ -61,6 +61,7 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasdriftchecks
   - atlasmigrations
   - atlasschemas
   verbs:
@@ -74,6 +75,7 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasdriftchecks/finalizers
   - atlasmigrations/finalizers
   - atlasschemas/finalizers
   verbs:
@@ -81,6 +83,7 @@ rules:
 - apiGroups:
   - db.atlasgo.io
   resources:
+  - atlasdriftchecks/status
   - atlasmigrations/status
   - atlasschemas/status
   verbs:
