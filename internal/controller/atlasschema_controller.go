@@ -29,6 +29,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -65,6 +67,8 @@ type (
 		secretWatcher    *watch.ResourceWatcher
 		recorder         record.EventRecorder
 		devDB            *devDBReconciler
+		// pending tracks schema plans waiting for approval, to back off polling them.
+		pending pendingTracker
 		// AllowCustomConfig allows the controller to use custom atlas.hcl config.
 		allowCustomConfig bool
 		watchSecrets      bool
@@ -109,9 +113,16 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		res = &dbv1alpha1.AtlasSchema{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.pending.reset(req.NamespacedName)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	defer func() {
+		// Stop tracking the resource once its plan is no longer waiting for approval.
+		if c := meta.FindStatusCondition(res.Status.Conditions, "Ready"); c == nil || c.Reason != dbv1alpha1.ReasonApprovalPending {
+			r.pending.reset(req.NamespacedName)
+		}
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			latest := &dbv1alpha1.AtlasSchema{}
 			if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
@@ -334,9 +345,10 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			res.Status.PlanURL = plans[0].URL
 			res.Status.PlanLink = plans[0].Link
 			reason, msg := dbv1alpha1.ReasonApprovalPending, "Schema plan is waiting for approval"
+			delay := r.pending.delay(client.ObjectKeyFromObject(res), res.Status.PlanURL, time.Now())
 			res.SetNotReady(reason, msg)
 			r.recorder.Event(res, corev1.EventTypeNormal, reason, msg)
-			return ctrl.Result{RequeueAfter: retryDuration}, nil
+			return ctrl.Result{RequeueAfter: delay}, nil
 		// Deploy the changes using the approved plan.
 		case len(plans) == 1 && plans[0].Status == "APPROVED":
 			log.Info("found an approved schema plan, applying", "plan", plans[0].URL)
@@ -625,15 +637,20 @@ func (r *AtlasSchemaReconciler) resultCLIErr(
 	return result(err, backoffDelayAt(res.Status.Failed))
 }
 
-// resultPending returns a pending result.
-// The controller will requeue the request after 5 seconds.
+// resultPending returns a pending result. The controller will requeue
+// the request after 5 seconds, or with a growing delay while the schema
+// plan is waiting for approval.
 func (r *AtlasSchemaReconciler) resultPending(
 	res *dbv1alpha1.AtlasSchema, reason, message string,
 ) (ctrl.Result, error) {
+	delay := retryDuration
+	if reason == dbv1alpha1.ReasonApprovalPending {
+		delay = r.pending.delay(client.ObjectKeyFromObject(res), res.Status.PlanURL, time.Now())
+	}
 	res.SetNotReady(reason, message)
 	r.recorder.Event(res, corev1.EventTypeWarning, reason, message)
 	return ctrl.Result{
-		RequeueAfter: retryDuration,
+		RequeueAfter: delay,
 	}, nil
 }
 

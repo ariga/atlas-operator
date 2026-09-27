@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"ariga.io/atlas/atlasexec"
@@ -304,10 +305,59 @@ func mapsSorted[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 	}
 }
 
-const retryDuration = 5 * time.Second
+const (
+	retryDuration = 5 * time.Second
+	// maxPendingDuration caps the requeue delay of resources waiting on an
+	// external action (e.g., plan approval). Approving a plan in Atlas Cloud
+	// does not trigger a Kubernetes event, so this is the longest a user waits
+	// between approving a plan and the operator picking it up.
+	maxPendingDuration = 5 * time.Minute
+)
 
 // backoffDelayAt returns the backoff delay at the given retry count.
 // Backoff is exponential with base 5.
 func backoffDelayAt(retry int) time.Duration {
 	return time.Duration(retry) * retryDuration
+}
+
+type (
+	// pendingTracker tracks since when resources are waiting on an external
+	// action (e.g., plan approval), to back off their requeue delay. The state
+	// is kept in memory, so after a restart resources start from retryDuration.
+	pendingTracker struct {
+		mu      sync.Mutex
+		entries map[types.NamespacedName]pendingEntry
+	}
+	pendingEntry struct {
+		key   string    // What the resource is waiting on (e.g., a plan URL).
+		since time.Time // When the resource started waiting on it.
+	}
+)
+
+// delay returns the requeue delay for a resource that is waiting on the given
+// key. The delay doubles from retryDuration until it reaches maxPendingDuration.
+// A resource that starts waiting on a new key starts from retryDuration.
+func (t *pendingTracker) delay(name types.NamespacedName, key string, now time.Time) time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	e, ok := t.entries[name]
+	if !ok || e.key != key {
+		if t.entries == nil {
+			t.entries = make(map[types.NamespacedName]pendingEntry)
+		}
+		e = pendingEntry{key: key, since: now}
+		t.entries[name] = e
+	}
+	d := retryDuration
+	for elapsed := now.Sub(e.since); d < elapsed && d < maxPendingDuration; {
+		d *= 2
+	}
+	return min(d, maxPendingDuration)
+}
+
+// reset forgets the given resource, if it was waiting.
+func (t *pendingTracker) reset(name types.NamespacedName) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.entries, name)
 }

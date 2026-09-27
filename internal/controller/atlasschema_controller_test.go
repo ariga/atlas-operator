@@ -1040,3 +1040,44 @@ func TestAtlasSchemaReconciler_DevDBMetadata(t *testing.T) {
 	require.Equal(t, "postgres", deploy.Spec.Template.Spec.Containers[0].Name)
 	require.Equal(t, "AtlasSchema", deploy.OwnerReferences[0].Kind)
 }
+
+func TestResultPending(t *testing.T) {
+	r := &AtlasSchemaReconciler{recorder: record.NewFakeRecorder(10)}
+	// The "Ready" condition has been false for an hour for another reason.
+	// Its LastTransitionTime is kept when the reason changes to ApprovalPending.
+	res := &dbv1alpha1.AtlasSchema{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "schema"},
+		Status: dbv1alpha1.AtlasSchemaStatus{
+			PlanURL: "atlas://repo/plans/1",
+			Conditions: []metav1.Condition{{
+				Type:               schemaReadyCond,
+				Status:             metav1.ConditionFalse,
+				Reason:             dbv1alpha1.ReasonGettingDevDB,
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Hour)),
+			}},
+		},
+	}
+	// A plan that just started waiting for approval polls after retryDuration,
+	// regardless of the condition's LastTransitionTime.
+	for range 2 {
+		result, err := r.resultPending(res, dbv1alpha1.ReasonApprovalPending, "")
+		require.NoError(t, err)
+		require.Equal(t, retryDuration, result.RequeueAfter)
+	}
+	// A plan that has been waiting for an hour backs off to the cap.
+	key := client.ObjectKeyFromObject(res)
+	r.pending.entries[key] = pendingEntry{key: res.Status.PlanURL, since: time.Now().Add(-time.Hour)}
+	result, err := r.resultPending(res, dbv1alpha1.ReasonApprovalPending, "")
+	require.NoError(t, err)
+	require.Equal(t, maxPendingDuration, result.RequeueAfter)
+	// A new plan starts again from retryDuration.
+	res.Status.PlanURL = "atlas://repo/plans/2"
+	result, err = r.resultPending(res, dbv1alpha1.ReasonApprovalPending, "")
+	require.NoError(t, err)
+	require.Equal(t, retryDuration, result.RequeueAfter)
+	// Other pending reasons keep the fixed delay.
+	r.pending.entries[key] = pendingEntry{key: res.Status.PlanURL, since: time.Now().Add(-time.Hour)}
+	result, err = r.resultPending(res, dbv1alpha1.ReasonGettingDevDB, "")
+	require.NoError(t, err)
+	require.Equal(t, retryDuration, result.RequeueAfter)
+}
