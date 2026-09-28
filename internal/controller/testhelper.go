@@ -61,6 +61,7 @@ type (
 		// mimicking the Atlas CLI logging to stderr.
 		stderr         string
 		stderrW        io.Writer
+		loginErr       error
 		apply          mockSliceCmd[atlasexec.MigrateApplyParams, atlasexec.MigrateApply]
 		down           mockCmd[atlasexec.MigrateDown]
 		drift          mockSliceCmd[atlasexec.MigrateDriftParams, atlasexec.MigrateDrift]
@@ -156,7 +157,7 @@ func (m *mockAtlasExec) MigrateStatus(context.Context, *atlasexec.MigrateStatusP
 	return m.status.res, m.status.err
 }
 
-func (m *mockAtlasExec) Login(context.Context, *atlasexec.LoginParams) error { return nil }
+func (m *mockAtlasExec) Login(context.Context, *atlasexec.LoginParams) error { return m.loginErr }
 func (m *mockAtlasExec) SetStdout(io.Writer)                                 {}
 func (m *mockAtlasExec) SetStderr(w io.Writer)                               { m.stderrW = w }
 

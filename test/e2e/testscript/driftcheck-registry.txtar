@@ -1,0 +1,245 @@
+# AtlasDriftCheck regularly compares an AtlasMigration database with the state
+# stored in the Atlas Registry for its applied version.
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic dev-creds --from-literal=url=${DEV_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Push the migration directory and tag it. The untagged push stores the schema
+# states used by the drift check.
+kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations
+atlas migrate push --dev-url=${DEV_URL} --dir=file:///tmp/${NAMESPACE}/migrations-v1 atlas-operator-migrations:${NAMESPACE}-v1
+
+# Apply the target migration.
+cat migration.yaml.tmpl > migration.yaml
+kubectl apply -f migration.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/target
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250901000000 --timeout=2h AtlasMigration/target
+
+# The database matches the registry, so no drift is reported. The check uses
+# the cloud token from its target. The status template omits timestamps and
+# prints only whether a fingerprint is set.
+kubectl apply -f driftcheck.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Checked --timeout=2h AtlasDriftCheck/check
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].reason}'=NoDrift --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-clean.txt
+
+# Change the database outside the operator and wait for drift to be detected.
+# The check stays ready with the default onDrift: Report. It also uses the
+# target's exclude list, so the audit table is ignored.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text; CREATE TABLE audit_log (id int);'
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].status}'=True --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-drifted.txt
+kubectl get events --field-selector involvedObject.name=check --sort-by=.metadata.creationTimestamp -o go-template-file=events.tmpl
+cmp stdout events-detected.txt
+
+# Changing the drift produces another report.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'CREATE TABLE hotfix_log (id int);'
+kubectl wait --for=jsonpath='{.status.summary.total}'=2 --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-changed.txt
+kubectl get events --field-selector involvedObject.name=check --sort-by=.metadata.creationTimestamp -o go-template-file=events.tmpl
+cmp stdout events-changed.txt
+
+# With onDrift: Fail, detected drift makes the resource not ready and stalled.
+kubectl patch AtlasDriftCheck/check --type merge --patch-file patch-fail.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Stalled")].reason}'=DriftDetected --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-fail.txt
+
+# The same drift does not produce another event.
+kubectl get events --field-selector involvedObject.name=check --sort-by=.metadata.creationTimestamp -o go-template-file=events.tmpl
+cmp stdout events-changed.txt
+
+# Remove the drift. The excluded audit table can remain.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users DROP COLUMN hotfix; DROP TABLE hotfix_log;'
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].reason}'=NoDrift --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-clean.txt
+kubectl get events --field-selector involvedObject.name=check --sort-by=.metadata.creationTimestamp -o go-template-file=events.tmpl
+cmp stdout events-resolved.txt
+
+# Suspending stops new checks and keeps the last result.
+kubectl patch AtlasDriftCheck/check --type merge --patch-file patch-suspend.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Reconciling")].reason}'=Suspended --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-suspended.txt
+
+# Verify no check runs while suspended, even when the database changes.
+kubectl get AtlasDriftCheck/check -o jsonpath --template='{.status.lastCheckTime}'
+cp stdout last-check.txt
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text;'
+exec sleep 75
+kubectl get AtlasDriftCheck/check -o jsonpath --template='{.status.lastCheckTime}'
+cmp stdout last-check.txt
+
+# Resume the check and verify it detects the drift.
+kubectl patch AtlasDriftCheck/check --type merge --patch-file patch-resume.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].status}'=True --timeout=2h AtlasDriftCheck/check
+
+# A check whose target does not exist becomes stalled.
+kubectl apply -f driftcheck-missing.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Stalled")].reason}'=TargetNotFound --timeout=2h AtlasDriftCheck/missing
+kubectl get AtlasDriftCheck/missing -o go-template-file=status.tmpl
+cmpenv stdout status-missing.txt
+
+# Verify the default values.
+kubectl get AtlasDriftCheck/missing -o jsonpath --template='{.spec}{"\n"}'
+cmp stdout spec-missing.json
+
+# Intervals shorter than one minute are rejected.
+! kubectl apply -f driftcheck-fast.yaml
+cmp stderr fast-rejected.txt
+
+-- status.tmpl --
+{{range .status.conditions}}{{.type}}={{.status}} {{.reason}}: {{.message}}
+{{end}}mode: {{or .status.mode "none"}}
+version: {{or .status.version "none"}}
+fingerprint: {{if .status.fingerprint}}set{{else}}none{{end}}
+summary: {{or .status.summary "none"}}
+-- events.tmpl --
+{{range .items}}{{.type}} {{.reason}} count={{.count}}: {{.message}}
+{{end -}}
+-- status-clean.txt --
+Ready=True Checked: no drift detected at version 20250901000000
+Reconciling=False Checked: no drift detected at version 20250901000000
+Stalled=False Checked: no drift detected at version 20250901000000
+Drifted=False NoDrift: no drift detected at version 20250901000000
+mode: registry
+version: 20250901000000
+fingerprint: none
+summary: none
+-- status-drifted.txt --
+Ready=True Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Reconciling=False Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Stalled=False Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Drifted=True DriftDetected: 1 drifted object (modified 1) at version 20250901000000: table 1
+mode: registry
+version: 20250901000000
+fingerprint: set
+summary: map[modified:1 total:1 types:map[table:1]]
+-- status-changed.txt --
+Ready=True Checked: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Reconciling=False Checked: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Stalled=False Checked: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Drifted=True DriftDetected: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+mode: registry
+version: 20250901000000
+fingerprint: set
+summary: map[extra:1 modified:1 total:2 types:map[table:2]]
+-- status-fail.txt --
+Ready=False DriftDetected: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Reconciling=False DriftDetected: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Stalled=True DriftDetected: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Drifted=True DriftDetected: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+mode: registry
+version: 20250901000000
+fingerprint: set
+summary: map[extra:1 modified:1 total:2 types:map[table:2]]
+-- status-suspended.txt --
+Ready=True Checked: no drift detected at version 20250901000000
+Reconciling=False Suspended: checks are suspended
+Stalled=False Checked: no drift detected at version 20250901000000
+Drifted=False NoDrift: no drift detected at version 20250901000000
+mode: registry
+version: 20250901000000
+fingerprint: none
+summary: none
+-- status-missing.txt --
+Ready=False TargetNotFound: AtlasMigration "no-such-migration" not found in namespace "${NAMESPACE}"; note that an operator installed with --label-selector only sees the targets carrying those labels
+Reconciling=False TargetNotFound: AtlasMigration "no-such-migration" not found in namespace "${NAMESPACE}"; note that an operator installed with --label-selector only sees the targets carrying those labels
+Stalled=True TargetNotFound: AtlasMigration "no-such-migration" not found in namespace "${NAMESPACE}"; note that an operator installed with --label-selector only sees the targets carrying those labels
+Drifted=Unknown TargetNotFound: AtlasMigration "no-such-migration" not found in namespace "${NAMESPACE}"; note that an operator installed with --label-selector only sees the targets carrying those labels
+mode: none
+version: none
+fingerprint: none
+summary: none
+-- events-detected.txt --
+Warning DriftDetected count=1: 1 drifted object (modified 1) at version 20250901000000: table 1
+-- events-changed.txt --
+Warning DriftDetected count=1: 1 drifted object (modified 1) at version 20250901000000: table 1
+Warning DriftChanged count=1: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+-- events-resolved.txt --
+Warning DriftDetected count=1: 1 drifted object (modified 1) at version 20250901000000: table 1
+Warning DriftChanged count=1: 2 drifted objects (extra 1, modified 1) at version 20250901000000: table 2
+Normal DriftResolved count=1: no drift detected at version 20250901000000
+-- spec-missing.json --
+{"interval":"5m","onDrift":"Report","targetRef":{"name":"no-such-migration"},"timeout":"5m"}
+-- fast-rejected.txt --
+The AtlasDriftCheck "fast" is invalid: spec.interval: Invalid value: "string": interval must be at least 1m
+-- migration.yaml.tmpl --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: target
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  devURLFrom:
+    secretKeyRef:
+      name: dev-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  dir:
+    remote:
+      name: atlas-operator-migrations
+      tag: ${NAMESPACE}-v1
+  policy:
+    drift:
+      exclude:
+        - "*[type=extension]"
+        - "public.audit_*"
+-- driftcheck.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasDriftCheck
+metadata:
+  name: check
+spec:
+  targetRef:
+    name: target
+  interval: 1m
+-- driftcheck-missing.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasDriftCheck
+metadata:
+  name: missing
+spec:
+  targetRef:
+    name: no-such-migration
+-- driftcheck-fast.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasDriftCheck
+metadata:
+  name: fast
+spec:
+  targetRef:
+    name: target
+  interval: 30s
+-- patch-fail.yaml --
+spec:
+  onDrift: Fail
+-- patch-suspend.yaml --
+spec:
+  suspend: true
+-- patch-resume.yaml --
+spec:
+  suspend: false
+-- migrations-v1/atlas.sum --
+h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+-- migrations-v1/20250901000000_init.sql --
+CREATE TABLE users (
+  id int NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (id)
+);

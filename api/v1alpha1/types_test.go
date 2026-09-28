@@ -503,6 +503,14 @@ func TestAtlasDriftCheckStatusConditions(t *testing.T) {
 	require.Equal(t, v1alpha1.ReasonSuspended, cond("Reconciling").Reason)
 	require.Equal(t, metav1.ConditionTrue, cond("Ready").Status)
 	require.Equal(t, "3", res.Status.Version)
+
+	// A drifted report the CLI sent no summary with still says what happened,
+	// and one without a version leaves the version suffix off.
+	res.SetDrifted(&atlasexec.MigrateDrift{Mode: "local", Drifted: true}, v1alpha1.DriftActionReport)
+	require.Equal(t, "drift detected", cond("Drifted").Message)
+	require.Equal(t, metav1.ConditionTrue, cond("Drifted").Status)
+	require.Nil(t, res.Status.Summary)
+	require.Empty(t, res.Status.Version)
 }
 
 func TestAtlasMigration_IsReconciling(t *testing.T) {

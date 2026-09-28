@@ -1,0 +1,128 @@
+# In local mode, the check replays the migration directory on the dev database
+# to get the expected state, so the directory does not need to be in the registry.
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL}
+kubectl create secret generic dev-creds --from-literal=url=${DEV_URL}
+kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
+
+# Apply a migration with a local directory.
+kubectl apply -f migration.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Applied --timeout=2h AtlasMigration/local
+kubectl wait --for=jsonpath='{.status.lastAppliedVersion}'=20250901000000 --timeout=2h AtlasMigration/local
+
+# The database matches the local directory, so no drift is reported.
+# The status template omits timestamps and only shows whether a fingerprint is set.
+kubectl apply -f driftcheck.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=Checked --timeout=2h AtlasDriftCheck/check
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].reason}'=NoDrift --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-clean.txt
+
+# Add drift and verify it is detected. The audit table is excluded from the check.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users ADD COLUMN hotfix text; CREATE TABLE audit_log (id int);'
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].status}'=True --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-drifted.txt
+
+# Remove the drift and verify the database is clean again.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'ALTER TABLE users DROP COLUMN hotfix;'
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].reason}'=NoDrift --timeout=2h AtlasDriftCheck/check
+
+# Without a dev database, the local directory cannot be replayed and the check
+# fails. The result of the last successful check is kept.
+kubectl patch AtlasMigration/local --type merge --patch-file patch-nodev.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Stalled")].reason}'=CheckFailed --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-nodev.txt
+
+# Restore the dev database and verify the check recovers.
+kubectl patch AtlasMigration/local --type merge --patch-file patch-dev.yaml
+kubectl wait --for=jsonpath='{.status.conditions[?(@.type=="Drifted")].reason}'=NoDrift --timeout=2h AtlasDriftCheck/check
+kubectl get AtlasDriftCheck/check -o go-template-file=status.tmpl
+cmp stdout status-clean.txt
+
+-- status.tmpl --
+{{range .status.conditions}}{{.type}}={{.status}} {{.reason}}: {{.message}}
+{{end}}mode: {{or .status.mode "none"}}
+version: {{or .status.version "none"}}
+fingerprint: {{if .status.fingerprint}}set{{else}}none{{end}}
+summary: {{or .status.summary "none"}}
+-- status-clean.txt --
+Ready=True Checked: no drift detected at version 20250901000000
+Reconciling=False Checked: no drift detected at version 20250901000000
+Stalled=False Checked: no drift detected at version 20250901000000
+Drifted=False NoDrift: no drift detected at version 20250901000000
+mode: local
+version: 20250901000000
+fingerprint: none
+summary: none
+-- status-drifted.txt --
+Ready=True Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Reconciling=False Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Stalled=False Checked: 1 drifted object (modified 1) at version 20250901000000: table 1
+Drifted=True DriftDetected: 1 drifted object (modified 1) at version 20250901000000: table 1
+mode: local
+version: 20250901000000
+fingerprint: set
+summary: map[modified:1 total:1 types:map[table:1]]
+-- status-nodev.txt --
+Ready=False CheckFailed: local migration directory requires a dev database to replay: set spec.devURL or spec.devURLFrom on AtlasMigration/local, or push the directory to the Atlas Registry
+Reconciling=False CheckFailed: local migration directory requires a dev database to replay: set spec.devURL or spec.devURLFrom on AtlasMigration/local, or push the directory to the Atlas Registry
+Stalled=True CheckFailed: local migration directory requires a dev database to replay: set spec.devURL or spec.devURLFrom on AtlasMigration/local, or push the directory to the Atlas Registry
+Drifted=Unknown CheckFailed: local migration directory requires a dev database to replay: set spec.devURL or spec.devURLFrom on AtlasMigration/local, or push the directory to the Atlas Registry
+mode: local
+version: 20250901000000
+fingerprint: none
+summary: none
+-- migration.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: local
+spec:
+  urlFrom:
+    secretKeyRef:
+      name: db-creds
+      key: url
+  devURLFrom:
+    secretKeyRef:
+      name: dev-creds
+      key: url
+  cloud:
+    tokenFrom:
+      secretKeyRef:
+        name: atlas-token
+        key: ATLAS_TOKEN
+  dir:
+    local:
+      20250901000000_init.sql: |
+        CREATE TABLE users (
+          id int NOT NULL,
+          name text NOT NULL,
+          PRIMARY KEY (id)
+        );
+      atlas.sum: |
+        h1:WZ3jz1zWVubQO+J3wTzVYuTegqlIUIBi2+QTk76+M3M=
+        20250901000000_init.sql h1:MGXyysQDXv89l8J4IuoWGqpsRAwxWpTgBk543swLPkY=
+-- driftcheck.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasDriftCheck
+metadata:
+  name: check
+spec:
+  targetRef:
+    name: local
+  interval: 1m
+  exclude:
+    - "*[type=extension]"
+    - "public.audit_*"
+-- patch-nodev.yaml --
+spec:
+  devURLFrom: null
+-- patch-dev.yaml --
+spec:
+  devURLFrom:
+    secretKeyRef:
+      name: dev-creds
+      key: url

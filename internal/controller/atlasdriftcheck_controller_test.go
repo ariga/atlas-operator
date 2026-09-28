@@ -313,6 +313,73 @@ func TestDriftCheck_TransientFailures(t *testing.T) {
 	require.Contains(t, driftCond(t, res, "Ready").Message, "the drift check timed out")
 }
 
+// TestDriftCheck_StepFailure covers a step that fails with a bare error rather
+// than a *checkError: it is reported as a transient failure, so an unexpected
+// failure keeps retrying instead of parking the check on a verdict.
+func TestDriftCheck_StepFailure(t *testing.T) {
+	var (
+		check = driftCheckObj()
+		mock  = &mockAtlasExec{loginErr: errors.New("token rejected")}
+		res   = &dbv1alpha1.AtlasDriftCheck{ObjectMeta: check.ObjectMeta}
+	)
+	h, reconcile := newDriftRunner(check, mock, driftTarget(), driftTokenSecret())
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: transientDriftRetry}, result)
+	})
+	h.get(t, res)
+	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Reconciling", metav1.ConditionTrue, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Drifted", metav1.ConditionUnknown, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, "token rejected", driftCond(t, res, "Ready").Message)
+	require.Equal(t, []string{"Warning CheckFailed token rejected"}, h.events())
+	// The check runs as usual once the step stops failing.
+	mock.loginErr = nil
+	mock.drift.res = []*atlasexec.MigrateDrift{{Mode: "registry", Version: "2"}}
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: driftInterval}, result)
+	})
+	h.get(t, res)
+	requireCond(t, res, "Ready", metav1.ConditionTrue, dbv1alpha1.ReasonChecked)
+	requireCond(t, res, "Drifted", metav1.ConditionFalse, dbv1alpha1.ReasonNoDrift)
+}
+
+// TestDriftCheck_NoCloudTokenWithStderr covers a target that carries no cloud
+// token, so the login step is skipped, and an Atlas run that writes to stderr
+// without failing: that output belongs to the migration that owns the config,
+// so the check logs it instead of reporting it on the status.
+func TestDriftCheck_NoCloudTokenWithStderr(t *testing.T) {
+	var (
+		check  = driftCheckObj()
+		target = driftTarget()
+		mock   = &mockAtlasExec{stderr: "Warning: connected to a replica"}
+		res    = &dbv1alpha1.AtlasDriftCheck{ObjectMeta: check.ObjectMeta}
+	)
+	// A local directory replayed on a dev database needs no registry, and so
+	// no token: a remote directory would require one.
+	target.Spec.Cloud = dbv1alpha1.CloudV0{}
+	target.Spec.DevURL = "sqlite://dev?mode=memory"
+	target.Spec.Dir = dbv1alpha1.Dir{Local: map[string]string{
+		"1.sql":     "CREATE TABLE t (id int);",
+		"atlas.sum": "h1:MOCK=\n1.sql h1:MOCK=\n",
+	}}
+	mock.drift.res = []*atlasexec.MigrateDrift{{Mode: "local", Version: "2"}}
+	h, reconcile := newDriftRunner(check, mock, target)
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: driftInterval}, result)
+	})
+	h.get(t, res)
+	requireCond(t, res, "Ready", metav1.ConditionTrue, dbv1alpha1.ReasonChecked)
+	requireCond(t, res, "Drifted", metav1.ConditionFalse, dbv1alpha1.ReasonNoDrift)
+	require.Equal(t, "2", res.Status.Version)
+	require.Equal(t, "local", res.Status.Mode)
+	// The stderr output is not reported as a failure.
+	require.Empty(t, h.events())
+}
+
 func TestDriftCheck_MultiTarget(t *testing.T) {
 	var (
 		check = driftCheckObj()
@@ -560,6 +627,20 @@ func TestClassifyDriftError(t *testing.T) {
 			reason:    dbv1alpha1.ReasonCheckFailed,
 			permanent: true,
 			message:   `parsing expected state HCL: missing ")"`,
+		},
+		{
+			name:      "version state missing from the registry",
+			err:       errors.New(`no state found for version "20250901000000"`),
+			reason:    dbv1alpha1.ReasonCheckFailed,
+			permanent: true,
+			message:   `no state found for version "20250901000000"`,
+		},
+		{
+			name:      "tagged directory without per-version state",
+			err:       errors.New(`version "20250901000000" has no hash to resolve its state`),
+			reason:    dbv1alpha1.ReasonCheckFailed,
+			permanent: true,
+			message:   `version "20250901000000" has no hash to resolve its state`,
 		},
 		{
 			name:    "timed out",
