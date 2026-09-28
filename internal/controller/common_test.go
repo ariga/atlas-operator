@@ -21,6 +21,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func Test_mergeBlocks(t *testing.T) {
@@ -301,5 +302,65 @@ func Test_backoffDelayAt(t *testing.T) {
 				t.Errorf("backoffDelayAt() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_pendingTracker(t *testing.T) {
+	var (
+		tr   pendingTracker
+		name = types.NamespacedName{Namespace: "default", Name: "schema"}
+		now  = time.Now()
+	)
+	// The delay grows with the time spent waiting on the same key, up to the cap.
+	for _, tt := range []struct {
+		elapsed time.Duration
+		want    time.Duration
+	}{
+		{0, 5 * time.Second},
+		{5 * time.Second, 5 * time.Second},
+		{6 * time.Second, 10 * time.Second},
+		{10 * time.Second, 10 * time.Second},
+		{15 * time.Second, 20 * time.Second},
+		{30 * time.Second, 40 * time.Second},
+		{time.Minute, 80 * time.Second},
+		{100 * time.Second, 160 * time.Second},
+		{3 * time.Minute, maxPendingDuration},
+		{time.Hour, maxPendingDuration},
+	} {
+		if got := tr.delay(name, "plan1", now.Add(tt.elapsed)); got != tt.want {
+			t.Errorf("delay(%v) = %v, want %v", tt.elapsed, got, tt.want)
+		}
+	}
+	// A new plan starts from retryDuration, regardless of the previous one.
+	now = now.Add(time.Hour)
+	if got := tr.delay(name, "plan2", now); got != retryDuration {
+		t.Errorf("delay(new key) = %v, want %v", got, retryDuration)
+	}
+	// Other resources are tracked separately.
+	other := types.NamespacedName{Namespace: "default", Name: "other"}
+	if got := tr.delay(other, "plan2", now.Add(time.Hour)); got != retryDuration {
+		t.Errorf("delay(other resource) = %v, want %v", got, retryDuration)
+	}
+	// A reset resource starts from retryDuration.
+	tr.reset(name)
+	if got := tr.delay(name, "plan2", now.Add(time.Hour)); got != retryDuration {
+		t.Errorf("delay(after reset) = %v, want %v", got, retryDuration)
+	}
+	// Simulate a resource that is polled until the delay reaches the cap.
+	var (
+		elapsed time.Duration
+		delays  []time.Duration
+	)
+	tr.reset(name)
+	for d := time.Duration(0); d < maxPendingDuration; elapsed += d {
+		d = tr.delay(name, "plan3", now.Add(elapsed))
+		delays = append(delays, d)
+	}
+	want := []time.Duration{
+		5 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second,
+		40 * time.Second, 80 * time.Second, 160 * time.Second, maxPendingDuration,
+	}
+	if !reflect.DeepEqual(delays, want) {
+		t.Errorf("delays = %v, want %v", delays, want)
 	}
 }
