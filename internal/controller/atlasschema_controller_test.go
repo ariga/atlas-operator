@@ -194,7 +194,7 @@ func TestReconcile_ApplySchemaStderr(t *testing.T) {
 	// The resource is not connected to Atlas Cloud.
 	mockExec.whoami.err = atlasexec.ErrRequireLogin
 	mockExec.schemaInspect.res = new("hash")
-	mockExec.schemaApply.res = &atlasexec.SchemaApply{}
+	mockExec.schemaApply.res = []*atlasexec.SchemaApply{{}}
 	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
 		cb.WithStatusSubresource(obj)
 		cb.WithObjects(obj)
