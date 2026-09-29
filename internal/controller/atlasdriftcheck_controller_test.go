@@ -270,6 +270,19 @@ func TestDriftCheck_PermanentFailures(t *testing.T) {
 	// The same failure is not reported twice.
 	run(&atlasexec.Error{Stderr: noHistory})
 	require.Empty(t, h.events())
+	// The CLI is not logged in, or the expected state cannot be resolved:
+	// retrying fixes neither.
+	for _, err := range []error{
+		fmt.Errorf("running drift: %w", atlasexec.ErrRequireLogin),
+		errors.New(`parsing expected state HCL: missing ")"`),
+		errors.New(`no state found for version "20250901000000"`),
+		errors.New(`version "20250901000000" has no hash to resolve its state`),
+	} {
+		run(err)
+		requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+		requireCond(t, res, "Stalled", metav1.ConditionTrue, dbv1alpha1.ReasonCheckFailed)
+		require.Equal(t, []string{"Warning CheckFailed " + err.Error()}, h.events())
+	}
 }
 
 func TestDriftCheck_TransientFailures(t *testing.T) {
@@ -298,19 +311,46 @@ func TestDriftCheck_TransientFailures(t *testing.T) {
 	require.Equal(t, []string{"Warning CheckFailed dial tcp: connection refused"}, h.events())
 	// The Pro gate and a CLI that predates the command are transient too: a
 	// license or an operator upgrade clears them without touching the resource.
-	const pro = "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"
-	run(&atlasexec.Error{Stderr: pro})
-	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
-	require.Equal(t, []string{"Warning CheckFailed " + pro}, h.events())
-	const unknown = `unknown command "drift" for "atlas migrate"`
-	run(errors.New(unknown))
-	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
-	require.Equal(t, []string{"Warning CheckFailed " + unknown}, h.events())
+	// So is any failure not known to be permanent.
+	for _, err := range []error{
+		&atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
+		errors.New(`unknown command "drift" for "atlas migrate"`),
+		errors.New(`version "2" was partially applied`),
+		&atlasexec.Error{Stderr: "You have a checksum error in your migration directory.\nchecksum mismatch"},
+		errors.New("drift check requires migration.repo.name or an atlas:// directory URL to be set"),
+		&atlasexec.MigrateDriftError{Stderr: "Error: something went wrong"},
+	} {
+		run(err)
+		requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+		require.Equal(t, []string{"Warning CheckFailed " + err.Error()}, h.events())
+	}
 	// A run that ran out of time is transient too.
 	run(context.DeadlineExceeded)
 	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
 	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
 	require.Contains(t, driftCond(t, res, "Ready").Message, "the drift check timed out")
+}
+
+// TestDriftCheck_Timeout covers a run that hangs until the timeout kills it:
+// the CLI then fails with the signal, not the context error.
+func TestDriftCheck_Timeout(t *testing.T) {
+	var (
+		check = driftCheckObj()
+		mock  = &mockAtlasExec{}
+		res   = &dbv1alpha1.AtlasDriftCheck{ObjectMeta: check.ObjectMeta}
+	)
+	check.Spec.Timeout = metav1.Duration{Duration: time.Millisecond}
+	mock.drift.hang = true
+	mock.drift.err = errors.New("signal: killed")
+	h, reconcile := newDriftRunner(check, mock, driftTarget(), driftTokenSecret())
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: transientDriftRetry}, result)
+	})
+	h.get(t, res)
+	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, "the drift check timed out: signal: killed", driftCond(t, res, "Ready").Message)
 }
 
 // TestDriftCheck_StepFailure covers a step that fails with a bare error rather
@@ -556,127 +596,6 @@ func TestDriftCheck_ExcludeDefaultsFromTargetPolicy(t *testing.T) {
 			require.Equal(t, defaultEnvName, mock.drift.params.Env)
 			// The check never skips the lock: it must not race a deployment.
 			require.False(t, mock.drift.params.SkipLock)
-		})
-	}
-}
-
-func TestClassifyDriftError(t *testing.T) {
-	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancel()
-	for _, tt := range []struct {
-		name      string
-		ctx       context.Context
-		err       error
-		locked    bool
-		reason    string
-		permanent bool
-		message   string
-	}{
-		{
-			name:   "contended",
-			err:    &atlasexec.MigrateDriftError{Result: []*atlasexec.MigrateDrift{{Error: "acquiring database lock: timeout exceeded"}}},
-			locked: true,
-		},
-		{
-			name:      "no migration history",
-			err:       &atlasexec.Error{Stderr: "Error: no migration history found on the connected database"},
-			reason:    dbv1alpha1.ReasonNoMigrationHistory,
-			permanent: true,
-			message:   "Error: no migration history found on the connected database",
-		},
-		{
-			name:    "atlas pro gate",
-			err:     &atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users",
-		},
-		{
-			name:      "login required",
-			err:       fmt.Errorf("running drift: %w", atlasexec.ErrRequireLogin),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   "running drift: command requires 'atlas login'",
-		},
-		{
-			name:    "unknown command",
-			err:     errors.New(`unknown command "drift" for "atlas migrate"`),
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: `unknown command "drift" for "atlas migrate"`,
-		},
-		{
-			name:    "partially applied",
-			err:     errors.New(`version "2" was partially applied`),
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: `version "2" was partially applied`,
-		},
-		{
-			name:    "checksum mismatch",
-			err:     &atlasexec.Error{Stderr: "You have a checksum error in your migration directory.\nchecksum mismatch"},
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "You have a checksum error in your migration directory.\nchecksum mismatch",
-		},
-		{
-			name:    "no registry repository",
-			err:     errors.New("drift check requires migration.repo.name or an atlas:// directory URL to be set"),
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "drift check requires migration.repo.name or an atlas:// directory URL to be set",
-		},
-		{
-			name:      "bad expected state",
-			err:       errors.New(`parsing expected state HCL: missing ")"`),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   `parsing expected state HCL: missing ")"`,
-		},
-		{
-			name:      "version state missing from the registry",
-			err:       errors.New(`no state found for version "20250901000000"`),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   `no state found for version "20250901000000"`,
-		},
-		{
-			name:      "tagged directory without per-version state",
-			err:       errors.New(`version "20250901000000" has no hash to resolve its state`),
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   `version "20250901000000" has no hash to resolve its state`,
-		},
-		{
-			name:    "timed out",
-			ctx:     expired,
-			err:     errors.New("signal: killed"),
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "the drift check timed out: signal: killed",
-		},
-		{
-			name:    "unclassified",
-			err:     errors.New("dial tcp: connection refused"),
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "dial tcp: connection refused",
-		},
-		{
-			name:    "reported on stderr only",
-			err:     &atlasexec.MigrateDriftError{Stderr: "Error: something went wrong"},
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: "Error: something went wrong",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := tt.ctx
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			got := classifyDriftError(ctx, tt.err)
-			if tt.locked {
-				require.ErrorIs(t, got, errLocked)
-				return
-			}
-			e, ok := errors.AsType[*checkError](got)
-			require.True(t, ok, "expected a checkError, got %T", got)
-			require.Equal(t, tt.reason, e.reason)
-			require.Equal(t, tt.permanent, e.permanent)
-			require.Equal(t, tt.message, e.message)
 		})
 	}
 }

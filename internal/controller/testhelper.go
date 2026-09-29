@@ -55,6 +55,9 @@ type (
 		res    []*T
 		err    error
 		params *P
+		// hang blocks the call until its context is done, like a command
+		// killed on timeout.
+		hang bool
 	}
 	mockAtlasExec struct {
 		// stderr is written to the writer set by SetStderr when a command runs,
@@ -88,8 +91,11 @@ func (c *mockCmd[T]) val() (T, error) {
 }
 
 // call records the params of the call and returns the mocked results.
-func (c *mockSliceCmd[P, T]) call(params *P) ([]*T, error) {
+func (c *mockSliceCmd[P, T]) call(ctx context.Context, params *P) ([]*T, error) {
 	c.params = params
+	if c.hang {
+		<-ctx.Done()
+	}
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -116,9 +122,9 @@ func (m *mockAtlasExec) WhoAmI(context.Context, *atlasexec.WhoAmIParams) (*atlas
 }
 
 // SchemaAppleSlice implements AtlasExec.
-func (m *mockAtlasExec) SchemaApplySlice(_ context.Context, params *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error) {
+func (m *mockAtlasExec) SchemaApplySlice(ctx context.Context, params *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error) {
 	m.writeStderr()
-	return m.schemaApply.call(params)
+	return m.schemaApply.call(ctx, params)
 }
 
 // writeStderr streams the mocked stderr output, if any, to the writer
@@ -136,9 +142,9 @@ func (m *mockAtlasExec) SchemaInspect(context.Context, *atlasexec.SchemaInspectP
 }
 
 // MigrateApplySlice implements AtlasExec.
-func (m *mockAtlasExec) MigrateApplySlice(_ context.Context, params *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error) {
+func (m *mockAtlasExec) MigrateApplySlice(ctx context.Context, params *atlasexec.MigrateApplyParams) ([]*atlasexec.MigrateApply, error) {
 	m.writeStderr()
-	return m.apply.call(params)
+	return m.apply.call(ctx, params)
 }
 
 // MigrateDown implements AtlasExec.
@@ -147,9 +153,9 @@ func (m *mockAtlasExec) MigrateDown(context.Context, *atlasexec.MigrateDownParam
 }
 
 // MigrateDriftSlice implements AtlasExec.
-func (m *mockAtlasExec) MigrateDriftSlice(_ context.Context, params *atlasexec.MigrateDriftParams) ([]*atlasexec.MigrateDrift, error) {
+func (m *mockAtlasExec) MigrateDriftSlice(ctx context.Context, params *atlasexec.MigrateDriftParams) ([]*atlasexec.MigrateDrift, error) {
 	m.writeStderr()
-	return m.drift.call(params)
+	return m.drift.call(ctx, params)
 }
 
 // MigrateStatus implements AtlasExec.

@@ -321,7 +321,7 @@ func (s *driftRun) check(ctx context.Context) error {
 		s.log.Info("atlas wrote to stderr", "stderr", msg)
 	}
 	if err != nil {
-		return classifyDriftError(ctx, err)
+		return s.classifyError(ctx, err)
 	}
 	if len(reports) != 1 {
 		return &checkError{
@@ -356,10 +356,20 @@ var permanentDriftErrors = []string{
 	"parsing expected state",
 }
 
-// classifyDriftError classifies a failed check. Unknown errors are treated as
+// classifyError classifies a failed check. Unknown errors are treated as
 // temporary so the check keeps retrying.
-func classifyDriftError(ctx context.Context, err error) error {
-	msg := cmp.Or(strings.TrimSpace(driftErrMessage(err)), "the drift check could not be completed")
+func (s *driftRun) classifyError(ctx context.Context, err error) error {
+	msg := err.Error()
+	if e, ok := errors.AsType[*atlasexec.MigrateDriftError](err); ok {
+		msg = cmp.Or(e.Stderr, msg)
+		for _, r := range e.Result {
+			if r.Error != "" {
+				msg = r.Error
+				break
+			}
+		}
+	}
+	msg = cmp.Or(strings.TrimSpace(msg), "the drift check could not be completed")
 	switch {
 	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
 		return &checkError{
@@ -379,22 +389,6 @@ func classifyDriftError(ctx context.Context, err error) error {
 		}
 	}
 	return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: msg}
-}
-
-// driftErrMessage returns the error message to report. Some early CLI failures
-// are available only on stderr.
-func driftErrMessage(err error) string {
-	if e, ok := errors.AsType[*atlasexec.MigrateDriftError](err); ok {
-		for _, r := range e.Result {
-			if r.Error != "" {
-				return r.Error
-			}
-		}
-		if e.Stderr != "" {
-			return e.Stderr
-		}
-	}
-	return err.Error()
 }
 
 // recordTransitions emits events when drift or a check failure changes.
