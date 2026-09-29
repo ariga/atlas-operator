@@ -170,7 +170,7 @@ Normal DriftResolved count=1: no drift detected at version 20250901000000
 -- spec-missing.json --
 {"interval":"5m","onDrift":"Report","targetRef":{"name":"no-such-migration"},"timeout":"5m"}
 -- fast-rejected.txt --
-The AtlasDriftCheck "fast" is invalid: spec.interval: Invalid value: "string": interval must be at least 1m
+The AtlasDriftCheck "fast" is invalid: spec.interval: Invalid value: "30s": interval must be at least 1m
 -- migration.yaml.tmpl --
 apiVersion: db.atlasgo.io/v1alpha1
 kind: AtlasMigration
