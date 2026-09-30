@@ -1018,9 +1018,9 @@ func TestAtlasSchemaReconciler_DevDBMetadata(t *testing.T) {
 		Spec: dbv1alpha1.AtlasSchemaSpec{
 			TargetSpec: dbv1alpha1.TargetSpec{URL: "postgres://localhost/target"},
 			Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE example (id int);"},
-			ProjectConfigSpec: dbv1alpha1.ProjectConfigSpec{DevDB: &dbv1alpha1.DevDB{Metadata: &dbv1alpha1.DevDBMetadata{
+			DevDB: &dbv1alpha1.DevDB{Metadata: &dbv1alpha1.DevDBMetadata{
 				Labels: map[string]string{"team": "platform"}, Annotations: map[string]string{"example.com/monitor": "enabled"},
-			}}},
+			}},
 		},
 		Status: dbv1alpha1.AtlasSchemaStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
 	}

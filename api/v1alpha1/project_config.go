@@ -38,11 +38,6 @@ type (
 		EnvName string `json:"envName,omitempty"`
 		// Vars defines the input variables for the project configuration.
 		Vars []Variable `json:"vars,omitempty"`
-		// DevDB configures the dev database pod used for normalization and calculations.
-		// If spec is omitted, a default pod spec is created based on the target database driver.
-		// When a custom pod spec is provided, devURL must be defined as well.
-		// +optional
-		DevDB *DevDB `json:"devDB,omitempty"`
 	}
 	// Variables defines the reference of secret/configmap to the input variables for the project configuration.
 	Variable struct {
