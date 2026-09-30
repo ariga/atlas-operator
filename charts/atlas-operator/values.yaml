@@ -21,6 +21,13 @@ rbac:
   # get/create/update on secrets in the namespaces it manages. Grant that with
   # your own (namespaced) Role when disabling this.
   clusterWideSecretAccess: true
+  # AtlasSecurityReport holds the extension inventory and vulnerability list of
+  # a scan. It is deliberately kept out of the built-in view and edit roles,
+  # which the scan itself joins, and exposed through a dedicated viewer role.
+  securityReports:
+    aggregateToAdmin: true
+    aggregateToEdit: false
+    aggregateToView: false
 
 crds:
   # CustomResourceDefinitions are cluster-scoped and shared by every release.
