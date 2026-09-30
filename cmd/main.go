@@ -116,12 +116,12 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&labelSelector, "label-selector", "",
 		"A label selector (e.g. \"app=foo,env in (prod,staging)\") that restricts which "+
-			"AtlasSchema, AtlasMigration and AtlasDriftCheck resources the operator manages. "+
+			"AtlasSchema, AtlasMigration, AtlasDriftCheck and AtlasSecurityScan resources the operator manages. "+
 			"When empty, all resources are managed. Use this to run multiple operator instances "+
 			"in the same namespace, each handling resources matching different labels.")
 	flag.StringVar(&watchNamespaces, "namespace", "",
 		"A comma-separated list of namespaces that restricts where the operator watches "+
-			"for AtlasSchema, AtlasMigration and AtlasDriftCheck resources. When empty, the "+
+			"for AtlasSchema, AtlasMigration, AtlasDriftCheck and AtlasSecurityScan resources. When empty, the "+
 			"operator watches all namespaces (cluster scope).")
 	opts := zap.Options{
 		Development: true,
@@ -260,6 +260,16 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AtlasDriftCheck")
 		os.Exit(1)
 	}
+	// Setup controller for AtlasSecurityScan
+	securityScanController := controller.NewAtlasSecurityScanReconciler(mgr)
+	securityScanController.SetAtlasClient(controller.NewAtlasExec)
+	if allowCustomConfig {
+		securityScanController.AllowCustomConfig()
+	}
+	if err = securityScanController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AtlasSecurityScan")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -285,8 +295,8 @@ func main() {
 // Otherwise the cache (and therefore the operator) is restricted to the given
 // namespaces, which also limits the referenced ConfigMaps and Secrets it reads.
 //
-// When labelSelector is set, only AtlasSchema, AtlasMigration and
-// AtlasDriftCheck resources matching the selector are watched, cached, and
+// When labelSelector is set, only AtlasSchema, AtlasMigration, AtlasDriftCheck
+// and AtlasSecurityScan resources matching the selector are watched, cached, and
 // therefore reconciled. This
 // makes it possible to run multiple operator instances side by side, each
 // owning a distinct set of resources. Referenced ConfigMaps and Secrets are
@@ -309,9 +319,11 @@ func cacheOptions(labelSelector string, namespaces []string) (cache.Options, err
 		// from DefaultNamespaces, so the label filter and namespace scope are
 		// combined for the managed resources.
 		opts.ByObject = map[client.Object]cache.ByObject{
-			&dbv1alpha1.AtlasSchema{}:     {Label: selector},
-			&dbv1alpha1.AtlasMigration{}:  {Label: selector},
-			&dbv1alpha1.AtlasDriftCheck{}: {Label: selector},
+			&dbv1alpha1.AtlasSchema{}:         {Label: selector},
+			&dbv1alpha1.AtlasMigration{}:      {Label: selector},
+			&dbv1alpha1.AtlasDriftCheck{}:     {Label: selector},
+			&dbv1alpha1.AtlasSecurityScan{}:   {Label: selector},
+			&dbv1alpha1.AtlasSecurityReport{}: {Label: selector},
 		}
 	}
 	return opts, nil
