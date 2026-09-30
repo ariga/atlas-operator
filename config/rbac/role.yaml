@@ -78,6 +78,7 @@ rules:
   - atlasdriftchecks/finalizers
   - atlasmigrations/finalizers
   - atlasschemas/finalizers
+  - atlassecurityscans/finalizers
   verbs:
   - update
 - apiGroups:
@@ -86,7 +87,29 @@ rules:
   - atlasdriftchecks/status
   - atlasmigrations/status
   - atlasschemas/status
+  - atlassecurityscans/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlassecurityreports
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - db.atlasgo.io
+  resources:
+  - atlassecurityscans
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch

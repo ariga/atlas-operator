@@ -76,6 +76,8 @@ type (
 		schemaPlanList mockCmd[[]atlasexec.SchemaPlanFile]
 		schemaPlan     mockCmd[atlasexec.SchemaPlan]
 		schemaInspect  mockCmd[string]
+		securityScan   mockCmd[atlasexec.SecurityScan]
+		securityScans  []*atlasexec.SecurityScanParams
 	}
 )
 
@@ -100,6 +102,12 @@ func (c *mockSliceCmd[P, T]) call(ctx context.Context, params *P) ([]*T, error) 
 		return nil, c.err
 	}
 	return c.res, nil
+}
+
+// SecurityScan implements AtlasExec.
+func (m *mockAtlasExec) SecurityScan(_ context.Context, params *atlasexec.SecurityScanParams) (*atlasexec.SecurityScan, error) {
+	m.securityScans = append(m.securityScans, params)
+	return m.securityScan.res, m.securityScan.err
 }
 
 // SchemaPlan implements AtlasExec.
@@ -208,6 +216,11 @@ func request(obj client.Object) reconcile.Request {
 
 // GetClient implements Manager.
 func (m *mockManager) GetClient() client.Client {
+	return m.client
+}
+
+// GetAPIReader implements Manager. The fake client is uncached already.
+func (m *mockManager) GetAPIReader() client.Reader {
 	return m.client
 }
 
