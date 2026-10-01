@@ -45,14 +45,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Fetching the Atlas CLI is a plain download, so this stage also runs on
 # BUILDPLATFORM. The target architecture is passed to the install script
 # explicitly, since it would otherwise be detected from the (emulated) host.
-FROM --platform=${BUILDPLATFORM} alpine:3.23 as atlas
+FROM --platform=${BUILDPLATFORM} alpine:3.24 as atlas
 RUN apk add --no-cache curl
 ARG TARGETARCH
 ARG ATLAS_VERSION=extended-latest
 ENV ATLAS_VERSION=${ATLAS_VERSION}
 RUN curl -sSf https://atlasgo.sh | sh -s -- --platform "linux-${TARGETARCH}" -y
 
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0
 WORKDIR /
 COPY --from=builder /workspace/manager .
