@@ -16,7 +16,7 @@
 # Build the manager binary.
 # Pinned to BUILDPLATFORM so the compiler always runs natively and
 # cross-compiles to TARGETARCH, instead of running under QEMU emulation.
-FROM --platform=${BUILDPLATFORM} golang:1.26.6-alpine3.24 AS builder
+FROM --platform=${BUILDPLATFORM} golang:1.27.1-alpine3.24 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG OPERATOR_VERSION
