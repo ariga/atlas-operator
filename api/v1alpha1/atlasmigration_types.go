@@ -100,6 +100,10 @@ type (
 		// When a custom pod spec is provided, devURL must be defined as well.
 		// +optional
 		DevDB *DevDB `json:"devDB,omitempty"`
+		// PrewarmDevDB controls whether the automatically managed dev DB should be kept warm after reconciliation.
+		// If not specified, the operator-wide default is used.
+		// +optional
+		PrewarmDevDB *bool `json:"prewarmDevDB,omitempty"`
 		// RevisionsSchema defines the schema that revisions table resides in
 		RevisionsSchema string `json:"revisionsSchema,omitempty"`
 		// BaselineVersion defines the baseline version of the database on the first migration.
@@ -213,6 +217,11 @@ func (m *AtlasMigration) NamespacedName() types.NamespacedName {
 		Name:      m.Name,
 		Namespace: m.Namespace,
 	}
+}
+
+// GetPrewarmDevDB returns the per-resource dev DB prewarm override, if set.
+func (m *AtlasMigration) GetPrewarmDevDB() *bool {
+	return m.Spec.PrewarmDevDB
 }
 
 // IsReady returns true if the ready condition is true.

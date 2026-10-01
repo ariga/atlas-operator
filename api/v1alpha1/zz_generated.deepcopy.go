@@ -209,6 +209,11 @@ func (in *AtlasMigrationSpec) DeepCopyInto(out *AtlasMigrationSpec) {
 		*out = new(DevDB)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PrewarmDevDB != nil {
+		in, out := &in.PrewarmDevDB, &out.PrewarmDevDB
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ProtectedFlows != nil {
 		in, out := &in.ProtectedFlows, &out.ProtectedFlows
 		*out = new(ProtectFlows)
@@ -324,6 +329,11 @@ func (in *AtlasSchemaSpec) DeepCopyInto(out *AtlasSchemaSpec) {
 		in, out := &in.DevDB, &out.DevDB
 		*out = new(DevDB)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.PrewarmDevDB != nil {
+		in, out := &in.PrewarmDevDB, &out.PrewarmDevDB
+		*out = new(bool)
+		**out = **in
 	}
 	if in.Exclude != nil {
 		in, out := &in.Exclude, &out.Exclude

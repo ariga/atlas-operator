@@ -100,6 +100,10 @@ type (
 		// When a custom pod spec is provided, devURL must be defined as well.
 		// +optional
 		DevDB *DevDB `json:"devDB,omitempty"`
+		// PrewarmDevDB controls whether the automatically managed dev DB should be kept warm after reconciliation.
+		// If not specified, the operator-wide default is used.
+		// +optional
+		PrewarmDevDB *bool `json:"prewarmDevDB,omitempty"`
 		// Exclude a list of glob patterns used to filter existing resources being taken into account.
 		Exclude []string `json:"exclude,omitempty"`
 		// TxMode defines the transaction mode to use when applying the schema.
@@ -206,6 +210,11 @@ func (s *AtlasSchema) NamespacedName() types.NamespacedName {
 		Name:      s.Name,
 		Namespace: s.Namespace,
 	}
+}
+
+// GetPrewarmDevDB returns the per-resource dev DB prewarm override, if set.
+func (s *AtlasSchema) GetPrewarmDevDB() *bool {
+	return s.Spec.PrewarmDevDB
 }
 
 // IsReady returns true if the ready condition is true.
