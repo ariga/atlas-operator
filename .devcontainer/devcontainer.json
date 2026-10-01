@@ -5,27 +5,16 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/base:2-debian",
 	"features": {
-		"ghcr.io/devcontainers/features/copilot-cli:1": {
-			"version": "latest"
-		},
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+		"ghcr.io/devcontainers/features/go:1": {},
+		"ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {},
+		"./features/skaffold": {},
+		"ghcr.io/devcontainers/features/docker-in-docker:4": {
 			"dockerDashComposeVersion": "latest",
 			"installDockerBuildx": true,
 			"moby": false,
 			"version": "latest"
 		},
-		"ghcr.io/devcontainers/features/github-cli:1": {
-			"installDirectlyFromGitHubRelease": true,
-			"version": "latest"
-		},
-		"ghcr.io/devcontainers/features/go:1": {
-			"version": "1.26.6",
-			"golangciLintVersion": "2.10.1"
-		},
-		"ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-			"minikube": "none"
-		},
-		"./features/skaffold": {}
+		"ghcr.io/devcontainers-extra/features/kind:1": {}
 	},
 	"customizations": {
 		"vscode": {
