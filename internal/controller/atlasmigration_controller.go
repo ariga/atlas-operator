@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -166,9 +167,7 @@ func readDirState(ctx context.Context, c client.Reader, obj client.Object) (migr
 
 func (r *AtlasMigrationReconciler) storeDirState(ctx context.Context, obj client.Object, dir migrate.Dir) error {
 	var labels = make(map[string]string, len(obj.GetLabels())+1)
-	for k, v := range obj.GetLabels() {
-		labels[k] = v
-	}
+	maps.Copy(labels, obj.GetLabels())
 	labels["name"] = obj.GetName()
 	secret, err := newSecretObject(obj, dir, labels)
 	if err != nil {

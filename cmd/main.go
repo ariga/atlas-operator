@@ -333,7 +333,7 @@ func cacheOptions(labelSelector string, namespaces []string) (cache.Options, err
 // trimming whitespace and dropping empty entries.
 func parseNamespaces(s string) []string {
 	var out []string
-	for _, ns := range strings.Split(s, ",") {
+	for ns := range strings.SplitSeq(s, ",") {
 		if ns = strings.TrimSpace(ns); ns != "" {
 			out = append(out, ns)
 		}

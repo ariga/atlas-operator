@@ -257,8 +257,8 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 			PeriodSeconds:    10,
 		},
 		SecurityContext: &corev1.SecurityContext{
-			RunAsNonRoot:             ptr.To(true),
-			AllowPrivilegeEscalation: ptr.To(false),
+			RunAsNonRoot:             new(true),
+			AllowPrivilegeEscalation: new(false),
 			SeccompProfile: &corev1.SeccompProfile{
 				Type: corev1.SeccompProfileTypeRuntimeDefault,
 			},
@@ -299,7 +299,7 @@ func AutomaticDevDBSpec(drv dbv1alpha1.Driver, schemaBound bool) (*corev1.PodSpe
 		// Containers
 		c.Image = "yugabytedb/yugabyte:latest"
 		c.Env = []corev1.EnvVar{{Name: "HOME", Value: "/tmp"}}
-		c.SecurityContext.RunAsNonRoot = ptr.To(false)
+		c.SecurityContext.RunAsNonRoot = new(false)
 		c.SecurityContext.RunAsUser = ptr.To[int64](0)
 		c.Command = []string{"bin/yugabyted", "start", "--background=false"}
 		c.Ports = []corev1.ContainerPort{
