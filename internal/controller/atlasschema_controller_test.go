@@ -867,7 +867,7 @@ func (m *mockClient) Delete(ctx context.Context, obj client.Object, opts ...clie
 
 // Hardcoded list of pods to simulate a running dev db.
 func (m *mockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	if reflect.TypeOf(list) != reflect.TypeOf(&corev1.PodList{}) {
+	if reflect.TypeOf(list) != reflect.TypeFor[*corev1.PodList]() {
 		return fmt.Errorf("unsupported list type: %T", list)
 	}
 	podList := list.(*corev1.PodList)
