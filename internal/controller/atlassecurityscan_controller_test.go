@@ -1087,6 +1087,40 @@ func TestSecurityScan_TriggerRecreated(t *testing.T) {
 		res.Status.Triggers)
 }
 
+// A trigger applied before the scan names it is covered by that scan, even when
+// the cache has not yet seen the apply.
+func TestSecurityScan_StaleTriggerCache(t *testing.T) {
+	schema := &dbv1alpha1.AtlasSchema{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: "test", UID: types.UID("uid-1")},
+		Status:     dbv1alpha1.AtlasSchemaStatus{ObservedHash: "h1"},
+	}
+	obj := scanObject()
+	obj.Spec.Schedule = ""
+	st := newScanTest(t, obj, append(scanSecrets(), schema)...)
+	st.mock.securityScan.res = scanTarget()
+	cached := st.r.Client
+	st.r.Client = interceptor.NewClient(st.h.client.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+			if err := c.Get(ctx, key, o, opts...); err != nil {
+				return err
+			}
+			if s, ok := o.(*dbv1alpha1.AtlasSchema); ok {
+				s.Status = dbv1alpha1.AtlasSchemaStatus{}
+			}
+			return nil
+		},
+	})
+	st.reconcile()
+	_, res := st.reconcile()
+	require.Equal(t, dbv1alpha1.TriggerSpec, res.Status.LastScan.Trigger)
+	require.Equal(t, []dbv1alpha1.ObservedTrigger{{Kind: "AtlasSchema", Name: "myapp", UID: "uid-1", Revision: "h1"}},
+		res.Status.Triggers)
+
+	st.r.Client = cached
+	st.reconcile()
+	require.Len(t, st.mock.securityScans, 1, "the cache catching up is not an apply")
+}
+
 // A crash between the two status writes must not spend the one attempt a stalled
 // resource earns for its inputs.
 func TestSecurityScan_InterruptedStalledAttempt(t *testing.T) {
