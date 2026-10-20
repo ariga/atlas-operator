@@ -1087,8 +1087,8 @@ func TestSecurityScan_TriggerRecreated(t *testing.T) {
 		res.Status.Triggers)
 }
 
-// A trigger applied before the scan names it is covered by that scan, even when
-// the cache has not yet seen the apply.
+// Simulate a stale cache that hides the schema's observed revision.
+// Once the cache catches up, the revision must not trigger a second scan.
 func TestSecurityScan_StaleTriggerCache(t *testing.T) {
 	schema := &dbv1alpha1.AtlasSchema{
 		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: "test", UID: types.UID("uid-1")},
