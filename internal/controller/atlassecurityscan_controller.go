@@ -492,6 +492,11 @@ func (r *AtlasSecurityScanReconciler) snapshot(ctx context.Context, res *dbv1alp
 		case err != nil:
 			return nil, err
 		}
+		// The cache can lag an apply that already finished, and a scan that records
+		// the stale revision runs again once the cache catches up.
+		if err := r.reader.Get(ctx, key, obj); err != nil {
+			return nil, err
+		}
 		snap.triggers = append(snap.triggers, dbv1alpha1.ObservedTrigger{
 			Kind: t.Kind, Name: t.Name, UID: obj.GetUID(), Revision: rev(),
 		})
