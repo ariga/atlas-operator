@@ -353,9 +353,9 @@ func TestDriftCheck_Timeout(t *testing.T) {
 	require.Equal(t, "the drift check timed out: signal: killed", driftCond(t, res, "Ready").Message)
 }
 
-// TestDriftCheck_StepFailure covers a step that fails with a bare error rather
-// than a *checkError: it is reported as a transient failure, so an unexpected
-// failure keeps retrying instead of parking the check on a verdict.
+// TestDriftCheck_StepFailure covers a step that fails with an error not marked
+// permanent: it is reported as a transient failure, so an unexpected failure
+// keeps retrying instead of parking the check on a verdict.
 func TestDriftCheck_StepFailure(t *testing.T) {
 	var (
 		check = driftCheckObj()

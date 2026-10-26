@@ -117,13 +117,7 @@ type (
 		waivers     []string
 		hash        string
 	}
-	// permanentError is an input no scan can fix. The resource stalls on it.
-	permanentError struct {
-		reason, message string
-	}
 )
-
-func (e *permanentError) Error() string { return e.message }
 
 func NewAtlasSecurityScanReconciler(mgr Manager) *AtlasSecurityScanReconciler {
 	return &AtlasSecurityScanReconciler{
@@ -176,10 +170,10 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	sched, err := r.validate(res, now)
 	if perr, ok := errors.AsType[*permanentError](err); ok {
-		closeOpenAttempt(res, now, perr.message)
-		res.SetStalled(perr.reason, perr.message)
+		closeOpenAttempt(res, now, perr.Error())
+		res.SetStalled(perr.reason, perr.Error())
 		res.Status.NextScheduleTime = nil
-		r.recorder.Event(res, corev1.EventTypeWarning, perr.reason, perr.message)
+		r.recorder.Event(res, corev1.EventTypeWarning, perr.reason, perr.Error())
 		return ctrl.Result{}, nil
 	}
 	snap, err := r.snapshot(ctx, res, sched, now)
@@ -219,7 +213,7 @@ func (r *AtlasSecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	log.Info("scanning the database for security issues", "trigger", trigger, "by", by)
 	data, err := r.extractData(ctx, res)
 	if perr, ok := errors.AsType[*permanentError](err); ok {
-		return r.stall(res, sched, snap, perr.reason, perr.message), nil
+		return r.stall(res, sched, snap, perr.reason, perr.Error()), nil
 	}
 	if err != nil {
 		return r.fail(ctx, res, sched, snap, dbv1alpha1.ReasonReadingInputs, err), nil
@@ -415,35 +409,35 @@ func (r *AtlasSecurityScanReconciler) validate(res *dbv1alpha1.AtlasSecurityScan
 	s := res.Spec
 	tz := cmp.Or(s.TimeZone, "UTC")
 	if _, err := time.LoadLocation(tz); err != nil {
-		return nil, &permanentError{dbv1alpha1.ReasonInvalidTimeZone, "unknown time zone"}
+		return nil, permanent(dbv1alpha1.ReasonInvalidTimeZone, errors.New("unknown time zone"))
 	}
 	var sched cron.Schedule
 	if s.Schedule != "" {
 		switch {
 		case strings.HasPrefix(s.Schedule, "TZ="), strings.HasPrefix(s.Schedule, "CRON_TZ="):
-			return nil, &permanentError{dbv1alpha1.ReasonInvalidSchedule, "use spec.timeZone instead of a TZ= prefix"}
+			return nil, permanent(dbv1alpha1.ReasonInvalidSchedule, errors.New("use spec.timeZone instead of a TZ= prefix"))
 		case strings.HasPrefix(s.Schedule, "@every"):
-			return nil, &permanentError{dbv1alpha1.ReasonInvalidSchedule, "@every is interval-based and drifts"}
+			return nil, permanent(dbv1alpha1.ReasonInvalidSchedule, errors.New("@every is interval-based and drifts"))
 		}
 		// The zone goes through the parser's own prefix, which spec.schedule may not carry.
 		parsed, err := cron.ParseStandard("CRON_TZ=" + tz + " " + s.Schedule)
 		if err != nil {
-			return nil, &permanentError{dbv1alpha1.ReasonInvalidSchedule, "schedule does not parse"}
+			return nil, permanent(dbv1alpha1.ReasonInvalidSchedule, errors.New("schedule does not parse"))
 		}
 		sched = parsed
 		if sched.Next(now).IsZero() {
-			return nil, &permanentError{dbv1alpha1.ReasonInvalidSchedule, "schedule does not fire"}
+			return nil, permanent(dbv1alpha1.ReasonInvalidSchedule, errors.New("schedule does not fire"))
 		}
 	}
 	hasTarget := s.URL != "" || s.URLFrom.SecretKeyRef != nil || s.Credentials.Scheme != ""
 	hasConfig := s.Config != "" || s.ConfigFrom.SecretKeyRef != nil
 	switch {
 	case !hasTarget && !hasConfig:
-		return nil, &permanentError{dbv1alpha1.ReasonInvalidTarget, "no target database or project configuration"}
+		return nil, permanent(dbv1alpha1.ReasonInvalidTarget, errors.New("no target database or project configuration"))
 	case hasConfig && !r.allowCustomConfig:
-		return nil, &permanentError{dbv1alpha1.ReasonInvalidTarget, "install the operator with allowCustomConfig=true to use a custom atlas.hcl"}
+		return nil, permanent(dbv1alpha1.ReasonInvalidTarget, errors.New("install the operator with allowCustomConfig=true to use a custom atlas.hcl"))
 	case hasConfig && s.EnvName == "":
-		return nil, &permanentError{dbv1alpha1.ReasonInvalidTarget, "envName must be set when using a custom atlas.hcl"}
+		return nil, permanent(dbv1alpha1.ReasonInvalidTarget, errors.New("envName must be set when using a custom atlas.hcl"))
 	}
 	return sched, nil
 }
@@ -803,10 +797,8 @@ func checkPolicy(cfg *hclwrite.File, envName string) error {
 			// never sent to the Security Graph: the scan then reports nothing and
 			// still succeeds, which no failure path would catch.
 			if b.Body().GetAttribute("exclude") != nil {
-				return &permanentError{
-					dbv1alpha1.ReasonInvalidTarget,
-					"exclude in the custom atlas.hcl would hide extensions from the scan",
-				}
+				return permanent(dbv1alpha1.ReasonInvalidTarget,
+					errors.New("exclude in the custom atlas.hcl would hide extensions from the scan"))
 			}
 			for _, n := range b.Body().Blocks() {
 				if n.Type() != "security" {
@@ -827,10 +819,8 @@ func checkPolicy(cfg *hclwrite.File, envName string) error {
 func checkPolicyBlock(b *hclwrite.Block, path string) error {
 	for _, name := range policyAttrs[path] {
 		if b.Body().GetAttribute(name) != nil {
-			return &permanentError{
-				dbv1alpha1.ReasonInvalidTarget,
-				fmt.Sprintf("%s.%s is set by spec.policy and must not appear in the custom atlas.hcl", path, name),
-			}
+			return permanent(dbv1alpha1.ReasonInvalidTarget,
+				fmt.Errorf("%s.%s is set by spec.policy and must not appear in the custom atlas.hcl", path, name))
 		}
 	}
 	for _, n := range b.Body().Blocks() {
