@@ -213,6 +213,9 @@ func (s *driftRun) run(ctx context.Context) error {
 	if err := s.login(ctx); err != nil {
 		return err
 	}
+	if err := s.whoAmI(ctx); err != nil {
+		return err
+	}
 	return s.check(ctx)
 }
 
@@ -302,6 +305,20 @@ func (s *driftRun) login(ctx context.Context) error {
 	return s.cli.Login(ctx, &atlasexec.LoginParams{Token: s.data.Cloud.Token, GrantOnly: true})
 }
 
+// whoAmI checks that the CLI is logged in to Atlas Cloud, through the target's
+// token or the operator's ATLAS_TOKEN.
+func (s *driftRun) whoAmI(ctx context.Context) error {
+	_, err := s.cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: s.data.Vars})
+	if errors.Is(err, atlasexec.ErrRequireLogin) {
+		return &checkError{
+			reason:    dbv1alpha1.ReasonCheckFailed,
+			permanent: true,
+			message:   fmt.Sprintf("drift checks require Atlas Cloud: set spec.cloud.tokenFrom on AtlasMigration/%s", s.target.Name),
+		}
+	}
+	return err
+}
+
 // check runs `atlas migrate drift` and records the result.
 func (s *driftRun) check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, cmp.Or(s.res.Spec.Timeout.Duration, defaultDriftTimeout))
@@ -349,13 +366,6 @@ func (s *driftRun) exclude() []string {
 	return nil
 }
 
-// permanentDriftErrors contains errors that will not change by retrying.
-var permanentDriftErrors = []string{
-	"no state found for version",
-	"has no hash to resolve",
-	"parsing expected state",
-}
-
 // classifyError classifies a failed check. Unknown errors are treated as
 // temporary so the check keeps retrying.
 func (s *driftRun) classifyError(ctx context.Context, err error) error {
@@ -383,7 +393,13 @@ func (s *driftRun) classifyError(ctx context.Context, err error) error {
 	case strings.Contains(msg, "no migration history found"):
 		return &checkError{reason: dbv1alpha1.ReasonNoMigrationHistory, message: msg, permanent: true}
 	}
-	for _, p := range permanentDriftErrors {
+	// These errors will not change by retrying.
+	for _, p := range []string{
+		"no state found for version",
+		"has no hash to resolve",
+		"parsing expected state",
+		"is available only to Atlas Pro users",
+	} {
 		if strings.Contains(msg, p) {
 			return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: msg, permanent: true}
 		}
