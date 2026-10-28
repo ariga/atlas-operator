@@ -86,12 +86,6 @@ type (
 		wd     *atlasexec.WorkingDir
 		cli    AtlasExec
 	}
-	// checkError describes how a failed check should be reported.
-	checkError struct {
-		reason    string
-		message   string
-		permanent bool
-	}
 )
 
 // errTargetBusy means the target is applying a migration.
@@ -99,9 +93,6 @@ var errTargetBusy = errors.New("migration apply in progress")
 
 // errLocked means another client holds the database lock.
 var errLocked = errors.New("acquiring database lock")
-
-// Error implements the error interface.
-func (e *checkError) Error() string { return e.message }
 
 func NewAtlasDriftCheckReconciler(mgr Manager, _ bool) *AtlasDriftCheckReconciler {
 	return &AtlasDriftCheckReconciler{
@@ -172,7 +163,7 @@ func (r *AtlasDriftCheckReconciler) reconcile(ctx context.Context, res *dbv1alph
 	defer s.close()
 	interval := cmp.Or(res.Spec.Interval.Duration, defaultDriftInterval)
 	err := s.run(ctx)
-	e, isCheckErr := errors.AsType[*checkError](err)
+	perr, isPermanent := errors.AsType[*permanentError](err)
 	switch {
 	case err == nil:
 		// The check already updated the status.
@@ -184,12 +175,9 @@ func (r *AtlasDriftCheckReconciler) reconcile(ctx context.Context, res *dbv1alph
 		// Keep the previous result and retry soon.
 		s.log.Info("database is locked by another client, skipping this check")
 		return ctrl.Result{RequeueAfter: r.jitter(busyDriftRetry)}
-	case isCheckErr && e.permanent:
-		res.SetCheckFailed(e.reason, e.message, true)
+	case isPermanent:
+		res.SetCheckFailed(perr.reason, perr.Error(), true)
 		return ctrl.Result{RequeueAfter: r.jitter(interval)}
-	case isCheckErr:
-		res.SetCheckFailed(e.reason, e.message, false)
-		return ctrl.Result{RequeueAfter: r.jitter(min(interval, transientDriftRetry))}
 	default:
 		res.SetCheckFailed(dbv1alpha1.ReasonCheckFailed, err.Error(), false)
 		return ctrl.Result{RequeueAfter: r.jitter(min(interval, transientDriftRetry))}
@@ -232,14 +220,11 @@ func (s *driftRun) loadTarget(ctx context.Context) error {
 	key := types.NamespacedName{Namespace: s.res.Namespace, Name: s.res.Spec.TargetRef.Name}
 	switch err := s.r.Get(ctx, key, target); {
 	case apierrors.IsNotFound(err):
-		return &checkError{
-			reason:    dbv1alpha1.ReasonTargetNotFound,
-			permanent: true,
-			message: fmt.Sprintf("AtlasMigration %q not found in namespace %q; note that an operator "+
-				"installed with --label-selector only sees the targets carrying those labels", key.Name, key.Namespace),
-		}
+		return permanent(dbv1alpha1.ReasonTargetNotFound, fmt.Errorf("AtlasMigration %q not found in namespace %q; "+
+			"note that an operator installed with --label-selector only sees the targets carrying those labels",
+			key.Name, key.Namespace))
 	case err != nil:
-		return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: err.Error()}
+		return err
 	}
 	// A stalled target is still checked because its database may have drifted.
 	if target.IsReconciling() {
@@ -252,22 +237,17 @@ func (s *driftRun) loadTarget(ctx context.Context) error {
 // extractData reads the migration data and checks that the expected state can be resolved.
 func (s *driftRun) extractData(ctx context.Context) error {
 	data, err := extractMigrationData(ctx, s.r, s.target, s.r.allowCustomConfig)
-	if err != nil {
-		return &checkError{
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			message:   err.Error(),
-			permanent: !isTransient(err),
-		}
+	switch {
+	case isTransient(err):
+		return err
+	case err != nil:
+		return permanent(dbv1alpha1.ReasonCheckFailed, err)
 	}
 	// A remote directory contains the expected state. A local directory needs a dev database to build it.
 	if !data.hasRemoteDir() && !data.hasConfigRepo() && !data.hasDevURL() {
-		return &checkError{
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message: fmt.Sprintf("local migration directory requires a dev database to replay: "+
-				"set spec.devURL or spec.devURLFrom on AtlasMigration/%s, or push the directory to the Atlas Registry",
-				s.target.Name),
-		}
+		return permanent(dbv1alpha1.ReasonCheckFailed, fmt.Errorf("local migration directory requires a dev database to replay: "+
+			"set spec.devURL or spec.devURLFrom on AtlasMigration/%s, or push the directory to the Atlas Registry",
+			s.target.Name))
 	}
 	s.data = data
 	return nil
@@ -310,11 +290,8 @@ func (s *driftRun) login(ctx context.Context) error {
 func (s *driftRun) whoAmI(ctx context.Context) error {
 	_, err := s.cli.WhoAmI(ctx, &atlasexec.WhoAmIParams{Vars: s.data.Vars})
 	if errors.Is(err, atlasexec.ErrRequireLogin) {
-		return &checkError{
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   fmt.Sprintf("drift checks require Atlas Cloud: set spec.cloud.tokenFrom on AtlasMigration/%s", s.target.Name),
-		}
+		return permanent(dbv1alpha1.ReasonCheckFailed, fmt.Errorf(
+			"drift checks require Atlas Cloud: set spec.cloud.tokenFrom on AtlasMigration/%s", s.target.Name))
 	}
 	return err
 }
@@ -341,11 +318,8 @@ func (s *driftRun) check(ctx context.Context) error {
 		return s.classifyError(ctx, err)
 	}
 	if len(reports) != 1 {
-		return &checkError{
-			reason:    dbv1alpha1.ReasonCheckFailed,
-			permanent: true,
-			message:   fmt.Sprintf("unexpected number of reports: %d; for_each targets are not supported", len(reports)),
-		}
+		return permanent(dbv1alpha1.ReasonCheckFailed, fmt.Errorf(
+			"unexpected number of reports: %d; for_each targets are not supported", len(reports)))
 	}
 	if rep := reports[0]; rep.Drifted {
 		s.res.SetDrifted(rep, cmp.Or(s.res.Spec.OnDrift, dbv1alpha1.DriftActionReport))
@@ -382,16 +356,13 @@ func (s *driftRun) classifyError(ctx context.Context, err error) error {
 	msg = cmp.Or(strings.TrimSpace(msg), "the drift check could not be completed")
 	switch {
 	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
-		return &checkError{
-			reason:  dbv1alpha1.ReasonCheckFailed,
-			message: fmt.Sprintf("the drift check timed out: %s", msg),
-		}
+		return fmt.Errorf("the drift check timed out: %s", msg)
 	case strings.Contains(msg, errLocked.Error()):
 		return errLocked
 	case errors.Is(err, atlasexec.ErrRequireLogin):
-		return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: msg, permanent: true}
+		return permanent(dbv1alpha1.ReasonCheckFailed, errors.New(msg))
 	case strings.Contains(msg, "no migration history found"):
-		return &checkError{reason: dbv1alpha1.ReasonNoMigrationHistory, message: msg, permanent: true}
+		return permanent(dbv1alpha1.ReasonNoMigrationHistory, errors.New(msg))
 	}
 	// These errors will not change by retrying.
 	for _, p := range []string{
@@ -401,10 +372,10 @@ func (s *driftRun) classifyError(ctx context.Context, err error) error {
 		"is available only to Atlas Pro users",
 	} {
 		if strings.Contains(msg, p) {
-			return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: msg, permanent: true}
+			return permanent(dbv1alpha1.ReasonCheckFailed, errors.New(msg))
 		}
 	}
-	return &checkError{reason: dbv1alpha1.ReasonCheckFailed, message: msg}
+	return errors.New(msg)
 }
 
 // recordTransitions emits events when drift or a check failure changes.

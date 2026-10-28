@@ -177,6 +177,21 @@ func isTransient(err error) bool {
 	return errors.As(err, &t)
 }
 
+// permanentError is an error that retrying cannot fix, such as an invalid
+// spec. Controllers stall the resource with its reason.
+type permanentError struct {
+	reason string
+	err    error
+}
+
+func (p *permanentError) Error() string { return p.err.Error() }
+func (p *permanentError) Unwrap() error { return p.err }
+
+// permanent wraps an error to indicate that retrying cannot fix it.
+func permanent(reason string, err error) error {
+	return &permanentError{reason: reason, err: err}
+}
+
 // result returns a ctrl.Result and an error. If the error is transient, the
 // task will be requeued after seconds defined by the error.
 // Permanent errors are not returned as errors because they cause
