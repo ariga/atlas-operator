@@ -270,10 +270,11 @@ func TestDriftCheck_PermanentFailures(t *testing.T) {
 	// The same failure is not reported twice.
 	run(&atlasexec.Error{Stderr: noHistory})
 	require.Empty(t, h.events())
-	// The CLI is not logged in, or the expected state cannot be resolved:
-	// retrying fixes neither.
+	// The CLI is not logged in, the org has no Atlas Pro, or the expected state
+	// cannot be resolved: retrying fixes none of these.
 	for _, err := range []error{
 		fmt.Errorf("running drift: %w", atlasexec.ErrRequireLogin),
+		&atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
 		errors.New(`parsing expected state HCL: missing ")"`),
 		errors.New(`no state found for version "20250901000000"`),
 		errors.New(`version "20250901000000" has no hash to resolve its state`),
@@ -309,11 +310,10 @@ func TestDriftCheck_TransientFailures(t *testing.T) {
 	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
 	requireCond(t, res, "Drifted", metav1.ConditionUnknown, dbv1alpha1.ReasonCheckFailed)
 	require.Equal(t, []string{"Warning CheckFailed dial tcp: connection refused"}, h.events())
-	// The Pro gate and a CLI that predates the command are transient too: a
-	// license or an operator upgrade clears them without touching the resource.
-	// So is any failure not known to be permanent.
+	// A CLI that predates the command is transient too: an operator upgrade
+	// clears it without touching the resource. So is any failure not known to
+	// be permanent.
 	for _, err := range []error{
-		&atlasexec.Error{Stderr: "Abort: command 'atlas migrate drift' is available only to Atlas Pro users"},
 		errors.New(`unknown command "drift" for "atlas migrate"`),
 		errors.New(`version "2" was partially applied`),
 		&atlasexec.Error{Stderr: "You have a checksum error in your migration directory.\nchecksum mismatch"},
@@ -397,8 +397,8 @@ func TestDriftCheck_NoCloudTokenWithStderr(t *testing.T) {
 		mock   = &mockAtlasExec{stderr: "Warning: connected to a replica"}
 		res    = &dbv1alpha1.AtlasDriftCheck{ObjectMeta: check.ObjectMeta}
 	)
-	// A local directory replayed on a dev database needs no registry, and so
-	// no token: a remote directory would require one.
+	// A local directory replayed on a dev database needs no registry, so the
+	// target carries no token: the CLI logs in with the operator's ATLAS_TOKEN.
 	target.Spec.Cloud = dbv1alpha1.CloudV0{}
 	target.Spec.DevURL = "sqlite://dev?mode=memory"
 	target.Spec.Dir = dbv1alpha1.Dir{Local: map[string]string{
@@ -418,6 +418,48 @@ func TestDriftCheck_NoCloudTokenWithStderr(t *testing.T) {
 	require.Equal(t, "local", res.Status.Mode)
 	// The stderr output is not reported as a failure.
 	require.Empty(t, h.events())
+}
+
+// TestDriftCheck_NotLoggedIn covers a CLI that is not logged in to Atlas Cloud:
+// retrying cannot fix that, so the check stalls before `migrate drift` runs.
+func TestDriftCheck_NotLoggedIn(t *testing.T) {
+	var (
+		check  = driftCheckObj()
+		target = driftTarget()
+		mock   = &mockAtlasExec{}
+		res    = &dbv1alpha1.AtlasDriftCheck{ObjectMeta: check.ObjectMeta}
+	)
+	target.Spec.Cloud = dbv1alpha1.CloudV0{}
+	target.Spec.DevURL = "sqlite://dev?mode=memory"
+	target.Spec.Dir = dbv1alpha1.Dir{Local: map[string]string{
+		"1.sql":     "CREATE TABLE t (id int);",
+		"atlas.sum": "h1:MOCK=\n1.sql h1:MOCK=\n",
+	}}
+	mock.whoami.err = atlasexec.ErrRequireLogin
+	h, reconcile := newDriftRunner(check, mock, target)
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: driftInterval}, result)
+	})
+	h.get(t, res)
+	const msg = "drift checks require Atlas Cloud: set spec.cloud.tokenFrom on AtlasMigration/migration"
+	requireCond(t, res, "Ready", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Stalled", metav1.ConditionTrue, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Reconciling", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	requireCond(t, res, "Drifted", metav1.ConditionUnknown, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, msg, driftCond(t, res, "Ready").Message)
+	require.Equal(t, []string{"Warning CheckFailed " + msg}, h.events())
+	require.Nil(t, mock.drift.params, "migrate drift must not run")
+	// Any other whoami failure is transient.
+	mock.whoami.err = errors.New("dial tcp: lookup api.atlasgo.cloud: no such host")
+	reconcile(check, func(result ctrl.Result, err error) {
+		require.NoError(t, err)
+		require.Equal(t, ctrl.Result{RequeueAfter: transientDriftRetry}, result)
+	})
+	h.get(t, res)
+	requireCond(t, res, "Stalled", metav1.ConditionFalse, dbv1alpha1.ReasonCheckFailed)
+	require.Equal(t, mock.whoami.err.Error(), driftCond(t, res, "Ready").Message)
+	require.Nil(t, mock.drift.params, "migrate drift must not run")
 }
 
 func TestDriftCheck_MultiTarget(t *testing.T) {
