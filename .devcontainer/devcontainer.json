@@ -31,7 +31,8 @@
 					"-v",
 					"-count=1"
 				],
-				"editor.fontLigatures": false
+				"editor.fontLigatures": false,
+				"extensions.autoUpdateDelay": 168
 			}
 		}
 	}
