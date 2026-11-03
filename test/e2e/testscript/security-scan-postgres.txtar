@@ -79,15 +79,14 @@ cp stdout hash-v2.txt
 kubectl get AtlasSecurityScan/postgres -o go-template --template='{{ (index .status.triggers 0).revision }}'
 cmp stdout hash-v2.txt
 
-# The whole object, pinned. With no extension left nothing can match the Security
-# Graph, and with no schedule no slot can pass, so neither the Graph nor the clock
-# moves the goldens.
-kubectl exec deploy/postgres -- psql -U root -d postgres -c 'DROP EXTENSION pgcrypto'
-kubectl patch -f scan.yaml --type merge --patch-file patch-no-schedule.yaml
+# The whole object, pinned. mask.sed masks the findings, which the Security Graph
+# decides, as it masks the times; without failOn the verdict does not depend on
+# them, and with no schedule no slot can pass.
+kubectl patch -f scan.yaml --type merge --patch-file patch-pinned.yaml
 kubectl wait --for=jsonpath='{.status.observedGeneration}'=4 --timeout=2h AtlasSecurityScan/postgres
-exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityScan/postgres -o yaml | awk "/^spec:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/inputsHash: .*/inputsHash: <hash>/; s/revision: .*/revision: <hash>/; s/uid: .*/uid: <uid>/"'
+exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityScan/postgres -o yaml | awk "/^spec:/{p=1} p" | sed -E -f mask.sed'
 cmp stdout status.yaml
-exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityReport/postgres -o yaml | awk "/^metadata:/{p=1} p" | sed -E "s/(Time|Timestamp): .*/\1: <time>/; s/uid: .*/uid: <uid>/; s/namespace: .*/namespace: <namespace>/; s/resourceVersion: .*/resourceVersion: <version>/; s/generation: .*/generation: <generation>/"'
+exec sh -c 'kubectl -n $NAMESPACE get AtlasSecurityReport/postgres -o yaml | awk "/^metadata:/{p=1} p" | sed -E -f mask.sed'
 cmp stdout report.yaml
 
 # An every-minute schedule: the next slot starts a scan with nothing else changing.
@@ -207,9 +206,22 @@ lastScheduleTime: none
 spec:
   policy:
     minSeverity: CRITICAL
--- patch-no-schedule.yaml --
+-- patch-pinned.yaml --
 spec:
   schedule: null
+  policy:
+    failOn: null
+-- mask.sed --
+s/(Time|Timestamp): .*/\1: <time>/
+s/(inputsHash|revision): .*/\1: <hash>/
+s/uid: .*/uid: <uid>/
+s/namespace: .*/namespace: <namespace>/
+s/resourceVersion: .*/resourceVersion: <version>/
+s/generation: .*/generation: <generation>/
+s/message: (no findings|[0-9]+ findings? \(.*\)) in /message: <findings> in /
+s/(count|total): [0-9]+$/\1: <n>/
+/highestLevel: /d
+/^  vulnerabilities:/,/^  [^ -]/{/^  (vulnerabilities:|- |  )/d;}
 -- status.yaml --
 spec:
   backoffLimit: 20
@@ -219,7 +231,6 @@ spec:
         key: ATLAS_TOKEN
         name: atlas-token
   policy:
-    failOn: NORMAL
     minSeverity: NORMAL
   timeZone: UTC
   triggers:
@@ -232,13 +243,13 @@ spec:
 status:
   conditions:
   - lastTransitionTime: <time>
-    message: no findings in 0 extensions
+    message: <findings> in 1 extension
     observedGeneration: 4
     reason: Scanned
     status: "True"
     type: Ready
   - lastTransitionTime: <time>
-    message: no findings in 0 extensions
+    message: <findings> in 1 extension
     observedGeneration: 4
     reason: Scanned
     status: "False"
@@ -250,10 +261,10 @@ status:
     status: "False"
     type: Stalled
   - lastTransitionTime: <time>
-    message: no findings at or above NORMAL; see atlassecurityreport/postgres
+    message: spec.policy.failOn is not set; findings are reported only
     observedGeneration: 4
-    reason: WithinPolicy
-    status: "True"
+    reason: NoThreshold
+    status: Unknown
     type: Compliant
   failed: 0
   lastHandledScanRequest: e2e-2
@@ -270,17 +281,17 @@ status:
     name: postgres
   summary:
     driver: postgres
-    extensions: 0
+    extensions: 1
     levels:
-    - count: 0
+    - count: <n>
       level: CRITICAL
-    - count: 0
+    - count: <n>
       level: HIGH
-    - count: 0
+    - count: <n>
       level: ELEVATED
-    - count: 0
+    - count: <n>
       level: NORMAL
-    total: 0
+    total: <n>
     waived: 0
   triggers:
   - kind: AtlasSchema
@@ -304,24 +315,25 @@ metadata:
   uid: <uid>
 report:
   completionTime: <time>
+  extensions:
+  - pgcrypto
   policy:
-    failOn: NORMAL
     minSeverity: NORMAL
   serverVersion: "15.4"
   startTime: <time>
   summary:
     driver: postgres
-    extensions: 0
+    extensions: 1
     levels:
-    - count: 0
+    - count: <n>
       level: CRITICAL
-    - count: 0
+    - count: <n>
       level: HIGH
-    - count: 0
+    - count: <n>
       level: ELEVATED
-    - count: 0
+    - count: <n>
       level: NORMAL
-    total: 0
+    total: <n>
     waived: 0
   trigger: Spec
 -- patch-fail-on.yaml --
