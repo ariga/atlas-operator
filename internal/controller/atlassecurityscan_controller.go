@@ -855,6 +855,7 @@ func grade(t *atlasexec.SecurityScanTarget, policy *dbv1alpha1.ScanPolicy, waive
 		f := dbv1alpha1.ReportedVulnerability{
 			ID:           v.ID,
 			Extension:    v.Name,
+			Engine:       v.Engine,
 			Version:      v.Version,
 			Level:        dbv1alpha1.SecurityLevel(strings.ToUpper(v.Level)),
 			CVSSSeverity: strings.ToUpper(v.Severity),
@@ -920,11 +921,11 @@ func verdictOf(findings []dbv1alpha1.ReportedVulnerability, policy *dbv1alpha1.S
 		fmt.Sprintf("%d %s at or above %s, highest %s; see atlassecurityreport/%s", n, plural(n, "finding"), failOn, highest, report)
 }
 
-// readyMessage describes the summary. e.g., "3 findings (1 CRITICAL, 2 HIGH) in 4 extensions; 1 waived".
+// readyMessage describes the summary. e.g., "3 findings (1 CRITICAL, 2 HIGH) in the server version and 4 extensions; 1 waived".
 func readyMessage(s dbv1alpha1.ScanSummary) string {
 	var b strings.Builder
 	if s.Total == 0 {
-		fmt.Fprintf(&b, "no findings in %d %s", s.Extensions, plural(int(s.Extensions), "extension"))
+		b.WriteString("no findings")
 	} else {
 		var levels []string
 		for _, l := range s.Levels {
@@ -932,8 +933,11 @@ func readyMessage(s dbv1alpha1.ScanSummary) string {
 				levels = append(levels, fmt.Sprintf("%d %s", l.Count, l.Level))
 			}
 		}
-		fmt.Fprintf(&b, "%d %s (%s) in %d %s", s.Total, plural(int(s.Total), "finding"),
-			strings.Join(levels, ", "), s.Extensions, plural(int(s.Extensions), "extension"))
+		fmt.Fprintf(&b, "%d %s (%s)", s.Total, plural(int(s.Total), "finding"), strings.Join(levels, ", "))
+	}
+	b.WriteString(" in the server version")
+	if s.Extensions > 0 {
+		fmt.Fprintf(&b, " and %d %s", s.Extensions, plural(int(s.Extensions), "extension"))
 	}
 	if s.Waived > 0 {
 		fmt.Fprintf(&b, "; %d waived", s.Waived)
