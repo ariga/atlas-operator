@@ -218,7 +218,15 @@ s/uid: .*/uid: <uid>/
 s/namespace: .*/namespace: <namespace>/
 s/resourceVersion: .*/resourceVersion: <version>/
 s/generation: .*/generation: <generation>/
-s/message: (no findings|[0-9]+ findings? \(.*\)) in /message: <findings> in /
+/^    message: /{
+:a
+$!N
+s/\n      ([^ ])/ \1/
+ta
+s/^(    message: )(no findings|[0-9]+ findings? \([^)]*\)) in /\1<findings> in /
+P
+D
+}
 s/(count|total): [0-9]+$/\1: <n>/
 /highestLevel: /d
 /^  vulnerabilities:/,/^  [^ -]/{/^  (vulnerabilities:|- |  )/d;}
@@ -243,13 +251,13 @@ spec:
 status:
   conditions:
   - lastTransitionTime: <time>
-    message: <findings> in 1 extension
+    message: <findings> in the server version and 1 extension
     observedGeneration: 4
     reason: Scanned
     status: "True"
     type: Ready
   - lastTransitionTime: <time>
-    message: <findings> in 1 extension
+    message: <findings> in the server version and 1 extension
     observedGeneration: 4
     reason: Scanned
     status: "False"

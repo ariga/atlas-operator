@@ -68,8 +68,13 @@ type (
 	}
 	// ReportedVulnerability is one finding of a scan.
 	ReportedVulnerability struct {
-		ID           string        `json:"id"`
-		Extension    string        `json:"extension"`
+		ID string `json:"id"`
+		// Extension the finding was reported for. Empty for a finding of the database engine.
+		Extension string `json:"extension"`
+		// Engine the finding was reported for, e.g., clickhouse. Set instead of Extension.
+		// +optional
+		Engine string `json:"engine,omitempty"`
+		// Version of the extension, or of the engine.
 		Version      string        `json:"version,omitempty"`
 		Level        SecurityLevel `json:"level"`
 		CVSSSeverity string        `json:"cvssSeverity,omitempty"`

@@ -18438,7 +18438,13 @@ spec:
                       type: string
                     description:
                       type: string
+                    engine:
+                      description: Engine the finding was reported for, e.g., clickhouse.
+                        Set instead of Extension.
+                      type: string
                     extension:
+                      description: Extension the finding was reported for. Empty for
+                        a finding of the database engine.
                       type: string
                     id:
                       type: string
@@ -18456,6 +18462,7 @@ spec:
                     title:
                       type: string
                     version:
+                      description: Version of the extension, or of the engine.
                       type: string
                     waiver:
                       description: Waiver is set when the finding is ignored by the

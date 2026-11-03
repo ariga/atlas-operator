@@ -126,6 +126,12 @@ var (
 		Name: "postgis", Version: "2.3.1", ID: "CVE-2017-18359", Level: "HIGH", Severity: "HIGH",
 		Title: "Buffer overflow in postgis", Suggestion: "Upgrade extension postgis to version 2.3.3 or later",
 	}
+	// A finding of the database engine names the engine and no extension.
+	clickhouseCVE = &atlasexec.SecurityVulnerability{
+		Engine: "clickhouse", Version: "24.10.4.191", ID: "CVE-2026-116366", Level: "CRITICAL", Severity: "CRITICAL",
+		Title:      "Unauthenticated RCE vulnerability against ClickHouse Server",
+		Suggestion: `Upgrade database engine "clickhouse" to version 26.3.62.3 or later to resolve CVE-2026-116366`,
+	}
 )
 
 func scanObject() *dbv1alpha1.AtlasSecurityScan {
@@ -186,7 +192,7 @@ func TestSecurityScan_Reconcile(t *testing.T) {
 	ready := cond(t, res, "Ready")
 	require.Equal(t, metav1.ConditionTrue, ready.Status)
 	require.Equal(t, dbv1alpha1.ReasonScanned, ready.Reason)
-	require.Equal(t, "1 finding (1 HIGH) in 2 extensions; 1 waived", ready.Message)
+	require.Equal(t, "1 finding (1 HIGH) in the server version and 2 extensions; 1 waived", ready.Message)
 	compliant := cond(t, res, "Compliant")
 	require.Equal(t, metav1.ConditionFalse, compliant.Status)
 	require.Equal(t, dbv1alpha1.ReasonPolicyViolated, compliant.Reason)
@@ -235,7 +241,7 @@ func TestSecurityScan_Reconcile(t *testing.T) {
 		},
 	}, rep.Report.Vulnerabilities)
 	require.Equal(t, []string{
-		"Normal Scanned trigger=Spec generation 1: 1 finding (1 HIGH) in 2 extensions; 1 waived; report atlassecurityreport/app",
+		"Normal Scanned trigger=Spec generation 1: 1 finding (1 HIGH) in the server version and 2 extensions; 1 waived; report atlassecurityreport/app",
 		"Warning PolicyViolated 1 finding at or above HIGH, highest HIGH; see atlassecurityreport/app",
 	}, st.h.events())
 
@@ -257,11 +263,11 @@ func TestSecurityScan_Reconcile(t *testing.T) {
 	require.Equal(t, dbv1alpha1.TriggerApply, res.Status.LastScan.Trigger)
 	require.Equal(t, "AtlasSchema/myapp", res.Status.LastScan.TriggeredBy)
 	require.Equal(t, "h2", res.Status.Triggers[0].Revision)
-	require.Equal(t, "no findings in 2 extensions", cond(t, res, "Ready").Message)
+	require.Equal(t, "no findings in the server version and 2 extensions", cond(t, res, "Ready").Message)
 	require.Equal(t, dbv1alpha1.ReasonWithinPolicy, cond(t, res, "Compliant").Reason)
 	require.Equal(t, "no findings at or above HIGH; see atlassecurityreport/app", cond(t, res, "Compliant").Message)
 	require.Equal(t, []string{
-		"Normal Scanned trigger=Apply AtlasSchema/myapp: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Apply AtlasSchema/myapp: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events())
 
 	// A no-op re-apply bumps last_applied only. Nothing moves.
@@ -329,7 +335,7 @@ func TestSecurityScan_Reconcile(t *testing.T) {
 	require.True(t, res.IsReady())
 	require.Equal(t, time.Date(2026, 9, 11, 3, 0, 0, 0, time.UTC), res.Status.LastScheduleTime.UTC())
 	require.Equal(t, []string{
-		"Normal Scanned trigger=Schedule 2026-09-11T03:00:00Z: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Schedule 2026-09-11T03:00:00Z: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events(), "one slot behind is not a missed slot")
 
 	// Suspend: no scan, no timer, no next slot; Ready and Compliant are kept.
@@ -353,7 +359,7 @@ func TestSecurityScan_Reconcile(t *testing.T) {
 	require.NotNil(t, res.Status.NextScheduleTime)
 	require.Equal(t, []string{
 		"Normal Resumed scanning resumed",
-		"Normal Scanned trigger=Spec generation 2: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Spec generation 2: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events())
 
 	// A schedule that stops parsing stalls the resource and withdraws the next slot.
@@ -418,7 +424,7 @@ func TestSecurityScan_BackoffLimit(t *testing.T) {
 	require.Equal(t, []string{
 		"Warning CLIError the Atlas CLI failed before producing a report; attempt 1 of 1; see the operator log",
 		"Warning BackoffLimitExceeded backoff limit exceeded; one attempt per new slot, apply, request, spec change or waiver expiry",
-		"Normal Scanned trigger=Spec generation 3: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Spec generation 3: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events())
 }
 
@@ -531,7 +537,7 @@ func TestSecurityScan_TriggerNotFound(t *testing.T) {
 	const notFound = "Warning TriggerNotFound AtlasSchema/myapp not found in test; it cannot trigger scans until it exists and is managed by this operator instance"
 	require.Equal(t, []string{
 		notFound,
-		"Normal Scanned trigger=Spec generation 1: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Spec generation 1: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events())
 	st.reconcile()
 	require.Empty(t, st.h.events())
@@ -543,7 +549,7 @@ func TestSecurityScan_TriggerNotFound(t *testing.T) {
 	require.NoError(t, st.h.client.Create(context.Background(), schema))
 	st.reconcile()
 	require.Equal(t, []string{
-		"Normal Scanned trigger=Apply AtlasSchema/myapp: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Apply AtlasSchema/myapp: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 	}, st.h.events())
 	require.NoError(t, st.h.client.Delete(context.Background(), schema))
 	st.reconcile()
@@ -571,7 +577,7 @@ func TestSecurityScan_MissedSchedule(t *testing.T) {
 	_, res := st.reconcile()
 	require.Equal(t, time.Date(2026, 9, 12, 3, 0, 0, 0, time.UTC), res.Status.LastScheduleTime.UTC())
 	require.Equal(t, []string{
-		"Normal Scanned trigger=Schedule 2026-09-12T03:00:00Z: no findings in 2 extensions; report atlassecurityreport/app",
+		"Normal Scanned trigger=Schedule 2026-09-12T03:00:00Z: no findings in the server version and 2 extensions; report atlassecurityreport/app",
 		"Normal MissedSchedule caught up 1 missed slot; latest covered 2026-09-12T03:00:00Z",
 	}, st.h.events())
 }
@@ -930,7 +936,43 @@ func TestSecurityScan_DuplicateExtensions(t *testing.T) {
 	_, res := st.reconcile()
 	require.Equal(t, int32(2), res.Status.Summary.Extensions)
 	require.Equal(t, []string{"hstore", "postgis"}, st.report().Report.Extensions)
-	require.Equal(t, "no findings in 2 extensions", cond(t, res, "Ready").Message)
+	require.Equal(t, "no findings in the server version and 2 extensions", cond(t, res, "Ready").Message)
+}
+
+func TestSecurityScan_EngineFindings(t *testing.T) {
+	obj := scanObject()
+	obj.Spec.Triggers, obj.Spec.Policy = nil, nil
+	st := newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = &atlasexec.SecurityScan{Targets: []*atlasexec.SecurityScanTarget{{
+		Driver: "clickhouse", Version: "24.10.4.191", Vulnerabilities: []*atlasexec.SecurityVulnerability{clickhouseCVE},
+	}}}
+	st.reconcile()
+	_, res := st.reconcile()
+	require.Equal(t, "1 finding (1 CRITICAL) in the server version", cond(t, res, "Ready").Message)
+	require.Equal(t, []dbv1alpha1.ReportedVulnerability{{
+		ID: "CVE-2026-116366", Engine: "clickhouse", Version: "24.10.4.191", Level: "CRITICAL", CVSSSeverity: "CRITICAL",
+		Title:      "Unauthenticated RCE vulnerability against ClickHouse Server",
+		Suggestion: `Upgrade database engine "clickhouse" to version 26.3.62.3 or later to resolve CVE-2026-116366`,
+	}}, st.report().Report.Vulnerabilities)
+
+	// The same CVE reported for the engine and for an extension is two findings.
+	obj = scanObject()
+	obj.Spec.Triggers, obj.Spec.Policy = nil, nil
+	st = newScanTest(t, obj, scanSecrets()...)
+	st.mock.securityScan.res = scanTarget(
+		&atlasexec.SecurityVulnerability{Engine: "postgres", Version: "16.4", ID: postgisCVE.ID, Level: "HIGH", Severity: "HIGH"},
+		postgisCVE,
+	)
+	st.reconcile()
+	_, res = st.reconcile()
+	require.Equal(t, "2 findings (2 HIGH) in the server version and 2 extensions", cond(t, res, "Ready").Message)
+	require.Equal(t, []dbv1alpha1.ReportedVulnerability{
+		{ID: "CVE-2017-18359", Engine: "postgres", Version: "16.4", Level: "HIGH", CVSSSeverity: "HIGH"},
+		{
+			ID: "CVE-2017-18359", Extension: "postgis", Version: "2.3.1", Level: "HIGH", CVSSSeverity: "HIGH",
+			Title: "Buffer overflow in postgis", Suggestion: "Upgrade extension postgis to version 2.3.3 or later",
+		},
+	}, st.report().Report.Vulnerabilities)
 }
 
 // A resource with no policy still has an effective severity, and the scan runs

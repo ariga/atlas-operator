@@ -28,8 +28,8 @@ and apply it to your database using the Kubernetes API.
   [Atlas HCL](https://atlasgo.io/concepts/declarative-vs-versioned#declarative-migrations).
 - [X] Detect risky changes such as accidentally dropping columns or tables and define a policy to handle them.
 - [X] Support for [versioned migrations](https://atlasgo.io/concepts/declarative-vs-versioned#versioned-migrations).
-- [X] Scan databases on a schedule for [security issues](https://atlasgo.io/guides/security-scan), such as
-  installed extensions with known vulnerabilities (CVEs).
+- [X] Scan databases on a schedule for [security issues](https://atlasgo.io/guides/security-scan), such as a
+  server version or installed extensions with known vulnerabilities (CVEs).
 - [X] Supported databases: MySQL, MariaDB, PostgreSQL, SQLite, SQL Server, ClickHouse, CockroachDB, YugabyteDB (YSQL)
 
 ### Declarative schema migrations
@@ -54,11 +54,11 @@ cluster.
 ### Security scanning
 
 The `AtlasSecurityScan` resource runs [`atlas security scan`](https://atlasgo.io/guides/security-scan) against a
-database and grades what it finds. The `cve` check resolves the installed extensions against the Atlas Security
-Graph and reports the ones affected by a published CVE. New CVEs are published for versions that are already
-installed, and an apply can install a new extension, so the scan runs on a `schedule` and again whenever a resource
-listed in `triggers` completes an apply. This feature requires an [Atlas Pro](https://atlasgo.io/features#pro)
-token of an organization whose plan includes the Security Graph.
+database and grades what it finds. The `cve` check resolves the database server version and the installed
+extensions against the Atlas Security Graph and reports those affected by a published CVE. New CVEs are published
+for versions that are already installed, and an apply can install a new extension, so the scan runs on a
+`schedule` and again whenever a resource listed in `triggers` completes an apply. This feature requires an
+[Atlas Pro](https://atlasgo.io/features#pro) token of an organization whose plan includes the Security Graph.
 
 ```yaml
 apiVersion: db.atlasgo.io/v1alpha1
@@ -127,10 +127,19 @@ report:
   serverVersion: "15.4"
   summary:
     driver: postgres
-    total: 1
+    total: 2
     highestLevel: HIGH
   extensions: [pgcrypto]
   vulnerabilities:
+    # A finding of the server itself names the engine instead of an extension.
+    - id: CVE-2025-1094
+      extension: ""
+      engine: postgres
+      version: "15.4"
+      level: HIGH
+      cvssSeverity: HIGH
+      title: PostgreSQL quoting APIs miss neutralizing quoting syntax in text that fails encoding validation
+      suggestion: Upgrade database engine "postgres" to version 15.11 or later to resolve CVE-2025-1094
     - id: CVE-2026-2005
       extension: pgcrypto
       version: "1.3"
