@@ -109,7 +109,7 @@ func NewAtlasMigrationReconciler(mgr Manager, prewarmDevDB bool) *AtlasMigration
 // move the current state of the cluster closer to the desired state.
 func (r *AtlasMigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, err error) {
 	var (
-		log = ctrl.LoggerFrom(ctx)
+		log = ctrl.LoggerFrom(ctx).WithValues("namespace", req.Namespace, "name", req.Name)
 		res = &dbv1alpha1.AtlasMigration{}
 	)
 	if err = r.Get(ctx, req.NamespacedName, res); err != nil {
@@ -279,7 +279,8 @@ func (r *AtlasMigrationReconciler) reconcile(ctx context.Context, res *dbv1alpha
 	s := &migrationRun{
 		r:   r,
 		res: res,
-		log: ctrl.Log.WithName("atlas_migration.reconcile"),
+		log: ctrl.Log.WithName("atlas_migration.reconcile").
+			WithValues("namespace", res.Namespace, "name", res.Name),
 	}
 	defer s.close()
 
@@ -348,6 +349,7 @@ func (s *migrationRun) extractData(ctx context.Context) error {
 		return errRequeue
 	}
 	s.data = data
+	s.log = s.log.WithValues("env", s.data.EnvName)
 	return nil
 }
 
@@ -431,7 +433,7 @@ func (s *migrationRun) whoAmI(ctx context.Context) error {
 // migration files. It does not require a dev database, so it can run before
 // one is created.
 func (s *migrationRun) migrateStatus(ctx context.Context) error {
-	s.log.Info("reconciling migration", "env", s.data.EnvName)
+	s.log.Info("reconciling migration")
 	status, err := s.cli.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: s.data.EnvName, Vars: s.data.Vars})
 	if err != nil {
 		return err
