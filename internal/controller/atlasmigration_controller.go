@@ -366,9 +366,11 @@ func (s *migrationRun) devDB(ctx context.Context) error {
 		return nil
 	case res.Spec.DevDB != nil && res.Spec.DevDB.Spec != nil:
 		// The user has provided a custom dev database configuration. spin it up.
+		s.log.Info("using custom dev database configuration")
 		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	case !data.hasDevURL():
 		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
+		s.log.Info("spinning up a dev database from automatic configuration")
 		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	}
 	if err != nil {
@@ -433,7 +435,7 @@ func (s *migrationRun) whoAmI(ctx context.Context) error {
 // migration files. It does not require a dev database, so it can run before
 // one is created.
 func (s *migrationRun) migrateStatus(ctx context.Context) error {
-	s.log.Info("reconciling migration")
+	s.log.Info("checking migration status")
 	status, err := s.cli.MigrateStatus(ctx, &atlasexec.MigrateStatusParams{Env: s.data.EnvName, Vars: s.data.Vars})
 	if err != nil {
 		return err
@@ -447,16 +449,20 @@ func (s *migrationRun) migrateStatus(ctx context.Context) error {
 // there are no changes to apply, it marks the resource as ready without
 // spinning up a dev database.
 func (s *migrationRun) applyChanges(ctx context.Context) error {
+	s.log.Info("reconciling migration")
 	switch status := s.status; {
 	case len(status.Pending) == 0 && len(status.Applied) > 0 && len(status.Available) < len(status.Applied):
+		s.log.Info("database version is newer than the desired state. running migrate down.")
 		if err := s.prepareDevDB(ctx); err != nil {
 			return err
 		}
 		return s.migrateDown(ctx)
 	case len(status.Pending) == 0:
+		s.log.Info("no pending migrations")
 		s.noPendingChanges()
 		return nil
 	default:
+		s.log.Info("applying pending migrations", "count", len(s.status.Pending))
 		if err := s.prepareDevDB(ctx); err != nil {
 			return err
 		}
@@ -469,6 +475,7 @@ func (s *migrationRun) applyChanges(ctx context.Context) error {
 // we know there is work to do, to avoid the cost of a dev database when there
 // are no pending migrations.
 func (s *migrationRun) prepareDevDB(ctx context.Context) error {
+	s.log.Info("preparing dev database")
 	if err := s.devDB(ctx); err != nil {
 		return err
 	}
@@ -550,7 +557,6 @@ func (s *migrationRun) migrateDown(ctx context.Context) error {
 // noPendingChanges marks the resource as ready when
 // there are no pending migrations.
 func (s *migrationRun) noPendingChanges() {
-	s.log.Info("no pending migrations")
 	// No pending migrations
 	var lastApplied int64
 	if len(s.status.Applied) > 0 {
@@ -566,7 +572,6 @@ func (s *migrationRun) noPendingChanges() {
 
 // migrateApply executes the pending migration files on the target database.
 func (s *migrationRun) migrateApply(ctx context.Context) error {
-	s.log.Info("applying pending migrations", "count", len(s.status.Pending))
 	var stderr bytes.Buffer
 	s.cli.SetStderr(&stderr)
 	defer s.cli.SetStderr(nil)
