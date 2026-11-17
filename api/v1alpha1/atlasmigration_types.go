@@ -95,7 +95,7 @@ type (
 		// DevURLFrom is a reference to a secret containing the URL of the database to use for normalization and calculations.
 		// +optional
 		DevURLFrom Secret `json:"devURLFrom,omitempty"`
-		// DevDB configures the dev database pod used for normalization and calculations.
+		// DevDB configures the dev database used for normalization and calculations.
 		// If spec is omitted, a default pod spec is created based on the target database driver.
 		// When a custom pod spec is provided, devURL must be defined as well.
 		// +optional

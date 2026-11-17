@@ -1,0 +1,61 @@
+db postgres:15.4 DB_URL
+db postgres:15.4 DEV_URL postgres-dev
+kubectl create secret generic db-creds --from-literal=url=${DB_URL} --from-literal=dev-url=${DEV_URL}
+
+# Leave a schema and a table in the dev database, like an interrupted run does.
+kubectl exec -i deploy/postgres-dev -- psql -U root -d postgres -c 'CREATE SCHEMA other; CREATE TABLE leftover (id int);'
+
+# Retries in the first generation of the resource do not clean the dev database.
+kubectl apply -f schema.yaml
+kubectl wait --for=jsonpath='{.status.failed}'=2 --timeout=2h AtlasSchemas/postgres
+kubectl get AtlasSchemas/postgres -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}'
+stdout 'connected database is not clean'
+kubectl exec -i deploy/postgres-dev -- psql -U root -d postgres -tAc 'SELECT count(*) FROM leftover;'
+stdout '^0$'
+
+# Once the resource is updated, its next retry cleans the dev database and succeeds.
+kubectl patch -f schema.yaml --type merge --patch-file patch-schema.yaml
+kubectl-wait-ready AtlasSchemas/postgres
+! kubectl exec -i deploy/postgres-dev -- psql -U root -d postgres -c 'SELECT 1 FROM leftover;'
+stderr 'relation "leftover" does not exist'
+kubectl get events --field-selector reason=CleanedDevDB -o jsonpath='{.items[*].message}'
+stdout 'Dropped leftovers from the dev database: DROP SCHEMA "other" CASCADE; DROP TABLE "leftover";'
+# The public schema is kept, so the SQL that doesn't name a schema loads in the dev database.
+kubectl exec -i deploy/postgres-dev -- psql -U root -d postgres -tAc 'SELECT count(*) FROM pg_namespace WHERE nspname = ''public'';'
+stdout '^1$'
+kubectl get AtlasSchemas/postgres -o jsonpath='{.status.failed}'
+stdout '^0$'
+# The updated schema is applied to the target database.
+kubectl exec -i deploy/postgres -- psql -U root -d postgres -c 'SELECT id, name FROM users;'
+
+-- schema.yaml --
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: postgres
+spec:
+  urlFrom:
+    secretKeyRef:
+      key: url
+      name: db-creds
+  devURLFrom:
+    secretKeyRef:
+      key: dev-url
+      name: db-creds
+  devDB:
+    clean: true
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        primary key (id)
+      );
+-- patch-schema.yaml --
+spec:
+  schema:
+    sql: |
+      create table users (
+        id int not null,
+        name varchar(255) not null,
+        primary key (id)
+      );

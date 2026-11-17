@@ -160,14 +160,17 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return err
 		})
 	}
+	var devDBManaged bool
 	switch {
 	case data.URL == nil:
 		// The user has not specified a URL for the schema, so no dev database is needed.
 	case res.Spec.DevDB != nil && res.Spec.DevDB.Spec != nil:
 		// The user has provided a custom dev database configuration. spin it up.
+		devDBManaged = true
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	case !data.hasDevURL():
 		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
+		devDBManaged = true
 		data.DevURL, err = r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	}
 	if err != nil {
@@ -198,6 +201,11 @@ func (r *AtlasSchemaReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := cli.Login(ctx, &atlasexec.LoginParams{Token: data.Cloud.Token, GrantOnly: true}); err != nil {
 			return r.resultErr(res, err, dbv1alpha1.ReasonLogin)
 		}
+	}
+	// On retries, clean the dev database before the first command that uses it.
+	if shouldCleanDevDB(data.DevURL, devDBManaged, res.Spec.DevDB, configHasDev(data.Config, data.EnvName), res.Generation, res.Status.Failed) {
+		log.Info("cleaning the dev database")
+		r.devDB.clean(ctx, res, cli, data.DevURL)
 	}
 	// Calculate the hash of the current schema.
 	hash, err := cli.SchemaInspect(ctx, &atlasexec.SchemaInspectParams{
@@ -564,6 +572,9 @@ func (r *AtlasSchemaReconciler) extractData(ctx context.Context, res *dbv1alpha1
 	if s := s.EnvName; s != "" {
 		data.EnvName = s
 	}
+	if s.DevDB != nil && s.DevDB.Clean && configHasDev(data.Config, data.EnvName) {
+		return nil, errCleanConfigDev
+	}
 	if s := c.TokenFrom.SecretKeyRef; s != nil {
 		token, err := getSecretValue(ctx, r, res.Namespace, s)
 		if err != nil {
@@ -693,20 +704,7 @@ func (d *managedData) shouldLint() (bool, error) {
 
 // hasDevURL returns true if the environment has a dev URL.
 func (d *managedData) hasDevURL() bool {
-	if d.DevURL != "" {
-		return true
-	}
-	if d.Config == nil {
-		return false
-	}
-	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
-	if env != nil {
-		dev := env.Body().GetAttribute("dev")
-		if dev != nil {
-			return true
-		}
-	}
-	return false
+	return d.DevURL != "" || configHasDev(d.Config, d.EnvName)
 }
 
 // hasTargets returns true if the environment has multiple targets/ multi-tenancy.

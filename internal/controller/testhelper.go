@@ -76,6 +76,8 @@ type (
 		schemaPlanList mockCmd[[]atlasexec.SchemaPlanFile]
 		schemaPlan     mockCmd[atlasexec.SchemaPlan]
 		schemaInspect  mockCmd[string]
+		schemaClean    mockCmd[atlasexec.SchemaClean]
+		schemaCleans   []*atlasexec.SchemaCleanParams
 		securityScan   mockCmd[atlasexec.SecurityScan]
 		securityScans  []*atlasexec.SecurityScanParams
 	}
@@ -142,6 +144,12 @@ func (m *mockAtlasExec) writeStderr() {
 		return
 	}
 	io.WriteString(m.stderrW, m.stderr)
+}
+
+// SchemaClean implements AtlasExec. It records the params of every call.
+func (m *mockAtlasExec) SchemaClean(_ context.Context, params *atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+	m.schemaCleans = append(m.schemaCleans, params)
+	return m.schemaClean.res, m.schemaClean.err
 }
 
 // SchemaInspect implements AtlasExec.

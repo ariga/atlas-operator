@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +35,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"ariga.io/atlas/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
 const (
@@ -47,6 +50,8 @@ const (
 	ReasonCreatedDevDB  = "CreatedDevDB"
 	ReasonCleanUpDevDB  = "CleanUpDevDB"
 	ReasonScaledUpDevDB = "ScaledUpDevDB"
+	ReasonCleanedDevDB  = "CleanedDevDB"
+	ReasonCleaningDevDB = "CleaningDevDB"
 )
 
 type (
@@ -210,6 +215,82 @@ func (r *devDBReconciler) devURL(ctx context.Context, sc client.Object, targetUR
 	// the pod spec and the error is not transient.
 	return "", errors.New("no connection template annotation found")
 }
+
+// clean drops all objects in the dev database before a run uses it, so the
+// leftovers of an interrupted run (e.g., an Atlas process killed on timeout)
+// don't fail it with "connected database is not clean". Cleaning is best
+// effort: on failure the run goes on, and Atlas still reports a dirty database.
+// Atlas is given the URL only, never the project config: without --url,
+// `schema clean --env` falls back to the env url, the target database.
+func (r *devDBReconciler) clean(ctx context.Context, sc client.Object, cli AtlasExec, devURL string) {
+	u, err := url.Parse(devURL)
+	if err != nil {
+		// Not the parse error, as it contains the URL and its credentials.
+		r.recorder.Event(sc, corev1.EventTypeWarning, ReasonCleaningDevDB, "Error cleaning the dev database: invalid URL")
+		return
+	}
+	params := []*atlasexec.SchemaCleanParams{{URL: devURL, AutoApprove: true}}
+	switch drv, _ := dbv1alpha1.DriverBySchema(u.Scheme); drv {
+	case dbv1alpha1.DriverPostgres, dbv1alpha1.DriverRedshift,
+		dbv1alpha1.DriverCockroachDB, dbv1alpha1.DriverDSQL, dbv1alpha1.DriverYSQL:
+		if q := u.Query(); q.Get("search_path") == "" {
+			// Without a search_path, `schema clean` drops the "public" schema too, after
+			// which SQL that doesn't name a schema fails. Drop the other schemas first, as
+			// that also drops the objects depending on them, then empty "public" through
+			// a URL bound to it.
+			q.Set("search_path", "public")
+			u.RawQuery = q.Encode()
+			params = []*atlasexec.SchemaCleanParams{
+				{URL: devURL, Exclude: []string{"public"}, AutoApprove: true},
+				{URL: u.String(), AutoApprove: true},
+			}
+		}
+	}
+	var dropped []string
+	for _, p := range params {
+		switch res, err := cli.SchemaClean(ctx, p); {
+		case err != nil && p.URL != devURL && strings.Contains(err.Error(), `schema "public" was not found`):
+			// The database has no "public" schema to empty.
+		case err != nil:
+			r.recorder.Eventf(sc, corev1.EventTypeWarning, ReasonCleaningDevDB, "Error cleaning the dev database: %s", strings.TrimSpace(err.Error()))
+			return
+		case res != nil && res.Applied != nil:
+			dropped = append(dropped, res.Applied.Applied...)
+		}
+	}
+	if len(dropped) > 0 {
+		r.recorder.Eventf(sc, corev1.EventTypeNormal, ReasonCleanedDevDB, "Dropped leftovers from the dev database: %s", strings.Join(truncateSQL(dropped, sqlLimitSize), " "))
+	}
+}
+
+// shouldCleanDevDB reports whether a run cleans the dev database at devURL before
+// using it. Only a retry (failed > 0) cleans, as the run that failed may have left
+// objects in it. Runs in the first generation of a resource never clean, so a dev
+// database is not touched before the resource is updated at least once.
+// The dev database spun up by the operator (managed) is cleaned on retries, one set
+// by devURL or devURLFrom only if devDB.clean is set. A dev URL set in the project
+// config (configDev) is never cleaned: the operator does not know it, and it takes
+// precedence over the one set in the resource.
+func shouldCleanDevDB(devURL string, managed bool, cfg *dbv1alpha1.DevDB, configDev bool, generation int64, failed int) bool {
+	switch {
+	case devURL == "", configDev, generation <= 1, failed == 0:
+		return false
+	default:
+		return managed || cfg != nil && cfg.Clean
+	}
+}
+
+// configHasDev reports whether the given env of the project config sets a dev URL.
+func configHasDev(cfg *hclwrite.File, envName string) bool {
+	if cfg == nil {
+		return false
+	}
+	env := searchBlock(cfg.Body(), hclwrite.NewBlock("env", []string{envName}))
+	return env != nil && env.Body().GetAttribute("dev") != nil
+}
+
+// errCleanConfigDev is returned when devDB.clean is set while the project config sets the dev URL.
+var errCleanConfigDev = errors.New("spec.devDB.clean cannot clean a dev database set in the project config: set it with spec.devURL or spec.devURLFrom instead")
 
 func (r *devDBReconciler) prewarmEnabled(sc client.Object) bool {
 	if owner, ok := sc.(devDBOwner); ok {

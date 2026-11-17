@@ -15,14 +15,239 @@
 package controller
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"testing"
 
+	"ariga.io/atlas/atlasexec"
 	dbv1alpha1 "github.com/ariga/atlas-operator/api/v1alpha1"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// cleanExec answers `schema clean` calls with fn, and records their params.
+type cleanExec struct {
+	mockAtlasExec
+	fn func(*atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error)
+}
+
+// SchemaClean implements AtlasExec.
+func (c *cleanExec) SchemaClean(_ context.Context, p *atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+	c.schemaCleans = append(c.schemaCleans, p)
+	if c.fn == nil {
+		return &atlasexec.SchemaClean{}, nil
+	}
+	return c.fn(p)
+}
+
+// dropped returns a `schema clean` result that executed the given statements.
+func dropped(stmts ...string) *atlasexec.SchemaClean {
+	return &atlasexec.SchemaClean{Applied: &atlasexec.AppliedFile{Applied: stmts}}
+}
+
+func TestCleanDevDB(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		url  string
+		// Every call gets the URL only: no project config or env, as `schema clean`
+		// falls back to the env url, the target database, when --url is not set.
+		want []*atlasexec.SchemaCleanParams
+	}{
+		{
+			name: "postgres database keeps the public schema",
+			url:  "postgres://root:pass@devdb:5432/dev?sslmode=disable",
+			want: []*atlasexec.SchemaCleanParams{
+				{URL: "postgres://root:pass@devdb:5432/dev?sslmode=disable", Exclude: []string{"public"}, AutoApprove: true},
+				{URL: "postgres://root:pass@devdb:5432/dev?search_path=public&sslmode=disable", AutoApprove: true},
+			},
+		},
+		{
+			name: "postgres schema",
+			url:  "postgres://root:pass@devdb:5432/dev?search_path=app&sslmode=disable",
+			want: []*atlasexec.SchemaCleanParams{
+				{URL: "postgres://root:pass@devdb:5432/dev?search_path=app&sslmode=disable", AutoApprove: true},
+			},
+		},
+		{
+			name: "postgresql scheme alias",
+			url:  "postgresql://devdb/dev",
+			want: []*atlasexec.SchemaCleanParams{
+				{URL: "postgresql://devdb/dev", Exclude: []string{"public"}, AutoApprove: true},
+				{URL: "postgresql://devdb/dev?search_path=public", AutoApprove: true},
+			},
+		},
+		{
+			name: "cockroachdb database",
+			url:  "crdb://root@devdb:26257/defaultdb?sslmode=disable",
+			want: []*atlasexec.SchemaCleanParams{
+				{URL: "crdb://root@devdb:26257/defaultdb?sslmode=disable", Exclude: []string{"public"}, AutoApprove: true},
+				{URL: "crdb://root@devdb:26257/defaultdb?search_path=public&sslmode=disable", AutoApprove: true},
+			},
+		},
+		{
+			name: "mysql",
+			url:  "mysql://root:pass@devdb:3306/dev",
+			want: []*atlasexec.SchemaCleanParams{{URL: "mysql://root:pass@devdb:3306/dev", AutoApprove: true}},
+		},
+		{
+			name: "sqlite",
+			url:  "sqlite://db?mode=memory",
+			want: []*atlasexec.SchemaCleanParams{{URL: "sqlite://db?mode=memory", AutoApprove: true}},
+		},
+		{
+			name: "unknown driver",
+			url:  "docker://postgres/16/dev",
+			want: []*atlasexec.SchemaCleanParams{{URL: "docker://postgres/16/dev", AutoApprove: true}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cli := &cleanExec{}
+			r := &devDBReconciler{recorder: record.NewFakeRecorder(10)}
+			r.clean(t.Context(), &dbv1alpha1.AtlasSchema{}, cli, tt.url)
+			require.Equal(t, tt.want, cli.schemaCleans)
+		})
+	}
+}
+
+func TestDevDBReconciler_clean(t *testing.T) {
+	const (
+		devURL = "mysql://root:pass@devdb:3306/dev"
+		realm  = "postgres://root:pass@devdb:5432/dev?sslmode=disable"
+		public = "postgres://root:pass@devdb:5432/dev?search_path=public&sslmode=disable"
+	)
+	rec := record.NewFakeRecorder(10)
+	r := &devDBReconciler{recorder: rec}
+	sc := &dbv1alpha1.AtlasSchema{}
+	// A clean database is not reported.
+	r.clean(t.Context(), sc, &cleanExec{}, devURL)
+	require.Empty(t, events(rec))
+	// Dropped leftovers are reported.
+	r.clean(t.Context(), sc, &cleanExec{fn: func(*atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		return dropped("DROP TABLE `t1`;", "DROP TABLE `t2`;"), nil
+	}}, devURL)
+	require.Equal(t, []string{"Normal CleanedDevDB Dropped leftovers from the dev database: DROP TABLE `t1`; DROP TABLE `t2`;"}, events(rec))
+	// Failures are reported as warnings.
+	r.clean(t.Context(), sc, &cleanExec{fn: func(*atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		return nil, errors.New("Error: permission denied\n")
+	}}, devURL)
+	require.Equal(t, []string{"Warning CleaningDevDB Error cleaning the dev database: Error: permission denied"}, events(rec))
+
+	// The statements of both passes are reported together.
+	r.clean(t.Context(), sc, &cleanExec{fn: func(p *atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		if p.URL == realm {
+			return dropped(`DROP SCHEMA "leftover" CASCADE;`), nil
+		}
+		return dropped(`DROP TABLE "t1";`), nil
+	}}, realm)
+	require.Equal(t, []string{`Normal CleanedDevDB Dropped leftovers from the dev database: DROP SCHEMA "leftover" CASCADE; DROP TABLE "t1";`}, events(rec))
+	// A database without the public schema has nothing to empty there.
+	noPublic := errors.New(`Error: postgres: schema "public" was not found`)
+	r.clean(t.Context(), sc, &cleanExec{fn: func(p *atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		if p.URL == realm {
+			return dropped(`DROP SCHEMA "leftover" CASCADE;`), nil
+		}
+		return nil, noPublic
+	}}, realm)
+	require.Equal(t, []string{`Normal CleanedDevDB Dropped leftovers from the dev database: DROP SCHEMA "leftover" CASCADE;`}, events(rec))
+	// But a missing schema set by the user is an error.
+	r.clean(t.Context(), sc, &cleanExec{fn: func(*atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		return nil, noPublic
+	}}, public)
+	require.Equal(t, []string{`Warning CleaningDevDB Error cleaning the dev database: Error: postgres: schema "public" was not found`}, events(rec))
+	// A failed pass stops the cleaning.
+	cli := &cleanExec{fn: func(*atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error) {
+		return nil, errors.New("permission denied")
+	}}
+	r.clean(t.Context(), sc, cli, realm)
+	require.Len(t, cli.schemaCleans, 1)
+	require.Equal(t, []string{"Warning CleaningDevDB Error cleaning the dev database: permission denied"}, events(rec))
+	// An invalid URL is not passed to Atlas, and is not reported with its credentials.
+	cli = &cleanExec{}
+	r.clean(t.Context(), sc, cli, "postgres://root:s3cret@devdb:port/dev")
+	require.Empty(t, cli.schemaCleans)
+	require.Equal(t, []string{"Warning CleaningDevDB Error cleaning the dev database: invalid URL"}, events(rec))
+}
+
+func TestShouldCleanDevDB(t *testing.T) {
+	const devURL = "postgres://root:pass@devdb:5432/dev"
+	optIn := &dbv1alpha1.DevDB{Clean: true}
+	// Retries of a resource that was updated since its creation.
+	const gen, failed = 2, 1
+	require.True(t, shouldCleanDevDB(devURL, true, nil, false, gen, failed), "the dev database of the operator is cleaned on retries")
+	require.False(t, shouldCleanDevDB(devURL, false, nil, false, gen, failed), "a user dev database is not cleaned by default")
+	require.False(t, shouldCleanDevDB(devURL, false, &dbv1alpha1.DevDB{}, false, gen, failed))
+	require.True(t, shouldCleanDevDB(devURL, false, optIn, false, gen, failed), "a user dev database is cleaned on opt-in")
+	require.False(t, shouldCleanDevDB(devURL, false, optIn, true, gen, failed), "a dev URL set in the project config is never cleaned")
+	require.False(t, shouldCleanDevDB(devURL, true, nil, true, gen, failed), "the project config overrides the dev database of the operator")
+	require.False(t, shouldCleanDevDB("", true, optIn, false, gen, failed))
+	// Only retries clean, and never in the first generation of a resource.
+	require.False(t, shouldCleanDevDB(devURL, true, optIn, false, gen, 0), "the first attempt does not clean")
+	require.False(t, shouldCleanDevDB(devURL, true, optIn, false, 1, failed), "retries in the first generation do not clean")
+	require.True(t, shouldCleanDevDB(devURL, true, optIn, false, 3, 5))
+}
+
+func TestConfigHasDev(t *testing.T) {
+	parse := func(s string) *hclwrite.File {
+		f, diags := hclwrite.ParseConfig([]byte(s), "", hcl.InitialPos)
+		require.False(t, diags.HasErrors(), diags.Error())
+		return f
+	}
+	require.False(t, configHasDev(nil, defaultEnvName))
+	require.True(t, configHasDev(parse(`env "kubernetes" { dev = "postgres://devdb" }`), defaultEnvName))
+	require.True(t, configHasDev(parse(`env { dev = getenv("DEV_URL") }`), defaultEnvName), "unnamed env blocks apply to any env")
+	require.False(t, configHasDev(parse(`env "kubernetes" { url = "postgres://db" }`), defaultEnvName))
+	require.False(t, configHasDev(parse(`env "other" { dev = "postgres://devdb" }`), defaultEnvName))
+}
+
+func TestCleanConfigDev(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	config := dbv1alpha1.ProjectConfigSpec{Config: fmt.Sprintf("env %q {\n  dev = \"postgres://devdb/dev\"\n}\n", defaultEnvName)}
+	// AtlasMigration.
+	mg := &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec:        dbv1alpha1.TargetSpec{URL: "postgres://db/app"},
+			EnvName:           defaultEnvName,
+			ProjectConfigSpec: config,
+			DevDB:             &dbv1alpha1.DevDB{Clean: true},
+			Dir:               dbv1alpha1.Dir{Local: map[string]string{"1.sql": "CREATE TABLE t1 (id int);"}},
+		},
+	}
+	_, err := extractMigrationData(t.Context(), c, mg, true)
+	require.ErrorIs(t, err, errCleanConfigDev)
+	mg.Spec.DevDB.Clean = false
+	_, err = extractMigrationData(t.Context(), c, mg, true)
+	require.NoError(t, err)
+	// AtlasSchema.
+	r := NewAtlasSchemaReconciler(&mockManager{client: c, recorder: record.NewFakeRecorder(1), scheme: scheme}, false)
+	r.AllowCustomConfig()
+	config.EnvName = defaultEnvName
+	sc := &dbv1alpha1.AtlasSchema{
+		ObjectMeta: objmeta(),
+		Spec: dbv1alpha1.AtlasSchemaSpec{
+			TargetSpec:        dbv1alpha1.TargetSpec{URL: "postgres://db/app"},
+			ProjectConfigSpec: config,
+			DevDB:             &dbv1alpha1.DevDB{Clean: true},
+			Schema:            dbv1alpha1.Schema{SQL: "CREATE TABLE t1 (id int);"},
+		},
+	}
+	_, err = r.extractData(t.Context(), sc)
+	require.ErrorIs(t, err, errCleanConfigDev)
+	sc.Spec.DevDB.Clean = false
+	_, err = r.extractData(t.Context(), sc)
+	require.NoError(t, err)
+}
 
 func TestDeploymentDevDB_Metadata(t *testing.T) {
 	metadata := &dbv1alpha1.DevDBMetadata{
