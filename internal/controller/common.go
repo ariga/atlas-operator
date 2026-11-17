@@ -63,6 +63,8 @@ type (
 		MigrateStatus(context.Context, *atlasexec.MigrateStatusParams) (*atlasexec.MigrateStatus, error)
 		// SchemaApplySlice runs the `schema apply` command and returns the successful runs.
 		SchemaApplySlice(context.Context, *atlasexec.SchemaApplyParams) ([]*atlasexec.SchemaApply, error)
+		// SchemaClean runs the `schema clean` command.
+		SchemaClean(context.Context, *atlasexec.SchemaCleanParams) (*atlasexec.SchemaClean, error)
 		// SchemaInspect runs the `schema inspect` command.
 		SchemaInspect(ctx context.Context, params *atlasexec.SchemaInspectParams) (string, error)
 		// SchemaPush runs the `schema push` command.

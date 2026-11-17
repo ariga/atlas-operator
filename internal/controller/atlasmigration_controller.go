@@ -353,30 +353,32 @@ func (s *migrationRun) extractData(ctx context.Context) error {
 	return nil
 }
 
-// devDB spins up a dev database for the migration, if needed.
+// devDB spins up a dev database for the migration, if needed,
+// and reports whether the operator manages it.
 //
 // TODO(giautm): Create DevDB and run linter for new migration
 // files before applying it to the target database.
-func (s *migrationRun) devDB(ctx context.Context) error {
+func (s *migrationRun) devDB(ctx context.Context) (managed bool, err error) {
 	data, res := s.data, s.res
-	var err error
 	switch {
 	case data.URL == nil:
 		// The user has not specified a URL for the schema, so no dev database is needed.
-		return nil
+		return false, nil
 	case res.Spec.DevDB != nil && res.Spec.DevDB.Spec != nil:
 		// The user has provided a custom dev database configuration. spin it up.
 		s.log.Info("using custom dev database configuration")
+		managed = true
 		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	case !data.hasDevURL():
 		// The user has not provided a custom dev database configuration. spin it up a dev-db to get the connection string.
 		s.log.Info("spinning up a dev database from automatic configuration")
+		managed = true
 		data.DevURL, err = s.r.devDB.devURL(ctx, res, *data.URL, res.Spec.DevDB, data.DevURL)
 	}
 	if err != nil {
-		return &pendingError{reason: dbv1alpha1.ReasonGettingDevDB, message: err.Error()}
+		return false, &pendingError{reason: dbv1alpha1.ReasonGettingDevDB, message: err.Error()}
 	}
-	return nil
+	return managed, nil
 }
 
 // workingDir creates a working directory for the Atlas CLI.
@@ -470,14 +472,19 @@ func (s *migrationRun) applyChanges(ctx context.Context) error {
 	}
 }
 
-// prepareDevDB spins up the dev database (when needed) and re-renders the
-// atlas.hcl config so it includes the dev database URL. This is deferred until
-// we know there is work to do, to avoid the cost of a dev database when there
-// are no pending migrations.
+// prepareDevDB spins up the dev database (when needed), cleans it (when
+// needed), and re-renders the atlas.hcl config so it includes the dev database
+// URL. This is deferred until we know there is work to do, to avoid the cost of
+// a dev database when there are no pending migrations.
 func (s *migrationRun) prepareDevDB(ctx context.Context) error {
 	s.log.Info("preparing dev database")
-	if err := s.devDB(ctx); err != nil {
+	managed, err := s.devDB(ctx)
+	if err != nil {
 		return err
+	}
+	if shouldCleanDevDB(s.data.DevURL, managed, s.res.Spec.DevDB, configHasDev(s.data.Config, s.data.EnvName), s.res.Generation, s.res.Status.Failed) {
+		s.log.Info("cleaning the dev database")
+		s.r.devDB.clean(ctx, s.res, s.cli, s.data.DevURL)
 	}
 	// Re-render atlas.hcl now that the dev database URL is known.
 	// "atlas.hcl" is the file name used by atlasexec.WithAtlasHCL.
@@ -701,6 +708,9 @@ func extractMigrationData(ctx context.Context, c client.Reader, res *dbv1alpha1.
 	}
 	if env := s.EnvName; env != "" {
 		data.EnvName = env
+	}
+	if s.DevDB != nil && s.DevDB.Clean && configHasDev(data.Config, data.EnvName) {
+		return nil, errCleanConfigDev
 	}
 	if s.Policy.HasDrift() && s.Dir.Remote.Name == "" && !data.hasConfigRepo() {
 		return nil, errors.New("spec.policy.drift requires a migration directory on the Atlas Registry: set spec.dir.remote, or declare migration.repo.name in spec.config; the pre-apply drift check compares the database against the expected state stored in the registry")
@@ -959,20 +969,7 @@ func (d *migrationData) hasGlobalDriftCheck() bool {
 
 // hasDevURL returns true if the given migration data has a dev URL
 func (d *migrationData) hasDevURL() bool {
-	if d.DevURL != "" {
-		return true
-	}
-	if d.Config == nil {
-		return false
-	}
-	env := searchBlock(d.Config.Body(), hclwrite.NewBlock("env", []string{d.EnvName}))
-	if env != nil {
-		dev := env.Body().GetAttribute("dev")
-		if dev != nil {
-			return true
-		}
-	}
-	return false
+	return d.DevURL != "" || configHasDev(d.Config, d.EnvName)
 }
 
 // asBlocks returns the HCL blocks for the given migration data

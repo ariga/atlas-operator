@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1983,4 +1984,139 @@ func TestAtlasMigrationReconciler_DevDBMetadata(t *testing.T) {
 	require.NotEmpty(t, deploy.Spec.Template.Spec.Containers)
 	require.Equal(t, "postgres", deploy.Spec.Template.Spec.Containers[0].Name)
 	require.Equal(t, "AtlasMigration", deploy.OwnerReferences[0].Kind)
+}
+
+func TestAtlasMigrationReconciler_CleanDevDB(t *testing.T) {
+	obj := &dbv1alpha1.AtlasMigration{
+		ObjectMeta: migrationObjmeta(),
+		Spec: dbv1alpha1.AtlasMigrationSpec{
+			TargetSpec: dbv1alpha1.TargetSpec{URL: "mysql://root:pass@db:3306/app"},
+			DevURL:     "mysql://root:pass@devdb:3306/dev",
+			DevDB:      &dbv1alpha1.DevDB{Clean: true},
+			Dir:        dbv1alpha1.Dir{Local: map[string]string{"1.sql": "CREATE TABLE t1 (id int);"}},
+		},
+		Status: dbv1alpha1.AtlasMigrationStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}},
+	}
+	mock := &mockAtlasExec{}
+	mock.whoami.res = &atlasexec.WhoAmI{Org: "example"}
+	mock.status.res = &atlasexec.MigrateStatus{
+		Current:   "1",
+		Applied:   []*atlasexec.Revision{{Version: "1"}},
+		Available: []atlasexec.File{{Version: "1", Name: "1.sql"}},
+	}
+	mock.schemaClean.res = dropped("DROP TABLE `t1`;")
+	// The resource was updated since its creation.
+	obj.Generation = 2
+	h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj).WithObjects(obj)
+	}, mock)
+	// run reconciles the resource after a run that failed the given times in a row.
+	run := func(failed int) {
+		t.Helper()
+		res := &dbv1alpha1.AtlasMigration{}
+		require.NoError(t, h.client.Get(t.Context(), client.ObjectKeyFromObject(obj), res))
+		res.Status.Failed = failed
+		require.NoError(t, h.client.Status().Update(t.Context(), res))
+		reconcile(obj, func(result ctrl.Result, err error) {
+			require.NoError(t, err)
+			require.Equal(t, ctrl.Result{}, result)
+			require.NoError(t, h.client.Get(t.Context(), client.ObjectKeyFromObject(obj), res))
+			require.True(t, res.IsReady())
+		})
+	}
+	// Without pending migrations, the dev database is neither used nor cleaned.
+	run(1)
+	require.Empty(t, mock.schemaCleans)
+	// The first attempt to migrate does not clean it.
+	mock.status.res = &atlasexec.MigrateStatus{Pending: []atlasexec.File{{Version: "2", Name: "2.sql"}}}
+	mock.apply.res = []*atlasexec.MigrateApply{{Target: "2", End: time.Now()}}
+	run(0)
+	require.Empty(t, mock.schemaCleans)
+	// A retry cleans it before migrating, with the URL only.
+	run(1)
+	require.Equal(t, []*atlasexec.SchemaCleanParams{{URL: obj.Spec.DevURL, AutoApprove: true}}, mock.schemaCleans)
+	// Retries in the first generation of a resource do not clean.
+	res := &dbv1alpha1.AtlasMigration{}
+	require.NoError(t, h.client.Get(t.Context(), client.ObjectKeyFromObject(obj), res))
+	res.Generation = 1
+	require.NoError(t, h.client.Update(t.Context(), res))
+	mock.schemaCleans = nil
+	run(1)
+	require.Empty(t, mock.schemaCleans)
+	require.Equal(t, []string{
+		"Normal Applied Version 1 applied",
+		"Normal Applied Version 2 applied",
+		"Normal CleanedDevDB Dropped leftovers from the dev database: DROP TABLE `t1`;",
+		"Normal Applied Version 2 applied",
+		"Normal Applied Version 2 applied",
+	}, h.events())
+}
+
+func TestAtlasMigrationReconciler_CleanManagedDevDB(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		generation int64
+		cleans     []*atlasexec.SchemaCleanParams
+	}{
+		{
+			name:       "first generation",
+			generation: 1,
+		},
+		{
+			// Cleaned without opting in, keeping the "public" schema of a database URL.
+			name:       "updated resource",
+			generation: 2,
+			cleans: []*atlasexec.SchemaCleanParams{
+				{URL: "postgres://postgres:pass@10.0.0.7:5432/postgres?sslmode=disable", Exclude: []string{"public"}, AutoApprove: true},
+				{URL: "postgres://postgres:pass@10.0.0.7:5432/postgres?search_path=public&sslmode=disable", AutoApprove: true},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &dbv1alpha1.AtlasMigration{
+				ObjectMeta: migrationObjmeta(),
+				Spec: dbv1alpha1.AtlasMigrationSpec{
+					TargetSpec: dbv1alpha1.TargetSpec{URL: "postgres://root:pass@db:5432/app?sslmode=disable"},
+					Dir:        dbv1alpha1.Dir{Local: map[string]string{"1.sql": "CREATE TABLE t1 (id int);"}},
+				},
+				// Retrying a failed run.
+				Status: dbv1alpha1.AtlasMigrationStatus{
+					Failed:     1,
+					Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}},
+				},
+			}
+			obj.Generation = tt.generation
+			// A ready dev database spun up by the operator.
+			key := nameDevDB(obj)
+			deploy := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Spec:       appsv1.DeploymentSpec{Replicas: ptr.To[int32](1)},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        key.Name + "-0",
+					Namespace:   key.Namespace,
+					Labels:      map[string]string{labelEngine: "postgres", labelInstance: key.Name},
+					Annotations: map[string]string{annoConnTmpl: "postgres://postgres:pass@localhost:5432/postgres?sslmode=disable"},
+				},
+				Status: corev1.PodStatus{
+					PodIP:      "10.0.0.7",
+					Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				},
+			}
+			mock := &mockAtlasExec{}
+			mock.whoami.res = &atlasexec.WhoAmI{Org: "example"}
+			mock.status.res = &atlasexec.MigrateStatus{Pending: []atlasexec.File{{Version: "1", Name: "1.sql"}}}
+			mock.apply.res = []*atlasexec.MigrateApply{{Target: "1", End: time.Now()}}
+			h, reconcile := newRunner(NewAtlasMigrationReconciler, func(cb *fake.ClientBuilder) {
+				cb.WithStatusSubresource(obj).WithObjects(obj, deploy, pod)
+			}, mock)
+			reconcile(obj, func(result ctrl.Result, err error) {
+				require.NoError(t, err)
+				require.Equal(t, ctrl.Result{}, result)
+			})
+			require.Equal(t, tt.cleans, mock.schemaCleans)
+			require.Equal(t, []string{"Normal Applied Version 1 applied"}, h.events())
+		})
+	}
 }

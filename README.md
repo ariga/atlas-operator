@@ -561,6 +561,24 @@ Omitting `devDB.spec` keeps the automatically generated database configuration; 
 
 Labels are added only to the pod template, not the Deployment selector. Operator-managed labels and the `atlasgo.io/conntmpl` annotation take precedence over custom values. Like the custom pod spec, metadata is applied when the dev database Deployment is created; existing Deployments are not updated.
 
+#### Cleaning the dev database
+
+Atlas requires an empty [dev database](https://atlasgo.io/concepts/dev-database), and fails with `connected database is not clean` otherwise. An interrupted run, such as an Atlas process killed by a timeout or an operator restart, can leave objects behind in it.
+
+Before retrying a failed run, the operator cleans the dev database it spins up. A dev database you provide with `devURL` or `devURLFrom` is cleaned only if you opt in:
+
+```yaml
+spec:
+  devURLFrom:
+    secretKeyRef:
+      name: dev-db-credentials
+      key: url
+  devDB:
+    clean: true
+```
+
+With `clean: true`, the operator runs `atlas schema clean` on that URL before retrying a failed run. **Everything in that database is dropped**, so enable it only for a disposable database that no other resource or tool uses. Retries in the first generation of a resource (`metadata.generation` is 1, before its spec is updated) never clean, so a wrong dev URL in a new resource is never wiped. On PostgreSQL-compatible databases connected without a `search_path`, the `public` schema is kept and emptied, so SQL that doesn't name a schema keeps working. A dev URL set in the project config (`spec.config`) cannot be cleaned.
+
 ### Version checks
 
 The operator will periodically check for new versions and security advisories related to the operator.

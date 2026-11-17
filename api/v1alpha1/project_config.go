@@ -53,6 +53,14 @@ type (
 		ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
 	}
 	DevDB struct {
+		// Clean drops all objects in the dev database set by devURL or devURLFrom before retrying a
+		// failed run, so leftovers of that run don't fail the retry with "connected database is not
+		// clean". Retries in the first generation of the resource, before its spec is updated, don't
+		// clean. Everything in that database is dropped: enable it only for a disposable database that
+		// no other resource or tool uses. The dev database spun up by the operator is cleaned the same
+		// way without this option. A dev URL set in the project config (spec.config) cannot be cleaned.
+		// +optional
+		Clean bool `json:"clean,omitempty"`
 		// Metadata contains labels and annotations applied when creating the dev database pod template.
 		// Operator-managed labels and the atlasgo.io/conntmpl annotation take precedence.
 		// +optional

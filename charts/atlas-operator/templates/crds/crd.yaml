@@ -477,10 +477,19 @@ spec:
                 type: object
               devDB:
                 description: |-
-                  DevDB configures the dev database pod used for normalization and calculations.
+                  DevDB configures the dev database used for normalization and calculations.
                   If spec is omitted, a default pod spec is created based on the target database driver.
                   When a custom pod spec is provided, devURL must be defined as well.
                 properties:
+                  clean:
+                    description: |-
+                      Clean drops all objects in the dev database set by devURL or devURLFrom before retrying a
+                      failed run, so leftovers of that run don't fail the retry with "connected database is not
+                      clean". Retries in the first generation of the resource, before its spec is updated, don't
+                      clean. Everything in that database is dropped: enable it only for a disposable database that
+                      no other resource or tool uses. The dev database spun up by the operator is cleaned the same
+                      way without this option. A dev URL set in the project config (spec.config) cannot be cleaned.
+                    type: boolean
                   metadata:
                     description: |-
                       Metadata contains labels and annotations applied when creating the dev database pod template.
@@ -9475,10 +9484,19 @@ spec:
                 type: object
               devDB:
                 description: |-
-                  DevDB configures the dev database pod used for normalization and calculations.
+                  DevDB configures the dev database used for normalization and calculations.
                   If spec is omitted, a default pod spec is created based on the target database driver.
                   When a custom pod spec is provided, devURL must be defined as well.
                 properties:
+                  clean:
+                    description: |-
+                      Clean drops all objects in the dev database set by devURL or devURLFrom before retrying a
+                      failed run, so leftovers of that run don't fail the retry with "connected database is not
+                      clean". Retries in the first generation of the resource, before its spec is updated, don't
+                      clean. Everything in that database is dropped: enable it only for a disposable database that
+                      no other resource or tool uses. The dev database spun up by the operator is cleaned the same
+                      way without this option. A dev URL set in the project config (spec.config) cannot be cleaned.
+                    type: boolean
                   metadata:
                     description: |-
                       Metadata contains labels and annotations applied when creating the dev database pod template.

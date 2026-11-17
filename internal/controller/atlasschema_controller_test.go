@@ -171,6 +171,85 @@ func TestReconcile_Reconcile(t *testing.T) {
 	}, h.events())
 }
 
+func TestReconcile_CleanDevDB(t *testing.T) {
+	var (
+		meta = objmeta()
+		obj  = &dbv1alpha1.AtlasSchema{
+			ObjectMeta: meta,
+			Spec: dbv1alpha1.AtlasSchemaSpec{
+				TargetSpec: dbv1alpha1.TargetSpec{URL: "postgres://root:pass@db:5432/app?search_path=public&sslmode=disable"},
+				DevURL:     "postgres://root:pass@devdb:5432/dev?search_path=public&sslmode=disable",
+				Schema:     dbv1alpha1.Schema{SQL: "CREATE TABLE foo(id INT PRIMARY KEY);"},
+			},
+			Status: dbv1alpha1.AtlasSchemaStatus{
+				// A non-zero LastApplied skips the first-run
+				// destructive lint, which needs the Atlas CLI.
+				LastApplied: 1,
+				Conditions: []metav1.Condition{
+					{Type: schemaReadyCond, Status: metav1.ConditionFalse},
+				},
+			},
+		}
+	)
+	// The resource was updated since its creation.
+	obj.Generation = 2
+	mockExec := &mockAtlasExec{}
+	mockExec.whoami.err = atlasexec.ErrRequireLogin
+	mockExec.schemaInspect.res = new("hash")
+	mockExec.schemaApply.res = []*atlasexec.SchemaApply{{}}
+	mockExec.schemaClean.res = dropped(`DROP TABLE "leftover";`)
+	h, reconcile := newRunner(NewAtlasSchemaReconciler, func(cb *fake.ClientBuilder) {
+		cb.WithStatusSubresource(obj)
+		cb.WithObjects(obj)
+	}, mockExec)
+	// run reconciles the resource after a run that failed the given times in a row.
+	run := func(failed int, events ...string) {
+		t.Helper()
+		res := &dbv1alpha1.AtlasSchema{ObjectMeta: meta}
+		h.get(t, res)
+		res.Status.Failed = failed
+		require.NoError(t, h.client.Status().Update(t.Context(), res))
+		reconcile(obj, func(_ ctrl.Result, err error) {
+			require.NoError(t, err)
+			h.get(t, res)
+			require.True(t, res.IsReady())
+			require.Equal(t, events, h.events())
+		})
+	}
+	// A dev database set by the user is not cleaned by default.
+	run(1, "Normal Applied Applied schema")
+	require.Empty(t, mockExec.schemaCleans)
+
+	// Once opted in, it is not cleaned on the first attempt.
+	spec := obj.Spec
+	spec.DevDB = &dbv1alpha1.DevDB{Clean: true}
+	h.patch(t, &dbv1alpha1.AtlasSchema{ObjectMeta: meta, Spec: spec})
+	run(0, "Normal Applied Applied schema")
+	require.Empty(t, mockExec.schemaCleans)
+	// But before retrying, with the URL only.
+	run(1,
+		`Normal CleanedDevDB Dropped leftovers from the dev database: DROP TABLE "leftover";`,
+		"Normal Applied Applied schema",
+	)
+	require.Equal(t, []*atlasexec.SchemaCleanParams{{URL: obj.Spec.DevURL, AutoApprove: true}}, mockExec.schemaCleans)
+
+	// Cleaning is best effort: on failure, the schema is still applied.
+	mockExec.schemaClean.res, mockExec.schemaClean.err = nil, errors.New("permission denied for schema public")
+	run(2,
+		"Warning CleaningDevDB Error cleaning the dev database: permission denied for schema public",
+		"Normal Applied Applied schema",
+	)
+
+	// Retries in the first generation of a resource do not clean.
+	res := &dbv1alpha1.AtlasSchema{ObjectMeta: meta}
+	h.get(t, res)
+	res.Generation = 1
+	require.NoError(t, h.client.Update(t.Context(), res))
+	mockExec.schemaCleans = nil
+	run(1, "Normal Applied Applied schema")
+	require.Empty(t, mockExec.schemaCleans)
+}
+
 func TestReconcile_ApplySchemaStderr(t *testing.T) {
 	var (
 		meta = objmeta()
