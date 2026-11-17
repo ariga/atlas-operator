@@ -277,6 +277,56 @@ func TestDriverBySchema_YSQL(t *testing.T) {
 	require.True(t, schemaBound)
 }
 
+func TestDriverBySchema(t *testing.T) {
+	// The drivers of https://atlasgo.io/concepts/url.
+	for schema, drv := range map[string]v1alpha1.Driver{
+		"postgres":      v1alpha1.DriverPostgres,
+		"mysql+unix":    v1alpha1.DriverMySQL,
+		"maria+unix":    v1alpha1.DriverMariaDB,
+		"sqlserver":     v1alpha1.DriverSQLServer,
+		"azuresql":      v1alpha1.DriverSQLServer,
+		"clickhouse":    v1alpha1.DriverClickHouse,
+		"spanner":       v1alpha1.DriverSpanner,
+		"snowflake":     v1alpha1.DriverSnowflake,
+		"crdb":          v1alpha1.DriverCockroachDB,
+		"redshift+http": v1alpha1.DriverRedshift,
+		"dsql":          v1alpha1.DriverDSQL,
+		"ysql":          v1alpha1.DriverYSQL,
+		"oracle":        v1alpha1.DriverOracle,
+		"databricks":    v1alpha1.DriverDatabricks,
+		"horizondb":     v1alpha1.DriverHorizonDB,
+		"libsql+ws":     v1alpha1.DriverSQLite,
+	} {
+		got, err := v1alpha1.DriverBySchema(schema)
+		require.NoError(t, err, schema)
+		require.Equal(t, drv, got, schema)
+	}
+	_, err := v1alpha1.DriverBySchema("nosuchdb")
+	require.EqualError(t, err, `unknown driver for schema "nosuchdb"`)
+}
+
+func TestDriver_SchemaBound(t *testing.T) {
+	for u, bound := range map[string]bool{
+		"horizondb://u:p@h.postgres.database.azure.com:5432/db?sslmode=require":    false,
+		"horizondb://u:p@h.postgres.database.azure.com:5432/db?search_path=public": true,
+		"oracle://PDBADMIN:pass@localhost:1521/FREEPDB1":                           true,
+		"oracle://PDBADMIN:pass@localhost:1521/FREEPDB1?mode=database":             false,
+		"snowflake://u:p@account/db?warehouse=wh":                                  false,
+		"snowflake://u:p@account/db/schema?warehouse=wh":                           true,
+		"spanner://projects/p/instances/i/databases/d":                             false,
+	} {
+		p, err := url.Parse(u)
+		require.NoError(t, err)
+		drv, err := v1alpha1.DriverBySchema(p.Scheme)
+		require.NoError(t, err)
+		got, err := drv.SchemaBound(*p)
+		require.NoError(t, err, u)
+		require.Equal(t, bound, got, u)
+	}
+	_, err := v1alpha1.Driver("nosuchdb").SchemaBound(url.URL{})
+	require.EqualError(t, err, `unsupported driver "nosuchdb"`)
+}
+
 func requireCondition(t *testing.T, conds []metav1.Condition, condType string) metav1.Condition {
 	t.Helper()
 	cond := meta.FindStatusCondition(conds, condType)
