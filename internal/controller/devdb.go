@@ -231,8 +231,8 @@ func (r *devDBReconciler) clean(ctx context.Context, sc client.Object, cli Atlas
 	}
 	params := []*atlasexec.SchemaCleanParams{{URL: devURL, AutoApprove: true}}
 	switch drv, _ := dbv1alpha1.DriverBySchema(u.Scheme); drv {
-	case dbv1alpha1.DriverPostgres, dbv1alpha1.DriverRedshift,
-		dbv1alpha1.DriverCockroachDB, dbv1alpha1.DriverDSQL, dbv1alpha1.DriverYSQL:
+	case dbv1alpha1.DriverPostgres, dbv1alpha1.DriverRedshift, dbv1alpha1.DriverCockroachDB,
+		dbv1alpha1.DriverDSQL, dbv1alpha1.DriverYSQL, dbv1alpha1.DriverHorizonDB:
 		if q := u.Query(); q.Get("search_path") == "" {
 			// Without a search_path, `schema clean` drops the "public" schema too, after
 			// which SQL that doesn't name a schema fails. Drop the other schemas first, as

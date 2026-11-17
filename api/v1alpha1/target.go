@@ -175,6 +175,7 @@ const (
 	DriverCockroachDB Driver = "crdb"
 	DriverDatabricks  Driver = "databricks"
 	DriverDSQL        Driver = "dsql"
+	DriverHorizonDB   Driver = "horizondb"
 	DriverMariaDB     Driver = "mariadb"
 	DriverMySQL       Driver = "mysql"
 	DriverOracle      Driver = "oracle"
@@ -223,6 +224,8 @@ func DriverBySchema(schema string) (Driver, error) {
 		return DriverDSQL, nil
 	case "oracle":
 		return DriverOracle, nil
+	case "horizondb":
+		return DriverHorizonDB, nil
 	default:
 		return "", fmt.Errorf("unknown driver for schema %q", schema)
 	}
@@ -238,8 +241,8 @@ func (d Driver) SchemaBound(u url.URL) (bool, error) {
 	switch d {
 	case DriverSQLite:
 		return true, nil
-	case DriverPostgres, DriverRedshift,
-		DriverCockroachDB, DriverDSQL, DriverYSQL: // PG-like
+	case DriverPostgres, DriverRedshift, DriverCockroachDB,
+		DriverDSQL, DriverYSQL, DriverHorizonDB: // PG-like
 		return u.Query().Get("search_path") != "", nil
 	case DriverMySQL, DriverMariaDB, DriverClickHouse: // MySQL-like
 		return u.Path != "", nil
@@ -247,9 +250,13 @@ func (d Driver) SchemaBound(u url.URL) (bool, error) {
 		m := u.Query().Get("mode")
 		return m == "" || strings.ToLower(m) == "schema", nil
 	case DriverSnowflake:
-		return len(strings.Split(u.Path, "/")) == 2, nil
+		// snowflake://user:pass@account/database/schema, without the schema for the database.
+		return strings.Count(strings.Trim(u.Path, "/"), "/") == 1, nil
 	case DriverDatabricks:
 		return u.Query().Get("schema") != "", nil
+	case DriverSpanner:
+		// spanner://projects/p/instances/i/databases/d connects to a database.
+		return false, nil
 	default:
 		return false, fmt.Errorf("unsupported driver %q", d)
 	}

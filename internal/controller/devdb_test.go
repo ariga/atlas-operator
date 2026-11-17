@@ -94,6 +94,14 @@ func TestCleanDevDB(t *testing.T) {
 			},
 		},
 		{
+			name: "horizondb database",
+			url:  "horizondb://u:p@h.postgres.database.azure.com:5432/db?sslmode=require",
+			want: []*atlasexec.SchemaCleanParams{
+				{URL: "horizondb://u:p@h.postgres.database.azure.com:5432/db?sslmode=require", Exclude: []string{"public"}, AutoApprove: true},
+				{URL: "horizondb://u:p@h.postgres.database.azure.com:5432/db?search_path=public&sslmode=require", AutoApprove: true},
+			},
+		},
+		{
 			name: "mysql",
 			url:  "mysql://root:pass@devdb:3306/dev",
 			want: []*atlasexec.SchemaCleanParams{{URL: "mysql://root:pass@devdb:3306/dev", AutoApprove: true}},
