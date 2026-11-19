@@ -16,6 +16,8 @@ package watch
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -169,4 +171,42 @@ func newQueue() *controllertest.Queue {
 	return &controllertest.Queue{
 		TypedInterface: workqueue.NewTyped[reconcile.Request](),
 	}
+}
+
+// Reconciles register their references concurrently while the informer delivers
+// events on its own goroutine, so both sides reach the map at once.
+func TestWatcherConcurrent(t *testing.T) {
+	var (
+		w  = New()
+		wg sync.WaitGroup
+	)
+	for i := range 8 {
+		wg.Add(2)
+		secret := func(j int) types.NamespacedName {
+			return types.NamespacedName{Name: fmt.Sprintf("secret-%d", j), Namespace: "namespace"}
+		}
+		go func() {
+			defer wg.Done()
+			for j := range 100 {
+				w.Watch(secret(j), types.NamespacedName{
+					Name: fmt.Sprintf("mdb-%d", i), Namespace: "namespace",
+				})
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			queue := newQueue()
+			for j := range 100 {
+				w.Create(context.Background(), event.CreateEvent{
+					Object: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+						Name: secret(j).Name, Namespace: secret(j).Namespace,
+					}},
+				}, queue)
+				w.Read(secret(j))
+			}
+		}()
+	}
+	wg.Wait()
+	// Every writer registered itself against every watched Secret.
+	assert.Len(t, w.Read(types.NamespacedName{Name: "secret-0", Namespace: "namespace"}), 8)
 }

@@ -17,6 +17,7 @@ package watch
 import (
 	"context"
 	"slices"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,6 +30,9 @@ import (
 // a watched object changes. It's designed to only be used for a single type of object.
 // If multiple types should be watched, one ResourceWatcher for each type should be used.
 type ResourceWatcher struct {
+	// Reconciles run concurrently and register their references, while the
+	// informer delivers events on its own goroutine, hence watched is guarded.
+	mu      sync.RWMutex
 	watched map[types.NamespacedName][]types.NamespacedName
 }
 
@@ -42,7 +46,9 @@ func New() *ResourceWatcher {
 }
 
 // Watch will add a new object to watch.
-func (w ResourceWatcher) Watch(watchedName, dependentName types.NamespacedName) {
+func (w *ResourceWatcher) Watch(watchedName, dependentName types.NamespacedName) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	// Check if resource is already being watched.
 	existing := w.watched[watchedName]
 	if slices.Contains(existing, dependentName) {
@@ -51,34 +57,39 @@ func (w ResourceWatcher) Watch(watchedName, dependentName types.NamespacedName) 
 	w.watched[watchedName] = append(existing, dependentName)
 }
 
-func (w ResourceWatcher) Read(watchedName types.NamespacedName) []types.NamespacedName {
-	return w.watched[watchedName]
+func (w *ResourceWatcher) Read(watchedName types.NamespacedName) []types.NamespacedName {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	// Cloned, as a later Watch may append into the same backing array.
+	return slices.Clone(w.watched[watchedName])
 }
 
-func (w ResourceWatcher) Create(_ context.Context, event event.CreateEvent, queue Queue) {
+func (w *ResourceWatcher) Create(_ context.Context, event event.CreateEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Update(_ context.Context, event event.UpdateEvent, queue Queue) {
+func (w *ResourceWatcher) Update(_ context.Context, event event.UpdateEvent, queue Queue) {
 	w.handleEvent(event.ObjectOld, queue)
 }
 
-func (w ResourceWatcher) Delete(_ context.Context, event event.DeleteEvent, queue Queue) {
+func (w *ResourceWatcher) Delete(_ context.Context, event event.DeleteEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Generic(_ context.Context, event event.GenericEvent, queue Queue) {
+func (w *ResourceWatcher) Generic(_ context.Context, event event.GenericEvent, queue Queue) {
 	w.handleEvent(event.Object, queue)
 }
 
 // handleEvent is called when an event is received for an object.
 // It will check if the object is being watched and trigger a reconciliation for
 // the dependent object.
-func (w ResourceWatcher) handleEvent(meta metav1.Object, queue Queue) {
+func (w *ResourceWatcher) handleEvent(meta metav1.Object, queue Queue) {
 	changedObjectName := types.NamespacedName{
 		Name:      meta.GetName(),
 		Namespace: meta.GetNamespace(),
 	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
 	// Enqueue reconciliation for each dependent object.
 	for _, reconciledObjectName := range w.watched[changedObjectName] {
 		queue.Add(reconcile.Request{
