@@ -47,6 +47,11 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: [unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        # The list length sets the shard count.
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -63,6 +68,9 @@ jobs:
         with:
           version: v4.1.4
       - name: Run e2e tests
+        env:
+          E2E_SHARD_INDEX: ${{ strategy.job-index }}
+          E2E_SHARD_TOTAL: ${{ strategy.job-total }}
         run: |
           make test-e2e \
             ATLAS_TOKEN=${{ secrets.ATLAS_TOKEN }} \
@@ -70,5 +78,5 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: 'logs-${{ github.run_id }}-${{ github.run_attempt }}'
+          name: 'logs-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}'
           path: test/e2e/logs

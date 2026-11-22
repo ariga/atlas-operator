@@ -7,7 +7,7 @@ kubectl create secret generic db-creds --from-literal=url=${DB_URL}
 kubectl create secret generic atlas-token --from-literal=ATLAS_TOKEN=${ATLAS_TOKEN}
 
 kubectl cp -n ${CONTROLLER_NS} ${WORK} ${CONTROLLER}:/tmp/${NAMESPACE}/
-atlas schema push atlas-operator --tag=registry-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
+atlas schema push atlas-operator --tag=login-atlas-backup-v1 --dev-url=${DEV_URL} --url=file:///tmp/${NAMESPACE}/schema-v1.hcl
 
 kubectl apply -f schema.yaml
 kubectl-wait-ready AtlasSchema/postgres
@@ -41,7 +41,7 @@ spec:
       name: db-creds
       key: url
   schema:
-    url: atlas://atlas-operator?tag=registry-v1
+    url: atlas://atlas-operator?tag=login-atlas-backup-v1
   cloud:
     tokenFrom:
       secretKeyRef:
