@@ -135,8 +135,8 @@ func TestOperator(t *testing.T) {
 				return err
 			}
 			e.Defer(func() {
-				// Deleting the namespace after the test
-				kind("kubectl", "delete", "namespace", ns)
+				// Don't wait: namespaces are never reused and the cluster is discarded.
+				kind("kubectl", "delete", "namespace", ns, "--wait=false")
 			})
 			return nil
 		},
@@ -567,6 +567,8 @@ func (cfg *dbConfig) manifest(image string) ([]byte, error) {
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{container},
+					// Free resources right away; test data needs no clean shutdown.
+					TerminationGracePeriodSeconds: new(int64(0)),
 				},
 			},
 		},
