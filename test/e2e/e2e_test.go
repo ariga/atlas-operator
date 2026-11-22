@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,10 @@ const (
 
 func TestOperator(t *testing.T) {
 	require.NoError(t, os.MkdirAll("logs", 0755))
+	// Fail on a bad shard config before the image build.
+	scripts, err := shardScripts("testscript", os.Getenv("E2E_SHARD_INDEX"), os.Getenv("E2E_SHARD_TOTAL"))
+	require.NoError(t, err)
+	require.NotEmpty(t, scripts, "no test scripts to run")
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
@@ -109,7 +114,7 @@ func TestOperator(t *testing.T) {
 	})
 	// Running the test script
 	testscript.Run(t, testscript.Params{
-		Dir: filepath.Join("testscript"),
+		Files: scripts,
 		Setup: func(e *testscript.Env) (err error) {
 			e.Setenv("CONTROLLER_NS", nsController)
 			e.Setenv("CONTROLLER", controllerPod)
@@ -638,6 +643,35 @@ func splitImageRef(ref string) (repo, tag string) {
 		repo, tag = ref[:i], ref[i+1:]
 	}
 	return repo, tag
+}
+
+// shardScripts returns the scripts in dir assigned to shard index of total,
+// or all scripts if both are empty.
+func shardScripts(dir, index, total string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		// Match testscript's own filter.
+		if n := e.Name(); strings.HasSuffix(n, ".txtar") || strings.HasSuffix(n, ".txt") {
+			files = append(files, filepath.Join(dir, n))
+		}
+	}
+	if index == "" && total == "" {
+		return files, nil
+	}
+	i, err1 := strconv.Atoi(index)
+	n, err2 := strconv.Atoi(total)
+	if err1 != nil || err2 != nil || i < 0 || i >= n {
+		return nil, fmt.Errorf("invalid shard index %q and total %q: want 0 <= index < total", index, total)
+	}
+	var shard []string
+	for j := i; j < len(files); j += n {
+		shard = append(shard, files[j])
+	}
+	return shard, nil
 }
 
 func getProjectDir() (string, error) {
